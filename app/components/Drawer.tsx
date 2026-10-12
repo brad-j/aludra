@@ -49,6 +49,7 @@ export function Drawer() {
 						<div className="dir-head">
 							<span className="name">{project}</span>
 							<span className="where">{shortPath(dir)}</span>
+							<span className="group">{dir.split("/").at(-2)}</span>
 						</div>
 						<ul className="rows">
 							{list

@@ -51,7 +51,7 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 3. **App.** Done 2026-10-11 (see "Milestone 3"); running on Brad's phone over Tailscale. TanStack Start on the host's API: sessions, transcript, steer, stop, follow-up, new session, model and thinking. Checked with Playwright at phone sizes and on the phone over Tailscale.
 4. **Ideas, approvals and push.** Done 2026-10-11 (see "Milestone 4"); notifications reach Brad's iPhone.
 5. **Changes view:** the session's diff since it started. Built 2026-10-11 (see "Milestone 5").
-6. **Subagents:** an `agent` tool on Pi Durable's documented subagent pattern (README, "Abort and Subagents"), children shown under the call. Mario's durable codemode isn't in Pi Durable 1.1.0; script fan-out waits for it.
+6. **Subagents:** deferred 2026-10-12. An `agent` tool on Pi Durable's documented subagent pattern (README, "Abort and Subagents"), children shown under the call. Brad's terminal pi has no subagents either, Opus 5.5 has a 1M window with compaction working, and each child spends the same five-hour window, which aludra can't show yet. Mario's durable codemode isn't in Pi Durable 1.1.0; script fan-out waits for it. Before this: the systemd unit for the host, the subscription meter, and a live run of the app on the real bridge.
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces.
 
@@ -70,6 +70,10 @@ Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gai
 - **Result.** A three-step bash task killed with `kill -9` during step 1's `sleep 15` resumed on restart: the model saw the interrupted call, checked state, ran steps 2 and 3 and answered correctly. The bridge log showed the `five_hour` rate-limit window, so it ran on the subscription.
 - **Classifier false positive.** One recovery request was refused by Opus 5.5's safeguards as `[cyber]`. The test read a file named `secret.txt` and the note said "The agent process restarted". With `notes.txt` and "(Continuing where we left off.)" it passed. These refusals can happen in real use; the app must show them plainly as their own failure, with the request ID.
 - `CLAUDE_BRIDGE_DEBUG=1` with `CLAUDE_BRIDGE_DEBUG_PATH` gives a detailed log of the bridge's session handling.
+
+## The desk layout (2026-10-12)
+
+The approved design was drawn for the phone, and on a desk it left the header, the transcript and the composer on three different alignments, the composer flat under a rule, and the new-session prompt at the bottom of an empty pane. From 60rem the app has its own layout, and the phone's is unchanged: the header lines up with a 46rem transcript column, the composer is a bordered box, the sidebar is a step lighter with each project's folder group ("Software") instead of its whole path, and a new session puts the prompt high in the pane with the project's ideas under it.
 
 ## Milestone 5 (2026-10-11)
 

@@ -55,14 +55,14 @@ export function NewSession() {
 					</button>
 				</div>
 			</header>
-			<div className="scroll-wrap">
+			<div className="scroll-wrap new-screen">
 				<div className="scroll">
 					<div className="column">
 						<div className="empty">
 							<h2>{chosen?.name ?? "No projects"}</h2>
-							Say what it should do, or keep it as an idea for later. Tap the path to change project.
+							Say what it should do, or keep it as an idea for later. The path above changes the project.
 						</div>
-						{projectIdeas.length > 0 && <IdeaList ideas={projectIdeas} />}
+						{projectIdeas.length > 0 && <div className="phone-only"><IdeaList ideas={projectIdeas} /></div>}
 					</div>
 				</div>
 			</div>
@@ -93,6 +93,14 @@ export function NewSession() {
 					</button>
 				</Composer>
 			</footer>
+			{projectIdeas.length > 0 && (
+				<div className="new-ideas">
+					<div className="column">
+						<p className="group-label">Ideas for {chosen?.name}</p>
+						<IdeaList ideas={projectIdeas} />
+					</div>
+				</div>
+			)}
 		</>
 	);
 }

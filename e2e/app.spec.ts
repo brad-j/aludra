@@ -128,7 +128,8 @@ test("an idea is saved from the new-session screen, filed under its project, and
 	await page.getByRole("button", { name: "Save as idea" }).click();
 	await expect(page.getByLabel("What should it do?")).toHaveValue("");
 	// On the new-session screen for its project, and in the drawer under the project.
-	await expect(page.locator(".column .idea-row")).toContainText(text);
+	// The phone lists it above the composer, the desk under it; one of the two is hidden.
+	await expect(page.locator(".column .idea-row:visible").filter({ hasText: text })).toHaveCount(1);
 	if (phone(page)) await page.getByRole("button", { name: "Sessions" }).first().click();
 	const row = page.locator(".drawer .dir").filter({ hasText: "trips" }).locator(".idea-row").filter({ hasText: text });
 	await expect(row).toBeVisible();
