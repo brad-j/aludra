@@ -1,4 +1,4 @@
-import { createRootRoute, HeadContent, Outlet, Scripts, useRouterState } from "@tanstack/react-router";
+import { createRootRoute, HeadContent, Outlet, Scripts, useRouter, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 import { Shell } from "../components/Shell.tsx";
 import css from "../styles/app.css?url";
@@ -28,10 +28,18 @@ export const Route = createRootRoute({
 
 function Root() {
 	const path = useRouterState({ select: (s) => s.location.pathname });
+	const router = useRouter();
 	useEffect(() => {
 		// Production only: a service worker in development serves stale code.
-		if (import.meta.env.PROD && "serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js");
-	}, []);
+		if (!import.meta.env.PROD || !("serviceWorker" in navigator)) return;
+		void navigator.serviceWorker.register("/sw.js");
+		// A tapped notification, when the app was already open and couldn't be navigated directly.
+		const onMessage = (event: MessageEvent<{ type?: string; url?: string }>) => {
+			if (event.data?.type === "open" && event.data.url !== undefined) void router.navigate({ href: new URL(event.data.url).pathname });
+		};
+		navigator.serviceWorker.addEventListener("message", onMessage);
+		return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+	}, [router]);
 	return (
 		<Document>
 			<Shell startWithDrawer={path === "/"}>

@@ -1,6 +1,6 @@
-// aludra's service worker, served as /sw.js. It makes the app installable and answers with a short page when the
-// host can't be reached, such as from a phone off the tailnet. It caches nothing. Push notifications come with
-// milestone 4, after gaidin's web/sw.js.
+// aludra's service worker, served as /sw.js (after gaidin's web/sw.js). It shows aludra's notifications (src/push.ts),
+// opens the session a tapped one is about, and answers with a short page when the host can't be reached, such as from
+// a phone off the tailnet. It caches nothing.
 
 const OFFLINE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -12,6 +12,37 @@ button{justify-self:center;min-height:44px;padding:0 16px;border:1px solid #4546
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+
+self.addEventListener("push", (event) => {
+	let message = {};
+	try {
+		message = event.data?.json() ?? {};
+	} catch {}
+	// Every push shows a notification: browsers stop delivering to apps that don't.
+	event.waitUntil(
+		self.registration.showNotification(message.title ?? "aludra", {
+			body: message.body ?? "",
+			tag: message.tag,
+			icon: "/icon-192.png",
+			badge: "/icon-192.png",
+			data: { url: message.url ?? "/" },
+		}),
+	);
+});
+
+self.addEventListener("notificationclick", (event) => {
+	event.notification.close();
+	const url = new URL(event.notification.data?.url ?? "/", self.location.origin).href;
+	event.waitUntil(
+		(async () => {
+			const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+			const client = open.find((c) => new URL(c.url).origin === self.location.origin);
+			if (client === undefined) return self.clients.openWindow(url);
+			await client.focus();
+			return client.navigate(url).catch(() => client.postMessage({ type: "open", url }));
+		})(),
+	);
+});
 
 self.addEventListener("fetch", (event) => {
 	if (event.request.mode !== "navigate") return;

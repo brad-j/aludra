@@ -116,3 +116,25 @@ test("nothing scrolls sideways and no button wraps, from 320 px to the desk", as
 		}
 	}
 });
+
+test("an idea is saved from the new-session screen, filed under its project, and started with one tap", async ({ page }) => {
+	await page.goto("/");
+	if (phone(page)) await page.locator(".scrim").click({ position: { x: page.viewportSize()!.width - 20, y: 300 } });
+	await page.locator(".who .path").click();
+	await page.getByLabel("Find a project").fill("trips");
+	await page.locator(".sheet .pick").filter({ hasText: "trips" }).first().click();
+	const text = `Where are you? Run pwd. (${test.info().project.name})`;
+	await page.getByLabel("What should it do?").fill(text);
+	await page.getByRole("button", { name: "Save as idea" }).click();
+	await expect(page.getByLabel("What should it do?")).toHaveValue("");
+	// On the new-session screen for its project, and in the drawer under the project.
+	await expect(page.locator(".column .idea-row")).toContainText(text);
+	if (phone(page)) await page.getByRole("button", { name: "Sessions" }).first().click();
+	const row = page.locator(".drawer .dir").filter({ hasText: "trips" }).locator(".idea-row").filter({ hasText: text });
+	await expect(row).toBeVisible();
+	await expect(page.locator(".drawer .notifications")).toBeVisible();
+	await row.getByRole("button", { name: "Start" }).click();
+	await expect(page).toHaveURL(/\/s\/\d+$/);
+	await expect(page.locator(".user").first()).toHaveText(text);
+	await expect(page.locator(".drawer .idea-row").filter({ hasText: text })).toHaveCount(0);
+});

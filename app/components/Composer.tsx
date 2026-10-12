@@ -17,9 +17,11 @@ export type ComposerProps = {
 	children?: ReactNode;
 	/** Hides the send button while the box is empty, for a row whose last button is Stop. */
 	sendOnlyWithText?: boolean;
+	/** A second way to use the text, first in the row, such as saving it as an idea; the box empties once it resolves. */
+	secondary?: { label: string; icon: ReactNode; onSend: (text: string) => Promise<unknown> };
 };
 
-export function Composer({ draftKey, placeholder, label, sendLabel, onSend, children, sendOnlyWithText }: ComposerProps) {
+export function Composer({ draftKey, placeholder, label, sendLabel, onSend, children, sendOnlyWithText, secondary }: ComposerProps) {
 	const [text, setText] = useState(() => drafts.get(draftKey) ?? "");
 	const [sending, setSending] = useState(false);
 	const box = useRef<HTMLTextAreaElement>(null);
@@ -36,11 +38,11 @@ export function Composer({ draftKey, placeholder, label, sendLabel, onSend, chil
 	}, [draftKey, text]);
 
 	const empty = text.trim() === "";
-	async function send() {
+	async function send(how = onSend) {
 		if (empty || sending) return;
 		setSending(true);
 		try {
-			await onSend(text.trim());
+			await how(text.trim());
 			setText("");
 			drafts.delete(draftKey);
 		} catch {
@@ -75,6 +77,12 @@ export function Composer({ draftKey, placeholder, label, sendLabel, onSend, chil
 				}}
 			/>
 			<div className="dock-row">
+				{secondary !== undefined && (
+					<button className="icon-btn" type="button" aria-label={secondary.label} disabled={empty || sending} onClick={() => void send(secondary.onSend)}>
+						{secondary.icon}
+						<span>Idea</span>
+					</button>
+				)}
 				{children}
 				{!(sendOnlyWithText && empty) && (
 					<button className="icon-btn send" type="submit" aria-label={sendLabel} disabled={empty || sending} data-state={sending ? "loading" : undefined}>

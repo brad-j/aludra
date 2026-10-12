@@ -63,6 +63,12 @@ export type SessionMeta = {
 
 export type ModelChoice = { provider: string; id: string; name: string };
 
+/** Something to do later, filed under its project. */
+export type Idea = { id: number; workspace: string; project: string; dir: string; text: string; createdAt: number };
+
+/** The devices that get notifications. */
+export type PushState = { publicKey: string; devices: { endpoint: string; label: string; addedAt: number }[] };
+
 export type Bootstrap = {
 	user: string;
 	machine: string;
@@ -75,10 +81,14 @@ export type Bootstrap = {
 /** Over the WebSocket, server to app. */
 export type ServerEvent =
 	| { type: "sessions"; sessions: SessionSummary[] }
+	| { type: "ideas"; ideas: Idea[] }
 	/** The transcript from `start` on; items before it are unchanged, and the transcript is `length` long. */
 	| { type: "items"; session: number; start: number; items: Item[]; length: number }
 	| { type: "meta"; session: number; meta: SessionMeta }
 	| { type: "error"; message: string };
 
-/** Over the WebSocket, app to server: which session's transcript to follow, if any. */
-export type ClientEvent = { type: "follow"; session: number | null };
+/**
+ * Over the WebSocket, app to server: which session's transcript to follow, if any, and whether the app is on screen. A
+ * session followed on screen doesn't get notifications: Brad is looking at it.
+ */
+export type ClientEvent = { type: "follow"; session: number | null } | { type: "visible"; visible: boolean };

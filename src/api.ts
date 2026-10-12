@@ -8,7 +8,17 @@
 //   POST /api/sessions/:id/agent          { model?, thinking? }
 //   POST /api/sessions/:id/withdraw       { submission }
 //   POST /api/approvals/:id               { allow }
+//   POST /api/ideas                       { project, text }                            → { id }
+//   POST /api/ideas/:id/start                                                          → { id } of the session
+//   POST /api/ideas/:id/delete
+//   GET  /api/push                        the key devices sign up with, and the devices
+//   POST /api/push/subscribe              { endpoint, keys: { p256dh, auth }, label }
+//   POST /api/push/unsubscribe            { endpoint }
+//   POST /api/push/test
 //   WS   /api/live                        ServerEvent out, ClientEvent in (src/api-types.ts)
+//
+// Notifications (src/push.ts) go out when a call waits for approval and when a run ends done or failed, except for a
+// session the app is showing on screen.
 //   GET  anything else                    the app: a built file, or the app's shell
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -17,11 +27,13 @@ import { hostname } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 import type { ConversationView } from "@earendil-works/pi-durable";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { Bootstrap, ClientEvent, Item, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
+import type { Bootstrap, ClientEvent, Item, PushState, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
 import { THINKING } from "./config.ts";
 import { context, type Host, type SessionRecord } from "./host.ts";
 import { boolean, integer, literal, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
+import type { ApprovalRequest } from "./permissions.ts";
+import type { Push, PushMessage } from "./push.ts";
 import { contextUsed, firstChange, itemsOf, lineOf, queuedOf, stateOf, updatedAt } from "./transcript.ts";
 
 /** Where `pnpm build` puts the app. */
@@ -100,13 +112,18 @@ const message = object({ text: string, mode: literal("steer", "followUp"), reque
 const agentChange = object({ model: optional(string), thinking: optional(thinking) });
 const withdrawal = object({ submission: integer });
 const decision = object({ allow: boolean });
-const clientEvent = object({ type: literal("follow"), session: optional(integer) });
+const clientEvent = object({ type: literal("follow", "visible"), session: optional(integer), visible: optional(boolean) });
+const newIdea = object({ project: string, text: string });
+const subscription = object({ endpoint: string, keys: object({ p256dh: string, auth: string }), label: optional(string) });
+const endpointBody = object({ endpoint: string });
 
 export type ApiOptions = {
 	/** The Tailscale login let in. */
 	user: string;
 	/** Where the built app is; without one, only the API is served. */
 	appDir?: string;
+	/** Notifications to devices; without it, none are sent. */
+	push?: Push;
 };
 
 export function createApi(host: Host, options: ApiOptions) {
@@ -114,7 +131,43 @@ export function createApi(host: Host, options: ApiOptions) {
 	const shellPath = join(appDir, SHELL);
 	const shell = existsSync(shellPath) ? readFileSync(shellPath, "utf8") : undefined;
 	const headers = securityHeaders(shell === undefined ? [] : inlineScriptHashes(shell));
-	const feed = sessionsFeed(host);
+	const { push } = options;
+	/** What each open socket follows, and whether its app is on screen. */
+	const watchers = new Map<WebSocket, { session: number | null; visible: boolean }>();
+	const onScreen = (id: number) => [...watchers.values()].some((w) => w.session === id && w.visible);
+
+	function notify(id: number, message: PushMessage) {
+		if (push === undefined || onScreen(id)) return;
+		push.send(message).catch((error) => console.error("[push]", error instanceof Error ? error.message : error));
+	}
+
+	const feed = sessionsFeed(host, (after) => {
+		const url = `/s/${after.id}`;
+		if (after.state === "done") notify(after.id, { title: `Done · ${after.project}`, body: `${after.title}\n${after.line}`, tag: `session-${after.id}`, url });
+		if (after.state === "failed") notify(after.id, { title: `Failed · ${after.project}`, body: `${after.title}\n${after.line}`, tag: `session-${after.id}`, url, urgency: "high" });
+	});
+	// An approval is pushed after a moment, if it still waits: the app may be about to show it, or Brad may answer it at once.
+	const APPROVAL_DELAY_MS = 2000;
+	const timers = new Set<NodeJS.Timeout>();
+	const stopApprovals = host.approvals.onChange((request: ApprovalRequest) => {
+		if (request.status !== "pending") return;
+		const timer = setTimeout(() => void pushApproval(request).catch((error) => console.error("[push]", error)).finally(() => timers.delete(timer)), APPROVAL_DELAY_MS);
+		timers.add(timer);
+	});
+	async function pushApproval(request: ApprovalRequest) {
+		if (!(await host.approvals.pending()).some((r) => r.id === request.id)) return;
+		const session = await host.sessions.get(request.conversationId);
+		notify(request.conversationId, {
+			title: `Waiting for you · ${session?.project ?? "aludra"}`,
+			body: `Wants to run ${request.summary}: ${request.command}\n${session?.title ?? ""}`,
+			tag: `approval-${request.id}`,
+			url: `/s/${request.conversationId}`,
+			urgency: "high",
+		});
+	}
+
+	feed.start();
+	const ideasEvent = async (): Promise<ServerEvent> => ({ type: "ideas", ideas: await host.ideas.list() });
 
 	function reply(response: ServerResponse, status: number, body: string | Buffer, type: string, cache = "no-store") {
 		response.writeHead(status, { ...headers, "Content-Type": type, "Cache-Control": cache });
@@ -135,7 +188,42 @@ export function createApi(host: Host, options: ApiOptions) {
 		};
 	}
 
-	async function post(path: string, body: string): Promise<unknown> {
+	async function pushState(): Promise<PushState> {
+		if (push === undefined) throw new HttpError(404, "Notifications are off");
+		return { publicKey: push.publicKey, devices: (await push.devices()).map(({ endpoint, label, addedAt }) => ({ endpoint, label, addedAt })) };
+	}
+
+	async function post(path: string, body: string, origin: string): Promise<unknown> {
+		if (path === "/api/ideas") {
+			const request = parseJson(body, newIdea, "the idea");
+			if (request.text.trim() === "") throw new HttpError(400, "Say what the idea is");
+			return { id: (await host.ideas.add(findProject(host.projects(), request.project), request.text)).id };
+		}
+		const idea = /^\/api\/ideas\/(\d+)\/(start|delete)$/.exec(path);
+		if (idea !== null) {
+			const id = Number(idea[1]);
+			if (idea[2] === "start") return { id: (await host.ideas.start(id)).id };
+			if ((await host.ideas.remove(id)) === undefined) throw new HttpError(404, `No idea ${id}`);
+			return {};
+		}
+		if (path.startsWith("/api/push/")) {
+			if (push === undefined) throw new HttpError(404, "Notifications are off");
+			if (path === "/api/push/subscribe") {
+				const request = parseJson(body, subscription, "the subscription");
+				try {
+					await push.add({ endpoint: request.endpoint, p256dh: request.keys.p256dh, auth: request.keys.auth, label: request.label ?? "a device", origin });
+				} catch (error) {
+					throw new HttpError(400, error instanceof Error ? error.message : String(error));
+				}
+				return pushState();
+			}
+			if (path === "/api/push/unsubscribe") {
+				await push.remove(parseJson(body, endpointBody, "the device").endpoint);
+				return pushState();
+			}
+			if (path === "/api/push/test") return { sent: await push.send({ title: "aludra", body: "Notifications work on this device.", tag: "test" }) };
+			throw new HttpError(404, "Not found");
+		}
 		if (path === "/api/sessions") {
 			const request = parseJson(body, newSession, "the new session");
 			if (request.text.trim() === "") throw new HttpError(400, "Say what the session should do");
@@ -189,11 +277,14 @@ export function createApi(host: Host, options: ApiOptions) {
 		const path = new URL(request.url ?? "/", "http://host").pathname;
 		if (request.method === "GET" || request.method === "HEAD") {
 			if (path === "/api/bootstrap") return json(response, bootstrap());
+			if (path === "/api/push") return json(response, await pushState());
 			if (path.startsWith("/api/")) throw new HttpError(404, "Not found");
 			return serveApp(path, response);
 		}
 		if (request.method !== "POST") throw new HttpError(405, "Method not allowed");
-		return json(response, await post(path, await readBody(request)));
+		// The app's address, which push services are given as aludra's contact: tailscale serve sets the host and is HTTPS.
+		const origin = `https://${request.headers["x-forwarded-host"] ?? request.headers.host}`;
+		return json(response, await post(path, await readBody(request), origin));
 	}
 
 	const server = createServer((request, response) => {
@@ -201,7 +292,7 @@ export function createApi(host: Host, options: ApiOptions) {
 		if (request.headers["tailscale-user-login"] !== options.user) return reply(response, 403, "Forbidden", "text/plain");
 		if (request.method === "POST" && !sameOrigin(request, true)) return reply(response, 403, "Cross-site request", "text/plain");
 		route(request, response).catch((error) => {
-			const status = error instanceof HttpError ? error.status : error instanceof ParseError ? 400 : /^no (session|project|model)|could be/.test(String(error?.message)) ? 404 : 500;
+			const status = error instanceof HttpError ? error.status : error instanceof ParseError ? 400 : /^no (session|project|model|idea)|could be/.test(String(error?.message)) ? 404 : 500;
 			if (status === 500) console.error("[api]", error);
 			if (!response.headersSent) reply(response, status, error instanceof Error ? error.message : String(error), "text/plain");
 			else response.end();
@@ -223,6 +314,11 @@ export function createApi(host: Host, options: ApiOptions) {
 			if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(event));
 		};
 		const stopFeed = feed.subscribe((sessions) => send({ type: "sessions", sessions }));
+		const sendIdeas = () => void ideasEvent().then(send, (error) => console.error("[api]", error));
+		const stopIdeas = host.ideas.onChange(sendIdeas);
+		sendIdeas();
+		const watcher = { session: null as number | null, visible: true };
+		watchers.set(ws, watcher);
 		let following: (() => void) | undefined;
 		// Proxies drop a WebSocket that says nothing for a while.
 		const ping = setInterval(() => ws.ping(), 25_000);
@@ -230,11 +326,16 @@ export function createApi(host: Host, options: ApiOptions) {
 			let event: ClientEvent;
 			try {
 				const parsed = parseJson(String(data), clientEvent, "the event");
-				event = { type: "follow", session: parsed.session ?? null };
+				event = parsed.type === "visible" ? { type: "visible", visible: parsed.visible ?? true } : { type: "follow", session: parsed.session ?? null };
 			} catch (error) {
 				send({ type: "error", message: error instanceof Error ? error.message : String(error) });
 				return;
 			}
+			if (event.type === "visible") {
+				watcher.visible = event.visible;
+				return;
+			}
+			watcher.session = event.session;
 			following?.();
 			following = undefined;
 			if (event.session !== null) {
@@ -243,6 +344,8 @@ export function createApi(host: Host, options: ApiOptions) {
 		});
 		ws.on("close", () => {
 			clearInterval(ping);
+			watchers.delete(ws);
+			stopIdeas();
 			stopFeed();
 			following?.();
 		});
@@ -321,6 +424,8 @@ export function createApi(host: Host, options: ApiOptions) {
 		listen: (port: number, done?: () => void) => server.listen(port, "127.0.0.1", done),
 		close: async () => {
 			feed.close();
+			stopApprovals();
+			for (const timer of timers) clearTimeout(timer);
 			for (const ws of sockets.clients) ws.terminate();
 			sockets.close();
 			server.closeAllConnections();
@@ -340,8 +445,17 @@ type SessionsFeed = ReturnType<typeof sessionsFeed>;
  * Every session's summary, kept current: a session is read again when a task of it starts or ends, when one of its
  * approvals changes, and when it's created. A session someone follows is updated from its view as it changes.
  */
-function sessionsFeed(host: Host) {
+function sessionsFeed(host: Host, onRunEnd: (summary: SessionSummary) => void) {
 	const summaries = new Map<number, SessionSummary>();
+	const put = (summary: SessionSummary) => {
+		const before = summaries.get(summary.id);
+		summaries.set(summary.id, summary);
+		return before;
+	};
+	/** Sessions whose run's tasks just ended; read again, a run that ended done or failed is reported once. */
+	const ended = new Set<number>();
+	/** The last run reported per session, by its newest timestamp, so a run is reported once. */
+	const reported = new Map<number, number>();
 	const listeners = new Set<(sessions: SessionSummary[]) => void>();
 	let live = new Set<number>();
 	let ready: Promise<void> | undefined;
@@ -375,7 +489,12 @@ function sessionsFeed(host: Host) {
 		dirty.clear();
 		for (const id of ids) {
 			const summary = await read(id);
-			if (summary !== undefined) summaries.set(id, summary);
+			if (summary === undefined) continue;
+			put(summary);
+			if (!ended.delete(id) || (summary.state !== "done" && summary.state !== "failed")) continue;
+			if (reported.get(id) === summary.updatedAt) continue;
+			reported.set(id, summary.updatedAt);
+			onRunEnd(summary);
 		}
 		if (!closed && ids.length > 0) broadcast();
 	}
@@ -392,18 +511,27 @@ function sessionsFeed(host: Host) {
 		}
 		const graph = await host.harness.watchTaskGraph(context);
 		graphStop = () => graph.stop();
+		// A session works while it has a generation or tool task; a background compaction isn't a run.
+		const working = (value: typeof graph.value) =>
+			new Set(Object.values(value.tasks).filter((task) => task.kind === "pi.generation" || task.kind === "pi.tool").map((task) => Number(task.conversationId)));
 		const onGraph = (value: typeof graph.value) => {
-			const now = new Set(Object.values(value.tasks).map((task) => Number(task.conversationId)));
+			const now = working(value);
+			for (const id of live) if (!now.has(id)) ended.add(id);
 			// Sessions working now, and those that just stopped.
-			mark(new Set([...now, ...live]));
+			mark(new Set([...now, ...live, ...Object.values(value.tasks).map((task) => Number(task.conversationId))]));
 			live = now;
 		};
-		live = new Set(Object.values(graph.value.tasks).map((task) => Number(task.conversationId)));
+		live = working(graph.value);
 		graph.start(async (value) => onGraph(value));
 		unsubscribe.push(host.approvals.onChange((request) => mark([request.conversationId])), host.sessions.onCreate((record) => mark([record.id])));
 	}
 
 	return {
+		/** Starts watching the sessions, for notifications, before anyone subscribes. */
+		start() {
+			ready ??= start();
+			ready.catch((error) => console.error("[api]", error));
+		},
 		/** Calls `listener` with every session now and after each change. */
 		subscribe(listener: (sessions: SessionSummary[]) => void): () => void {
 			listeners.add(listener);
@@ -413,8 +541,7 @@ function sessionsFeed(host: Host) {
 		},
 		/** A followed session's new summary, from its view. */
 		update(summary: SessionSummary) {
-			const before = summaries.get(summary.id);
-			summaries.set(summary.id, summary);
+			const before = put(summary);
 			if (JSON.stringify(before) !== JSON.stringify(summary)) broadcast();
 		},
 		/** Reads session `id` again. */

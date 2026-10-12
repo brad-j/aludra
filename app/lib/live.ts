@@ -1,7 +1,7 @@
 // The app's view of the host: the sessions list and the followed session, kept current over one WebSocket
 // (src/api.ts), plus the bootstrap and the actions, which are plain POSTs. Components read it with useLive().
 import { useSyncExternalStore } from "react";
-import type { Bootstrap, Item, ServerEvent, SessionMeta, SessionSummary, Thinking } from "../../src/api-types.ts";
+import type { Bootstrap, Idea, Item, ServerEvent, SessionMeta, SessionSummary, Thinking } from "../../src/api-types.ts";
 
 export type Connection = "connecting" | "open" | "closed";
 
@@ -9,6 +9,7 @@ export type LiveState = {
 	connection: Connection;
 	bootstrap?: Bootstrap;
 	sessions?: SessionSummary[];
+	ideas: Idea[];
 	/** The session followed, and what's arrived of it. */
 	followed: number | null;
 	items: Item[];
@@ -17,7 +18,7 @@ export type LiveState = {
 	error?: string;
 };
 
-let state: LiveState = { connection: "connecting", followed: null, items: [] };
+let state: LiveState = { connection: "connecting", followed: null, items: [], ideas: [] };
 const listeners = new Set<() => void>();
 
 function set(change: Partial<LiveState>) {
@@ -46,9 +47,11 @@ function start() {
 	started = true;
 	void loadBootstrap();
 	connect();
-	// Back from the background (a phone's lock screen): the socket may be gone without saying so.
+	// Back from the background (a phone's lock screen): the socket may be gone without saying so. The host is told
+	// whether the app is on screen, so it doesn't notify about the session Brad is looking at.
 	document.addEventListener("visibilitychange", () => {
 		if (document.visibilityState === "visible" && socket?.readyState !== WebSocket.OPEN) connect();
+		else sendVisible();
 	});
 }
 
@@ -71,6 +74,7 @@ function connect() {
 	ws.onopen = () => {
 		retry = 0;
 		set({ connection: "open" });
+		sendVisible();
 		if (state.followed !== null) ws.send(JSON.stringify({ type: "follow", session: state.followed }));
 	};
 	ws.onmessage = (message) => receive(JSON.parse(String(message.data)) as ServerEvent);
@@ -86,6 +90,8 @@ function receive(event: ServerEvent) {
 	switch (event.type) {
 		case "sessions":
 			return set({ sessions: event.sessions });
+		case "ideas":
+			return set({ ideas: event.ideas });
 		case "items":
 			if (event.session !== state.followed) return;
 			return set({ items: [...state.items.slice(0, event.start), ...event.items].slice(0, event.length) });
@@ -95,6 +101,10 @@ function receive(event: ServerEvent) {
 		case "error":
 			return set({ error: event.message });
 	}
+}
+
+function sendVisible() {
+	if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "visible", visible: document.visibilityState === "visible" }));
 }
 
 /** Follows session `id`'s transcript, or none. */
@@ -108,7 +118,7 @@ export function clearError() {
 	if (state.error !== undefined) set({ error: undefined });
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+export async function post<T>(path: string, body: unknown): Promise<T> {
 	const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 	if (!response.ok) {
 		const message = (await response.text()) || `The host answered ${response.status}`;
@@ -128,4 +138,7 @@ export const actions = {
 	configure: (session: number, change: { model?: string; thinking?: Thinking }) => post(`/api/sessions/${session}/agent`, change),
 	withdraw: (session: number, submission: number) => post(`/api/sessions/${session}/withdraw`, { submission }),
 	decide: (approval: string, allow: boolean) => post(`/api/approvals/${approval}`, { allow }),
+	saveIdea: (project: string, text: string) => post<{ id: number }>("/api/ideas", { project, text }),
+	startIdea: (idea: number) => post<{ id: number }>(`/api/ideas/${idea}/start`, {}),
+	deleteIdea: (idea: number) => post(`/api/ideas/${idea}/delete`, {}),
 };

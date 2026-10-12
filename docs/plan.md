@@ -48,8 +48,8 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
    - the permissions hook and the protected-path port.
    Tests against a faux model; one live check run by hand.
 2. **Design pass.** Done 2026-10-11: Brad approved the second prototype, redone toward his Pi Mobile references (`design/prototype.html`, see "Milestone 2 design"). The app follows it and `design/tokens.css`. Hallmark, before any app code. A clickable single-file prototype of the home screen, a live session, a session's changes, and idea capture, judged on Brad's phone. Brief in [design-brief.md](design-brief.md).
-3. **App.** Built and tested 2026-10-11 against the faux model (see "Milestone 3"); done once it runs on Brad's phone over Tailscale. TanStack Start on the host's API: sessions, transcript, steer, stop, follow-up, new session, model and thinking. Checked with Playwright at phone sizes and on the phone over Tailscale.
-4. **Ideas, approvals and push.**
+3. **App.** Done 2026-10-11 (see "Milestone 3"); running on Brad's phone over Tailscale. TanStack Start on the host's API: sessions, transcript, steer, stop, follow-up, new session, model and thinking. Checked with Playwright at phone sizes and on the phone over Tailscale.
+4. **Ideas, approvals and push.** Built 2026-10-11 (see "Milestone 4"); done once a notification reaches Brad's phone.
 5. **Changes view:** the session's diff since it started.
 6. **Subagents:** an `agent` tool on Pi Durable's documented subagent pattern (README, "Abort and Subagents"), children shown under the call. Mario's durable codemode isn't in Pi Durable 1.1.0; script fan-out waits for it.
 
@@ -70,6 +70,14 @@ Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gai
 - **Result.** A three-step bash task killed with `kill -9` during step 1's `sleep 15` resumed on restart: the model saw the interrupted call, checked state, ran steps 2 and 3 and answered correctly. The bridge log showed the `five_hour` rate-limit window, so it ran on the subscription.
 - **Classifier false positive.** One recovery request was refused by Opus 5.5's safeguards as `[cyber]`. The test read a file named `secret.txt` and the note said "The agent process restarted". With `notes.txt` and "(Continuing where we left off.)" it passed. These refusals can happen in real use; the app must show them plainly as their own failure, with the request ID.
 - `CLAUDE_BRIDGE_DEBUG=1` with `CLAUDE_BRIDGE_DEBUG_PATH` gives a detailed log of the bridge's session handling.
+
+## Milestone 4 (2026-10-11)
+
+- **Ideas** are first messages kept for later, in a session document (`aludra.ideas`), filed under their project. The new-session composer saves one ("Idea"); they show under their project in the drawer and on the new-session screen, and Start runs one as a session in its project. Tapping one shows it whole, with Start and Delete.
+- **Push** is gaidin's Web Push (`src/push.ts`: RFC 8291 encryption, VAPID signing with a key made on first start in the data directory). Each device records the app's address it signed up from, which push services get as the contact. Notifications go out when a call waits for approval (after 2 seconds, if it still waits) and when a run ends done or failed, detected from the task graph: a session whose generation and tool tasks are gone. Nothing is sent about a session the app is showing on screen; the app tells the host when it's hidden. Tapping one opens the session, with the approval docked above the composer.
+- **Approvals** were already answerable in the app (milestone 3). iOS web push has no notification buttons, so Allow and Deny stay in the app, one tap from the notification.
+- **Turning it on:** the drawer's foot says whether this device gets notifications, with Turn on, Test and Turn off. On an iPhone only the app added to the Home Screen can get them, which it says.
+- `aludra doctor` checks that the push services are reachable. Tests: 3 for push encryption and signing, 3 more API tests (ideas; approval and run-end notifications, and none for a session on screen), and an e2e test for saving and starting an idea.
 
 ## Milestone 3 (2026-10-11)
 

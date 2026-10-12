@@ -21,7 +21,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(), model(config), app(config), service()];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(), model(config), app(config), push(), service()];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -121,6 +121,14 @@ async function app(config: Config): Promise<Check[]> {
 		area: "app",
 		detail: served ? `https://${name}/ proxies to 127.0.0.1:${config.api.port}` : `tailscale serve isn't proxying to port ${config.api.port}; run: ${fix}`,
 	}];
+}
+
+/** Web Push goes through the browser makers' push services, so the host has to reach them. */
+async function push(): Promise<Check[]> {
+	const services = ["web.push.apple.com", "fcm.googleapis.com"];
+	const unreachable = (await Promise.all(services.map(async (host) => ((await fetch(`https://${host}/`, { signal: AbortSignal.timeout(10_000) }).then(() => true, () => false)) ? [] : [host])))).flat();
+	if (unreachable.length > 0) return [{ status: "fail", area: "push", detail: `can't reach ${unreachable.join(" or ")}, so notifications to those devices won't arrive` }];
+	return [{ status: "ok", area: "push", detail: "push services reachable; turn notifications on from the drawer in the app" }];
 }
 
 async function service(): Promise<Check[]> {

@@ -8,12 +8,19 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, type FauxResponseStep, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { WebSocket } from "ws";
 import { createApi, inlineScriptHashes } from "../src/api.ts";
-import type { Item, ServerEvent, SessionMeta, SessionSummary } from "../src/api-types.ts";
-import { makeProject, tempDir, testHost } from "./helpers.ts";
+import type { Idea, Item, ServerEvent, SessionMeta, SessionSummary } from "../src/api-types.ts";
+import { createPush, loadPushKeys } from "../src/push.ts";
+import { decrypt, device, makeProject, tempDir, testHost } from "./helpers.ts";
 
 const USER = "brad@example.com";
 
-/** A host with a faux model answering `responses`, and its API on a free port. */
+/** A pushed notification, as the device that got it reads it. */
+type Pushed = { title: string; body: string; tag?: string; url?: string; urgency?: string };
+
+/**
+ * A host with a faux model answering `responses`, and its API on a free port. Its notifications go to a fake push
+ * service; `pushed` gets what the signed-up device decrypts, once one has.
+ */
 async function api(t: TestContext, responses: FauxResponseStep[], appDir?: string) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000 }, { id: "faux-2", name: "Faux 2" }] });
 	faux.setResponses(responses);
@@ -21,7 +28,14 @@ async function api(t: TestContext, responses: FauxResponseStep[], appDir?: strin
 	models.setProvider(faux.provider);
 	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, approvalHosts: ["think-1"] });
 	const project = makeProject(dir, "one");
-	const server = createApi(host, { user: USER, appDir: appDir ?? join(dir, "no-app") });
+	const phone = device();
+	const pushed: Pushed[] = [];
+	const pushFetch = (async (_url: string, init: RequestInit) => {
+		pushed.push(JSON.parse(decrypt(Buffer.from(init.body as Uint8Array), phone.ecdh, phone.auth)));
+		return new Response(null, { status: 201 });
+	}) as typeof fetch;
+	const push = createPush({ harness: host.harness, keys: loadPushKeys(join(dir, "data")), fetch: pushFetch });
+	const server = createApi(host, { user: USER, appDir: appDir ?? join(dir, "no-app"), push });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
 	const base = `http://127.0.0.1:${(server.server.address() as AddressInfo).port}`;
@@ -31,19 +45,21 @@ async function api(t: TestContext, responses: FauxResponseStep[], appDir?: strin
 			headers: { "tailscale-user-login": USER, ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		});
-	return { host, project, base, call, faux };
+	const subscribe = () => call("/api/push/subscribe", { endpoint: "https://push.test/phone", keys: { p256dh: phone.p256dh, auth: phone.authText }, label: "iPhone" });
+	return { host, project, base, call, faux, pushed, subscribe };
 }
 
 /** A WebSocket client that keeps the latest sessions list and the followed session's transcript and meta. */
 async function live(t: TestContext, base: string) {
 	const ws = new WebSocket(`${base.replace("http", "ws")}/api/live`, { headers: { "tailscale-user-login": USER } });
 	t.after(() => ws.close());
-	const state = { sessions: [] as SessionSummary[], items: [] as Item[], meta: undefined as SessionMeta | undefined, events: [] as ServerEvent[] };
+	const state = { sessions: [] as SessionSummary[], ideas: [] as Idea[], items: [] as Item[], meta: undefined as SessionMeta | undefined, events: [] as ServerEvent[] };
 	const waiters = new Set<() => void>();
 	ws.on("message", (data) => {
 		const event = JSON.parse(String(data)) as ServerEvent;
 		state.events.push(event);
 		if (event.type === "sessions") state.sessions = event.sessions;
+		if (event.type === "ideas") state.ideas = event.ideas;
 		if (event.type === "items") state.items = [...state.items.slice(0, event.start), ...event.items].slice(0, event.length);
 		if (event.type === "meta") state.meta = event.meta;
 		for (const wake of waiters) wake();
@@ -51,6 +67,7 @@ async function live(t: TestContext, base: string) {
 	await new Promise((resolve, reject) => ws.once("open", resolve).once("error", reject));
 	return {
 		state,
+		visible: (visible: boolean) => ws.send(JSON.stringify({ type: "visible", visible })),
 		follow: (session: number | null) => {
 			state.items = [];
 			state.meta = undefined;
@@ -187,4 +204,57 @@ test("the app is served from its build: files as they are, other pages get the s
 	assert.equal((await call("/../package.json")).status, 200, "a path out of the build gets the shell, not the file");
 	assert.doesNotMatch(await (await call("/%2e%2e/package.json")).text(), /"name": "aludra"/);
 	assert.equal((await call("/api/nothing")).status, 404);
+});
+
+test("an idea is saved under its project, shows on the socket, and starts as a session", async (t) => {
+	const { call, base } = await api(t, [fauxAssistantMessage("On it.")]);
+	const client = await live(t, base);
+	const { id } = await (await call("/api/ideas", { project: "one", text: "  Retry flaky tests once  " })).json();
+	await client.until(() => client.state.ideas.length === 1, "the idea");
+	assert.deepEqual([client.state.ideas[0]!.project, client.state.ideas[0]!.text], ["one", "Retry flaky tests once"]);
+	assert.equal((await call("/api/ideas", { project: "one", text: " " })).status, 400);
+	const started = await (await call(`/api/ideas/${id}/start`, {})).json();
+	await client.until(() => client.state.ideas.length === 0 && client.state.sessions.some((s) => s.id === started.id && s.state === "done"), "the idea to run as a session");
+	assert.equal(client.state.sessions.find((s) => s.id === started.id)!.title, "Retry flaky tests once");
+	assert.equal((await call(`/api/ideas/${id}/start`, {})).status, 404);
+	const another = await (await call("/api/ideas", { project: "one", text: "Later" })).json();
+	assert.equal((await call(`/api/ideas/${another.id}/delete`, {})).status, 200);
+	await client.until(() => client.state.ideas.length === 0, "the deleted idea to go");
+});
+
+test("a signed-up device hears of an approval and of a run that ends, but not of a session on screen", async (t) => {
+	const { call, base, pushed, subscribe } = await api(t, [
+		...toolThenAnswer("ssh think-1 uptime || true", "Result:"),
+		fauxAssistantMessage("Second run done."),
+		fauxAssistantMessage("Third run done."),
+	]);
+	const state = await (await subscribe()).json();
+	assert.deepEqual(state.devices.map((d: { label: string }) => d.label), ["iPhone"]);
+	const client = await live(t, base);
+	const { id } = await (await call("/api/sessions", { project: "one", text: "uptime on think-1" })).json();
+	client.follow(id);
+	await client.until(() => client.state.meta?.approval !== undefined, "the approval");
+	// Followed and on screen: no notification.
+	await new Promise((resolve) => setTimeout(resolve, 2500));
+	assert.equal(pushed.length, 0, JSON.stringify(pushed));
+	await call(`/api/approvals/${client.state.meta!.approval!.id}`, { allow: false });
+	await client.until(() => client.state.meta?.summary.state === "done", "the first run to end");
+
+	// Off screen: the run's end is pushed.
+	client.visible(false);
+	await call(`/api/sessions/${id}/messages`, { text: "again", mode: "followUp" });
+	await client.until(() => client.state.events.filter((e) => e.type === "meta" && e.meta.summary.state === "done").length >= 2 && pushed.length > 0, "a notification");
+	assert.deepEqual(pushed.map((p) => [p.title, p.tag, p.url]), [["Done · one", `session-${id}`, `/s/${id}`]]);
+	assert.match(pushed[0]!.body, /^uptime on think-1\nSecond run done\./);
+	assert.equal((await (await call("/api/push/test", {})).json()).sent, 1);
+});
+
+test("an approval in a session nobody is watching is pushed, with what it wants to run", async (t) => {
+	const { call, pushed, subscribe } = await api(t, toolThenAnswer("git push --dry-run || true", "Done:"));
+	await subscribe();
+	await call("/api/sessions", { project: "one", text: "push it" });
+	for (let i = 0; i < 100 && pushed.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.equal(pushed[0]?.title, "Waiting for you · one");
+	assert.match(pushed[0]!.body, /^Wants to run git push: git push --dry-run \|\| true\npush it$/);
+	assert.equal(pushed[0]!.urgency, "high");
 });

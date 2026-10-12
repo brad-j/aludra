@@ -6,6 +6,7 @@ import { shortPath } from "../lib/format.ts";
 import { actions, useLive } from "../lib/live.ts";
 import { Composer } from "./Composer.tsx";
 import { Icon } from "./icons.tsx";
+import { IdeaList } from "./Ideas.tsx";
 import { ModelPicker, ProjectPicker } from "./Pickers.tsx";
 import { useUi } from "./Shell.tsx";
 
@@ -21,12 +22,14 @@ export function NewSession() {
 	const [agent, setAgent] = useState<{ model?: string; thinking?: Thinking }>({});
 
 	const projects = bootstrap?.projects ?? [];
+	const ideas = useLive((s) => s.ideas);
 	// The last project picked, else the one worked in most recently, else the first.
 	const recent = [...new Set((sessions ?? []).map((s) => projects.find((p) => p.dir === s.dir)?.path).filter((p) => p !== undefined))];
 	const chosen = projects.find((p) => p.path === project) ?? projects.find((p) => p.path === recent[0]) ?? projects[0];
 	const model = agent.model ?? bootstrap?.defaults.model.id ?? "";
 	const thinking = agent.thinking ?? bootstrap?.defaults.thinking ?? "high";
 	const modelName = bootstrap?.models.find((m) => m.id === model)?.name ?? model;
+	const projectIdeas = ideas.filter((i) => i.dir === chosen?.dir);
 
 	const pickProject = () =>
 		ui.sheet("Project", (close) => (
@@ -57,8 +60,9 @@ export function NewSession() {
 					<div className="column">
 						<div className="empty">
 							<h2>{chosen?.name ?? "No projects"}</h2>
-							Say what it should do. Tap the path to change project.
+							Say what it should do, or keep it as an idea for later. Tap the path to change project.
 						</div>
+						{projectIdeas.length > 0 && <IdeaList ideas={projectIdeas} />}
 					</div>
 				</div>
 			</div>
@@ -69,6 +73,14 @@ export function NewSession() {
 					label="What should it do?"
 					placeholder="What should it do?"
 					sendLabel="Start session"
+					secondary={{
+						label: "Save as idea",
+						icon: <Icon.plus />,
+						onSend: async (text) => {
+							if (chosen === undefined) throw new Error("no project");
+							await actions.saveIdea(chosen.path, text);
+						},
+					}}
 					onSend={async (text) => {
 						if (chosen === undefined) throw new Error("no project");
 						const { id } = await actions.start(chosen.path, text, model, thinking);

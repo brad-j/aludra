@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+import { createDecipheriv, createECDH, type ECDH, hkdfSync, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -69,4 +71,26 @@ export async function testHost(t: TestContext, options: Omit<HostOptions, "confi
 	t.after(() => host.close());
 	host.resume();
 	return { host, dir, agentDir, config };
+}
+
+const hkdf = (salt: Buffer, ikm: Buffer, info: Buffer | string, length: number) => Buffer.from(hkdfSync("sha256", ikm, salt, info, length));
+
+/** What a device does with a push: the receiving half of RFC 8291. */
+export function decrypt(body: Buffer, device: ECDH, auth: Buffer): string {
+	const salt = body.subarray(0, 16);
+	const senderPublic = body.subarray(21, 21 + body[20]!);
+	const sealed = body.subarray(21 + body[20]!);
+	const ikm = hkdf(auth, device.computeSecret(senderPublic), Buffer.concat([Buffer.from("WebPush: info\0"), device.getPublicKey(), senderPublic]), 32);
+	const decipher = createDecipheriv("aes-128-gcm", hkdf(salt, ikm, "Content-Encoding: aes128gcm\0", 16), hkdf(salt, ikm, "Content-Encoding: nonce\0", 12));
+	decipher.setAuthTag(sealed.subarray(-16));
+	const plain = Buffer.concat([decipher.update(sealed.subarray(0, -16)), decipher.final()]);
+	assert.equal(plain.at(-1), 2, "the padding delimiter");
+	return plain.subarray(0, -1).toString("utf8");
+}
+
+export function device() {
+	const ecdh = createECDH("prime256v1");
+	ecdh.generateKeys();
+	const auth = randomBytes(16);
+	return { ecdh, auth, p256dh: ecdh.getPublicKey("base64url"), authText: auth.toString("base64url") };
 }

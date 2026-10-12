@@ -29,6 +29,16 @@ export type SessionRecord = {
 	createdAt: number;
 };
 
+/** Something to do later: a first message, filed under its project, not sent yet. */
+export type IdeaRecord = { id: number; workspace: string; project: string; dir: string; text: string; createdAt: number };
+
+export const Ideas = defineDoc<{ next: number; ideas: Record<string, IdeaRecord> }>({
+	kind: "aludra.ideas",
+	version: 1,
+	scope: "session",
+	initial: () => ({ next: 1, ideas: {} }),
+});
+
 export const Sessions = defineDoc<{ sessions: Record<string, SessionRecord> }>({
 	kind: "aludra.sessions",
 	version: 1,
@@ -216,6 +226,59 @@ export async function openHost(options: HostOptions) {
 		return target.submit({ type: "input", content, whenBusy: options.steer ? "steer" : "followUp", ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }, context);
 	}
 
+	const ideaListeners = new Set<() => void>();
+	const ideasChanged = () => ideaListeners.forEach((listener) => listener());
+
+	/** Ideas, newest first. */
+	async function listIdeas(): Promise<IdeaRecord[]> {
+		const doc = await harness.snapshot(Ideas, context);
+		return Object.values(doc?.ideas ?? {}).map((i) => ({ ...i })).sort((a, b) => b.createdAt - a.createdAt);
+	}
+
+	async function addIdea(project: Project, text: string): Promise<IdeaRecord> {
+		const trimmed = text.trim();
+		if (trimmed === "") throw new Error("an idea needs some text");
+		const idea = await root.commit(async (tx) => {
+			const doc = await tx.doc(Ideas);
+			const record: IdeaRecord = { id: doc.next, workspace: project.workspace, project: project.name, dir: project.dir, text: trimmed, createdAt: Date.now() };
+			doc.next += 1;
+			doc.ideas[String(record.id)] = record;
+			return { ...record };
+		}, context);
+		ideasChanged();
+		return idea;
+	}
+
+	/** Drops idea `id`; returns it, or nothing if there's none. */
+	async function removeIdea(id: number): Promise<IdeaRecord | undefined> {
+		const removed = await root.commit(async (tx) => {
+			const doc = await tx.doc(Ideas);
+			const found = doc.ideas[String(id)];
+			if (found === undefined) return undefined;
+			const copy = { ...found };
+			delete doc.ideas[String(id)];
+			return copy;
+		}, context);
+		if (removed !== undefined) ideasChanged();
+		return removed;
+	}
+
+	/** Starts idea `id` as a session in its project, and drops it once the session has its message. */
+	async function startIdea(id: number): Promise<SessionRecord> {
+		const idea = (await listIdeas()).find((i) => i.id === id);
+		if (idea === undefined) throw new Error(`no idea ${id}`);
+		const project = projects().find((p) => p.dir === idea.dir) ?? { workspace: idea.workspace, name: idea.project, path: idea.project, dir: idea.dir };
+		const session = await create(project, idea.text);
+		await submit(session.id, idea.text, { requestId: `idea:${id}` });
+		await removeIdea(id);
+		return session;
+	}
+
+	function onIdeas(listener: () => void): () => void {
+		ideaListeners.add(listener);
+		return () => ideaListeners.delete(listener);
+	}
+
 	/** Changes session `id`'s model or thinking; the next request uses them. */
 	async function configure(id: number, change: { model?: string; thinking?: Thinking }): Promise<void> {
 		const target = await conversation(id);
@@ -257,6 +320,7 @@ export async function openHost(options: HostOptions) {
 		modelInfo,
 		projects,
 		sessions: { list, get, create, onCreate, states },
+		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		conversation,
 		submit,
 		configure,
