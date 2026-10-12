@@ -63,6 +63,12 @@ export type SessionMeta = {
 
 export type ModelChoice = { provider: string; id: string; name: string };
 
+/** One file a session changed, against the project as it was when the session started. */
+export type ChangedFile = { path: string; old?: string; add: number; del: number; binary: boolean; status: "added" | "deleted" | "modified" | "renamed" };
+
+/** A session's changes since it started, the biggest files first; unavailable outside git, or for older sessions. */
+export type Changes = { available: true; since: number; add: number; del: number; files: ChangedFile[] } | { available: false; reason: string };
+
 /** Something to do later, filed under its project. */
 export type Idea = { id: number; workspace: string; project: string; dir: string; text: string; createdAt: number };
 

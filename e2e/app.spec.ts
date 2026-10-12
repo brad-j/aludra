@@ -138,3 +138,30 @@ test("an idea is saved from the new-session screen, filed under its project, and
 	await expect(page.locator(".user").first()).toHaveText(text);
 	await expect(page.locator(".drawer .idea-row").filter({ hasText: text })).toHaveCount(0);
 });
+
+test("a session's changes since it started: totals, files by size, each opening to its diff", async ({ page }) => {
+	const name = test.info().project.name;
+	const id = await start(page, "gamma", `Please write a file for ${name}`);
+	await expect(page.locator(".prose").last()).toContainText("Tool came back", { timeout: 10_000 });
+	const icon = page.getByRole("link", { name: /^Changes: 2 files/ });
+	await expect(icon).toBeVisible({ timeout: 10_000 });
+	await icon.click();
+	await expect(page).toHaveURL(new RegExp(`/s/${id}/changes$`));
+	await expect(page.locator(".totals")).toContainText("+4");
+	await expect(page.locator(".totals")).toContainText("−1");
+	const rows = page.locator(".file-head");
+	await expect(rows).toHaveCount(2);
+	await expect(rows.nth(0)).toContainText(`notes-${name}.md`);
+	await expect(rows.nth(0)).toContainText("new");
+	await rows.nth(1).click();
+	await expect(page.locator(".patch .rem")).toHaveText("-Started.");
+	await expect(page.locator(".patch .ins")).toHaveText("+Changed by the session.");
+	await page.getByRole("link", { name: "Back to the session" }).click();
+	await expect(page).toHaveURL(new RegExp(`/s/${id}$`));
+});
+
+test("a project outside git says it has no changes to show", async ({ page }) => {
+	await start(page, "loose", "Where are you? Run pwd.");
+	await page.locator(".who .path").click();
+	await expect(page.locator(".empty")).toContainText("not a git repository");
+});

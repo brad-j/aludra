@@ -50,7 +50,7 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 2. **Design pass.** Done 2026-10-11: Brad approved the second prototype, redone toward his Pi Mobile references (`design/prototype.html`, see "Milestone 2 design"). The app follows it and `design/tokens.css`. Hallmark, before any app code. A clickable single-file prototype of the home screen, a live session, a session's changes, and idea capture, judged on Brad's phone. Brief in [design-brief.md](design-brief.md).
 3. **App.** Done 2026-10-11 (see "Milestone 3"); running on Brad's phone over Tailscale. TanStack Start on the host's API: sessions, transcript, steer, stop, follow-up, new session, model and thinking. Checked with Playwright at phone sizes and on the phone over Tailscale.
 4. **Ideas, approvals and push.** Done 2026-10-11 (see "Milestone 4"); notifications reach Brad's iPhone.
-5. **Changes view:** the session's diff since it started.
+5. **Changes view:** the session's diff since it started. Built 2026-10-11 (see "Milestone 5").
 6. **Subagents:** an `agent` tool on Pi Durable's documented subagent pattern (README, "Abort and Subagents"), children shown under the call. Mario's durable codemode isn't in Pi Durable 1.1.0; script fan-out waits for it.
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces.
@@ -70,6 +70,14 @@ Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gai
 - **Result.** A three-step bash task killed with `kill -9` during step 1's `sleep 15` resumed on restart: the model saw the interrupted call, checked state, ran steps 2 and 3 and answered correctly. The bridge log showed the `five_hour` rate-limit window, so it ran on the subscription.
 - **Classifier false positive.** One recovery request was refused by Opus 5.5's safeguards as `[cyber]`. The test read a file named `secret.txt` and the note said "The agent process restarted". With `notes.txt` and "(Continuing where we left off.)" it passed. These refusals can happen in real use; the app must show them plainly as their own failure, with the request ID.
 - `CLAUDE_BRIDGE_DEBUG=1` with `CLAUDE_BRIDGE_DEBUG_PATH` gives a detailed log of the bridge's session handling.
+
+## Milestone 5 (2026-10-11)
+
+- **The starting point:** when a session is created, `src/changes.ts` writes the project's working tree as a git tree through a temporary index (a copy of the real one), so untracked files count and ignored ones don't. The repository's index, branches and refs are untouched; only objects are added. The tree's hash is kept in the session's record, and git keeps unreferenced objects at least two weeks, so a session older than that can lose its starting point after a `git gc`.
+- **The changes** are the diff from that tree to a fresh one, limited to the project's directory, so a project inside a bigger repository sees only its own files. They include the session's commits, but not what was already uncommitted when it started. Projects outside git, and sessions from before this milestone, say why there's nothing to show.
+- **App:** the folder icon in a session's header shows how many files changed, and it and the path open the changes: `+N −M` at the top, files biggest first with an add/delete bar and new, deleted or renamed noted, each opening to its diff. The count is read again as the run moves, at most every three seconds, since each read snapshots the files.
+- **API:** `GET /api/sessions/:id/changes`, and `/changes/diff?path=` for a file in those changes only.
+- **Tests:** 4 against real temporary repositories (what counts, a project inside a bigger repository, outside git, git's `-z` output), and 2 e2e checks with a scratch repository the e2e setup creates in `e2e/results`.
 
 ## Milestone 4 (2026-10-11)
 

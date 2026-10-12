@@ -1,4 +1,16 @@
 {
-	"workspaces": [{ "name": "test", "roots": ["e2e/projects/*/*"] }],
-	"api": { "port": 8726, "user": "brad@example.com" }
+	"workspaces": [
+		{
+			"name": "test",
+			"roots": [
+				"e2e/projects/*/*",
+				"e2e/results/projects/*/*",
+				"/tmp/aludra-e2e/*"
+			]
+		}
+	],
+	"api": {
+		"port": 8726,
+		"user": "brad@example.com"
+	}
 }

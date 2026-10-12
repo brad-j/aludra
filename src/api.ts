@@ -7,6 +7,8 @@
 //   POST /api/sessions/:id/stop
 //   POST /api/sessions/:id/agent          { model?, thinking? }
 //   POST /api/sessions/:id/withdraw       { submission }
+//   GET  /api/sessions/:id/changes        what the session changed since it started (src/changes.ts)
+//   GET  /api/sessions/:id/changes/diff?path=   one changed file's diff
 //   POST /api/approvals/:id               { allow }
 //   POST /api/ideas                       { project, text }                            → { id }
 //   POST /api/ideas/:id/start                                                          → { id } of the session
@@ -35,6 +37,7 @@ import { findProject } from "./projects.ts";
 import type { ApprovalRequest } from "./permissions.ts";
 import type { Push, PushMessage } from "./push.ts";
 import { contextUsed, firstChange, itemsOf, lineOf, queuedOf, stateOf, updatedAt } from "./transcript.ts";
+import { changesSince, fileDiff } from "./changes.ts";
 
 /** Where `pnpm build` puts the app. */
 export const APP_DIR = resolve(import.meta.dirname, "../dist/client");
@@ -282,10 +285,28 @@ export function createApi(host: Host, options: ApiOptions) {
 		return reply(response, 200, shell, TYPES[".html"]!, "no-cache");
 	}
 
+	/** Session `id`'s changes, or one file's diff when `file` is given. Only a file in its changes has a diff. */
+	async function changes(id: number, file: string | null): Promise<unknown> {
+		const record = await host.sessions.get(id);
+		if (record === undefined) throw new HttpError(404, `No session ${id}`);
+		if (record.base === undefined) {
+			const reason = record.baseError === undefined ? "this session started before aludra recorded changes" : record.baseError;
+			if (file !== null) throw new HttpError(404, reason);
+			return { available: false, reason };
+		}
+		const summary = await changesSince(record.base);
+		if (file === null) return summary;
+		if (!summary.available || !summary.files.some((f) => f.path === file)) throw new HttpError(404, `${file} hasn't changed in this session`);
+		return { path: file, patch: await fileDiff(record.base, file) };
+	}
+
 	async function route(request: IncomingMessage, response: ServerResponse) {
-		const path = new URL(request.url ?? "/", "http://host").pathname;
+		const url = new URL(request.url ?? "/", "http://host");
+		const path = url.pathname;
 		if (request.method === "GET" || request.method === "HEAD") {
 			if (path === "/api/bootstrap") return json(response, bootstrap());
+			const changed = /^\/api\/sessions\/(\d+)\/changes(\/diff)?$/.exec(path);
+			if (changed !== null) return json(response, await changes(Number(changed[1]), changed[2] === undefined ? null : url.searchParams.get("path") ?? ""));
 			if (path === "/api/push") return json(response, await pushState());
 			if (path.startsWith("/api/")) throw new HttpError(404, "Not found");
 			return serveApp(path, response);
@@ -445,7 +466,8 @@ export function createApi(host: Host, options: ApiOptions) {
 
 function summaryOf(record: SessionRecord, view: ConversationView, items: readonly Item[], waiting: boolean): SessionSummary {
 	const state = stateOf(view, waiting);
-	return { ...record, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state) };
+	const { id, workspace, project, dir, title, createdAt } = record;
+	return { id, workspace, project, dir, title, createdAt, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state) };
 }
 
 type SessionsFeed = ReturnType<typeof sessionsFeed>;

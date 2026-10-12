@@ -504,3 +504,9 @@ a.session-row { color: var(--color-ink); }
 .notifications-row { display: flex; align-items: center; gap: var(--space-xs); min-height: 2.25rem; }
 .notifications-row .grow { flex: 1; min-width: 0; }
 .notifications-note { margin: 0; color: var(--color-ink-2); overflow-wrap: anywhere; }
+
+/* Changes (milestone 5). */
+.files .block pre.patch { padding: var(--space-xs) 0; white-space: pre; overflow-x: auto; }
+.files .block pre.patch span { display: block; min-width: max-content; padding: 0 var(--space-sm); }
+.icon-btn .count { font-variant-numeric: tabular-nums; }
+a.path { display: block; text-decoration: underline dotted var(--color-rule-2); text-underline-offset: 4px; color: var(--color-ink-3); }

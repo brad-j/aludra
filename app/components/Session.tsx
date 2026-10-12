@@ -1,5 +1,7 @@
 // One session: its transcript, what's running, and the composer for steering, queueing, following up and stopping.
+import { Link } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useChanges } from "../lib/changes.ts";
 import type { Item, SessionMeta } from "../../src/api-types.ts";
 import { type Call, callLabel, duration, shortPath, STATE_LABEL, summarize, tokens } from "../lib/format.ts";
 import { actions, follow, useLive } from "../lib/live.ts";
@@ -32,6 +34,8 @@ export function SessionView({ id }: { id: number }) {
 	const error = useLive((s) => s.error);
 	const machine = useLive((s) => s.bootstrap?.machine ?? "");
 	const ui = useUi();
+	const { changes } = useChanges(id, meta?.summary.updatedAt);
+	const changed = changes?.available ? changes.files.length : 0;
 
 	useEffect(() => {
 		follow(id);
@@ -73,8 +77,14 @@ export function SessionView({ id }: { id: number }) {
 				<button className="icon-btn menu-btn" aria-label="Sessions" onClick={() => ui.setDrawer(true)}><Icon.menu /></button>
 				<div className="who">
 					<h1>{meta?.summary.title ?? " "}</h1>
-					<span className="path"><bdi>{meta === undefined ? " " : `${machine}:${shortPath(meta.summary.dir)}`}</bdi></span>
+					<Link to="/s/$id/changes" params={{ id: String(id) }} className="path" aria-label={`Changes in ${meta?.summary.dir ?? "the project"}`}>
+						<bdi>{meta === undefined ? " " : `${machine}:${shortPath(meta.summary.dir)}`}</bdi>
+					</Link>
 				</div>
+				<Link to="/s/$id/changes" params={{ id: String(id) }} className="icon-btn" aria-label={`Changes: ${changed} file${changed === 1 ? "" : "s"}`}>
+					<Icon.files />
+					{changed > 0 && <span className="count">{changed}</span>}
+				</Link>
 				<button className="icon-btn" aria-label="Session menu" onClick={more}><Icon.more /></button>
 			</header>
 			<div className="scroll-wrap">

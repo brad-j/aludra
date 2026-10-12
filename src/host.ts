@@ -12,6 +12,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice } from "./api-types.ts";
 import { type Bridge, bridgeProvider, loadBridge, type Notice, PROVIDER } from "./bridge.ts";
+import { type Snapshot, snapshot } from "./changes.ts";
 import type { Config, Thinking } from "./config.ts";
 import { AGENT_DIR, contextExtension } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
@@ -27,6 +28,9 @@ export type SessionRecord = {
 	/** The first line of the first message. */
 	title: string;
 	createdAt: number;
+	/** The project's files when it started, for its changes (src/changes.ts); or why there's no snapshot. */
+	base?: Snapshot;
+	baseError?: string;
 };
 
 /** Something to do later: a first message, filed under its project, not sent yet. */
@@ -77,7 +81,8 @@ const FAUX_MARKDOWN = [
 
 /**
  * The faux model runs a script with no network or key: each request after a tool result answers with it, a message
- * asking for "markdown" gets FAUX_MARKDOWN, one saying "push" runs `git push --dry-run` (which waits for approval), and
+ * asking for "markdown" gets FAUX_MARKDOWN, "write a file for NAME" writes notes-NAME.md and edits NAME.txt, one saying "push" runs
+ * `git push --dry-run` (which waits for approval), and
  * any other request calls bash once, with a sleep long enough to kill the process during it.
  */
 function fauxModels(): { models: Models; model: ModelRef } {
@@ -86,6 +91,14 @@ function fauxModels(): { models: Models; model: ModelRef } {
 		const last = ctx.messages.at(-1);
 		if (last?.role === "toolResult") return fauxAssistantMessage(fauxText(`Tool came back: ${JSON.stringify(last.content)}`));
 		if (/markdown/i.test(JSON.stringify(last?.content))) return fauxAssistantMessage(fauxText(FAUX_MARKDOWN));
+		// "write a file for NAME" writes notes-NAME.md and edits NAME.txt, for the changes view.
+		const name = /write a file for (\w+)/i.exec(JSON.stringify(last?.content))?.[1];
+		if (name !== undefined) {
+			return fauxAssistantMessage([
+				fauxToolCall("write", { path: `notes-${name}.md`, content: "# Notes\n\nWritten by the session.\n" }),
+				fauxToolCall("edit", { path: `${name}.txt`, edits: [{ oldText: "Started.", newText: "Changed by the session." }] }),
+			], { stopReason: "toolUse" });
+		}
 		// Waits for approval, then fails harmlessly: the e2e projects have no remote.
 		if (/\bpush\b/i.test(JSON.stringify(last?.content))) return fauxAssistantMessage(fauxToolCall("bash", { command: "git push --dry-run 2>&1 || true" }), { stopReason: "toolUse" });
 		return fauxAssistantMessage(fauxToolCall("bash", { command: "sleep 4 && pwd" }), { stopReason: "toolUse" });
@@ -194,11 +207,20 @@ export async function openHost(options: HostOptions) {
 	/** A new session in `project`, titled from `prompt`, with the default model and thinking unless `agent` names others. */
 	async function create(project: Project, prompt: string, agent: { model?: string; thinking?: Thinking } = {}): Promise<SessionRecord> {
 		let record: SessionRecord | undefined;
+		const base = await snapshot(project.dir);
 		await harness.createConversation({
 			ownership: { kind: "ownerless" },
 			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? thinkingLevel, cwd: project.dir },
 			init: async (tx, id) => {
-				record = { id, workspace: project.workspace, project: project.name, dir: project.dir, title: prompt.split("\n")[0]!.slice(0, 80), createdAt: Date.now() };
+				record = {
+					id,
+					workspace: project.workspace,
+					project: project.name,
+					dir: project.dir,
+					title: prompt.split("\n")[0]!.slice(0, 80),
+					createdAt: Date.now(),
+					...("error" in base ? { baseError: base.error } : { base }),
+				};
 				(await tx.doc(Sessions)).sessions[String(id)] = record;
 			},
 		}, context);

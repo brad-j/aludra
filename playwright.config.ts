@@ -16,7 +16,7 @@ export default defineConfig({
 		{ name: "desk", use: { viewport: { width: 1280, height: 800 } } },
 	],
 	webServer: {
-		command: "rm -rf e2e/results/data && node --no-warnings src/main.ts serve",
+		command: "node --no-warnings e2e/setup.ts && node --no-warnings src/main.ts serve",
 		env: { ALUDRA_CONFIG: "e2e/aludra.json", ALUDRA_DATA_DIR: "e2e/results/data", ALUDRA_MODEL: "faux" },
 		url: "http://127.0.0.1:8726/api/bootstrap",
 		reuseExistingServer: false,
