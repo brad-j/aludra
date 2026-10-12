@@ -27,6 +27,8 @@ export async function turnOn(): Promise<void> {
 	const state = await fetch("/api/push").then((r) => r.json() as Promise<PushState>);
 	if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications aren't allowed for aludra. Allow them in the device's settings, then try again.");
 	const reg = (await registration()) ?? (await navigator.serviceWorker.register("/sw.js"));
+	// The newest service worker, which shows notifications; one from before them would drop every push.
+	await reg.update().catch(() => {});
 	await navigator.serviceWorker.ready;
 	const subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: state.publicKey });
 	const json = subscription.toJSON();
@@ -40,4 +42,5 @@ export async function turnOff(): Promise<void> {
 	await subscription.unsubscribe();
 }
 
-export const sendTest = () => post<{ sent: number }>("/api/push/test", {});
+/** Asks the host for a test notification, which comes a few seconds later. */
+export const sendTest = () => post<{ devices: number; inSeconds: number }>("/api/push/test", {});

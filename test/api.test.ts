@@ -246,7 +246,10 @@ test("a signed-up device hears of an approval and of a run that ends, but not of
 	await client.until(() => client.state.events.filter((e) => e.type === "meta" && e.meta.summary.state === "done").length >= 2 && pushed.length > 0, "a notification");
 	assert.deepEqual(pushed.map((p) => [p.title, p.tag, p.url]), [["Done · one", `session-${id}`, `/s/${id}`]]);
 	assert.match(pushed[0]!.body, /^uptime on think-1\nSecond run done\./);
-	assert.equal((await (await call("/api/push/test", {})).json()).sent, 1);
+	const before = pushed.length;
+	assert.deepEqual(await (await call("/api/push/test", {})).json(), { devices: 1, inSeconds: 5 });
+	for (let i = 0; i < 140 && pushed.length === before; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.equal(pushed.at(-1)?.body, "Notifications work on this device.");
 });
 
 test("an approval in a session nobody is watching is pushed, with what it wants to run", async (t) => {

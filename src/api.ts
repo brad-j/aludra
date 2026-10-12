@@ -149,6 +149,7 @@ export function createApi(host: Host, options: ApiOptions) {
 	// An approval is pushed after a moment, if it still waits: the app may be about to show it, or Brad may answer it at once.
 	const APPROVAL_DELAY_MS = 2000;
 	const timers = new Set<NodeJS.Timeout>();
+	const TEST_DELAY_MS = 5000;
 	const stopApprovals = host.approvals.onChange((request: ApprovalRequest) => {
 		if (request.status !== "pending") return;
 		const timer = setTimeout(() => void pushApproval(request).catch((error) => console.error("[push]", error)).finally(() => timers.delete(timer)), APPROVAL_DELAY_MS);
@@ -221,7 +222,15 @@ export function createApi(host: Host, options: ApiOptions) {
 				await push.remove(parseJson(body, endpointBody, "the device").endpoint);
 				return pushState();
 			}
-			if (path === "/api/push/test") return { sent: await push.send({ title: "aludra", body: "Notifications work on this device.", tag: "test" }) };
+			if (path === "/api/push/test") {
+				// After a moment, so the phone can be locked first: iOS shows no banner for the web app on screen.
+				const timer = setTimeout(() => {
+					timers.delete(timer);
+					push.send({ title: "aludra", body: "Notifications work on this device.", tag: "test" }).catch((error) => console.error("[push]", error instanceof Error ? error.message : error));
+				}, TEST_DELAY_MS);
+				timers.add(timer);
+				return { devices: (await push.devices()).length, inSeconds: TEST_DELAY_MS / 1000 };
+			}
 			throw new HttpError(404, "Not found");
 		}
 		if (path === "/api/sessions") {

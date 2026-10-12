@@ -117,7 +117,7 @@ function Notifications() {
 			<div className="notifications-row">
 				<span className="grow">{PUSH_TEXT[state]}</span>
 				{state === "off" && <button className="btn small" disabled={busy} onClick={() => void run(turnOn)}>Turn on</button>}
-				{state === "on" && <button className="btn small" disabled={busy} onClick={() => void run(async () => setNote(`Sent to ${(await sendTest()).sent} device(s).`))}>Test</button>}
+				{state === "on" && <button className="btn small" disabled={busy} onClick={() => void run(async () => { const { devices, inSeconds } = await sendTest(); setNote(`A test goes to ${devices} device${devices === 1 ? "" : "s"} in ${inSeconds} seconds. Lock the phone now: iOS shows no banner while aludra is open.`); })}>Test</button>}
 				{state === "on" && <button className="btn small" disabled={busy} onClick={() => void run(turnOff)}>Turn off</button>}
 			</div>
 			{note !== undefined && <p className="notifications-note" role="status">{note}</p>}
