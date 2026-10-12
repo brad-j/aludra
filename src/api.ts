@@ -1,0 +1,432 @@
+// The app's API: loopback HTTP for actions, a WebSocket for everything live, and the built app itself. tailscale serve
+// puts HTTPS in front and adds Tailscale-User-Login; only `user` gets in (after gaidin's web view, src/web.ts there).
+//
+//   GET  /api/bootstrap                   projects, models, thinking levels, defaults
+//   POST /api/sessions                    { project, text, model?, thinking? }        → { id }
+//   POST /api/sessions/:id/messages       { text, mode: "steer" | "followUp" }
+//   POST /api/sessions/:id/stop
+//   POST /api/sessions/:id/agent          { model?, thinking? }
+//   POST /api/sessions/:id/withdraw       { submission }
+//   POST /api/approvals/:id               { allow }
+//   WS   /api/live                        ServerEvent out, ClientEvent in (src/api-types.ts)
+//   GET  anything else                    the app: a built file, or the app's shell
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { hostname } from "node:os";
+import { extname, join, normalize, resolve } from "node:path";
+import type { ConversationView } from "@earendil-works/pi-durable";
+import { WebSocketServer, type WebSocket } from "ws";
+import type { Bootstrap, ClientEvent, Item, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
+import { THINKING } from "./config.ts";
+import { context, type Host, type SessionRecord } from "./host.ts";
+import { boolean, integer, literal, object, optional, ParseError, parseJson, string } from "./parse.ts";
+import { findProject } from "./projects.ts";
+import { contextUsed, firstChange, itemsOf, lineOf, queuedOf, stateOf, updatedAt } from "./transcript.ts";
+
+/** Where `pnpm build` puts the app. */
+export const APP_DIR = resolve(import.meta.dirname, "../dist/client");
+const SHELL = "_shell.html";
+
+const TYPES: Record<string, string> = {
+	".html": "text/html; charset=utf-8",
+	".js": "text/javascript; charset=utf-8",
+	".css": "text/css; charset=utf-8",
+	".json": "application/json",
+	".webmanifest": "application/manifest+json",
+	".svg": "image/svg+xml",
+	".png": "image/png",
+	".woff2": "font/woff2",
+	".ico": "image/x-icon",
+};
+
+class HttpError extends Error {
+	readonly status: number;
+	constructor(status: number, message: string) {
+		super(message);
+		this.status = status;
+	}
+}
+
+/**
+ * On every response. Another site can't frame the app, which would carry Brad's tailnet identity, and the app runs only
+ * its own scripts: the shell's inline scripts are allowed by hash, so nothing a model writes can run.
+ */
+function securityHeaders(scriptHashes: readonly string[]) {
+	const scripts = ["'self'", ...scriptHashes.map((h) => `'sha256-${h}'`)].join(" ");
+	return {
+		"Content-Security-Policy":
+			`default-src 'self'; script-src ${scripts}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; ` +
+			"worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+		"X-Frame-Options": "DENY",
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy": "no-referrer",
+	};
+}
+
+/**
+ * The sha256 of each inline script in `html`, for the CSP. Browsers hash the script as parsed, which turns NUL into
+ * U+FFFD (TanStack's shell has one) and CRLF into LF.
+ */
+export function inlineScriptHashes(html: string): string[] {
+	return [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => {
+		const parsed = m[1]!.replace(/\r\n?/g, "\n").replaceAll("\u0000", "\uFFFD");
+		return createHash("sha256").update(parsed).digest("base64");
+	});
+}
+
+/**
+ * Another site open in Brad's browser could post here with his tailnet identity. A JSON body forces a CORS preflight,
+ * which gets no CORS headers back, and the Origin has to be this host.
+ */
+function sameOrigin(request: IncomingMessage, json: boolean): boolean {
+	if (json && !request.headers["content-type"]?.startsWith("application/json")) return false;
+	const origin = request.headers.origin;
+	return origin === undefined || origin === `https://${request.headers.host}` || origin === `http://${request.headers.host}`;
+}
+
+async function readBody(request: IncomingMessage): Promise<string> {
+	let text = "";
+	for await (const chunk of request) {
+		text += chunk;
+		if (text.length > 200_000) throw new HttpError(413, "Too large");
+	}
+	return text;
+}
+
+const thinking = literal<Thinking>(...THINKING);
+const newSession = object({ project: string, text: string, model: optional(string), thinking: optional(thinking), requestId: optional(string) });
+const message = object({ text: string, mode: literal("steer", "followUp"), requestId: optional(string) });
+const agentChange = object({ model: optional(string), thinking: optional(thinking) });
+const withdrawal = object({ submission: integer });
+const decision = object({ allow: boolean });
+const clientEvent = object({ type: literal("follow"), session: optional(integer) });
+
+export type ApiOptions = {
+	/** The Tailscale login let in. */
+	user: string;
+	/** Where the built app is; without one, only the API is served. */
+	appDir?: string;
+};
+
+export function createApi(host: Host, options: ApiOptions) {
+	const appDir = options.appDir ?? APP_DIR;
+	const shellPath = join(appDir, SHELL);
+	const shell = existsSync(shellPath) ? readFileSync(shellPath, "utf8") : undefined;
+	const headers = securityHeaders(shell === undefined ? [] : inlineScriptHashes(shell));
+	const feed = sessionsFeed(host);
+
+	function reply(response: ServerResponse, status: number, body: string | Buffer, type: string, cache = "no-store") {
+		response.writeHead(status, { ...headers, "Content-Type": type, "Cache-Control": cache });
+		response.end(body);
+	}
+	const json = (response: ServerResponse, value: unknown) => reply(response, 200, JSON.stringify(value), "application/json");
+
+	function bootstrap(): Bootstrap {
+		const choices = host.choices();
+		const model = choices.find((c) => c.id === host.model.modelId) ?? { provider: host.model.provider, id: host.model.modelId, name: host.model.modelId };
+		return {
+			user: options.user,
+			machine: hostname(),
+			projects: host.projects().map(({ workspace, name, path, dir }) => ({ workspace, name, path, dir })),
+			models: choices,
+			thinking: [...THINKING],
+			defaults: { model, thinking: host.thinking },
+		};
+	}
+
+	async function post(path: string, body: string): Promise<unknown> {
+		if (path === "/api/sessions") {
+			const request = parseJson(body, newSession, "the new session");
+			if (request.text.trim() === "") throw new HttpError(400, "Say what the session should do");
+			const project = findProject(host.projects(), request.project);
+			const session = await host.sessions.create(project, request.text, { ...(request.model === undefined ? {} : { model: request.model }), ...(request.thinking === undefined ? {} : { thinking: request.thinking }) });
+			await host.submit(session.id, request.text, request.requestId === undefined ? {} : { requestId: request.requestId });
+			return { id: session.id };
+		}
+		const approval = /^\/api\/approvals\/([\w-]+)$/.exec(path);
+		if (approval !== null) {
+			const decided = await host.approvals.decide(approval[1]!, parseJson(body, decision, "the decision").allow);
+			if (decided === undefined) throw new HttpError(409, "That approval isn't waiting any more");
+			return { status: decided.status };
+		}
+		const match = /^\/api\/sessions\/(\d+)\/(messages|stop|agent|withdraw)$/.exec(path);
+		if (match === null) throw new HttpError(404, "Not found");
+		const id = Number(match[1]);
+		if ((await host.sessions.get(id)) === undefined) throw new HttpError(404, `No session ${id}`);
+		switch (match[2]) {
+			case "messages": {
+				const request = parseJson(body, message, "the message");
+				if (request.text.trim() === "") throw new HttpError(400, "The message is empty");
+				const submission = await host.submit(id, request.text, { steer: request.mode === "steer", ...(request.requestId === undefined ? {} : { requestId: request.requestId }) });
+				return { submission: Number(submission.id) };
+			}
+			case "stop":
+				await host.stop(id);
+				return {};
+			case "agent":
+				await host.configure(id, parseJson(body, agentChange, "the change"));
+				feed.touch(id);
+				return {};
+			default:
+				return { result: await host.withdraw(id, parseJson(body, withdrawal, "the withdrawal").submission) };
+		}
+	}
+
+	/** A file of the built app, or the shell for any other page. */
+	function serveApp(path: string, response: ServerResponse) {
+		const file = normalize(join(appDir, decodeURIComponent(path)));
+		if (file.startsWith(appDir) && file !== appDir && existsSync(file) && statSync(file).isFile()) {
+			// Vite names built assets by content, so they never change.
+			const cache = path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache";
+			return reply(response, 200, readFileSync(file), TYPES[extname(file)] ?? "application/octet-stream", cache);
+		}
+		if (shell === undefined) throw new HttpError(404, "The app isn't built; run pnpm build");
+		return reply(response, 200, shell, TYPES[".html"]!, "no-cache");
+	}
+
+	async function route(request: IncomingMessage, response: ServerResponse) {
+		const path = new URL(request.url ?? "/", "http://host").pathname;
+		if (request.method === "GET" || request.method === "HEAD") {
+			if (path === "/api/bootstrap") return json(response, bootstrap());
+			if (path.startsWith("/api/")) throw new HttpError(404, "Not found");
+			return serveApp(path, response);
+		}
+		if (request.method !== "POST") throw new HttpError(405, "Method not allowed");
+		return json(response, await post(path, await readBody(request)));
+	}
+
+	const server = createServer((request, response) => {
+		// tailscale serve sets this for a person's device; tagged devices and anything else get no header.
+		if (request.headers["tailscale-user-login"] !== options.user) return reply(response, 403, "Forbidden", "text/plain");
+		if (request.method === "POST" && !sameOrigin(request, true)) return reply(response, 403, "Cross-site request", "text/plain");
+		route(request, response).catch((error) => {
+			const status = error instanceof HttpError ? error.status : error instanceof ParseError ? 400 : /^no (session|project|model)|could be/.test(String(error?.message)) ? 404 : 500;
+			if (status === 500) console.error("[api]", error);
+			if (!response.headersSent) reply(response, status, error instanceof Error ? error.message : String(error), "text/plain");
+			else response.end();
+		});
+	});
+
+	const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+	server.on("upgrade", (request, socket, head) => {
+		const path = new URL(request.url ?? "/", "http://host").pathname;
+		if (path !== "/api/live" || request.headers["tailscale-user-login"] !== options.user || !sameOrigin(request, false)) {
+			socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+			return;
+		}
+		sockets.handleUpgrade(request, socket, head, (ws) => live(ws));
+	});
+
+	function live(ws: WebSocket) {
+		const send = (event: ServerEvent) => {
+			if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(event));
+		};
+		const stopFeed = feed.subscribe((sessions) => send({ type: "sessions", sessions }));
+		let following: (() => void) | undefined;
+		// Proxies drop a WebSocket that says nothing for a while.
+		const ping = setInterval(() => ws.ping(), 25_000);
+		ws.on("message", (data) => {
+			let event: ClientEvent;
+			try {
+				const parsed = parseJson(String(data), clientEvent, "the event");
+				event = { type: "follow", session: parsed.session ?? null };
+			} catch (error) {
+				send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+				return;
+			}
+			following?.();
+			following = undefined;
+			if (event.session !== null) {
+				follow(event.session, send, feed).then((stop) => (following = stop), (error) => send({ type: "error", message: String(error?.message ?? error) }));
+			}
+		});
+		ws.on("close", () => {
+			clearInterval(ping);
+			stopFeed();
+			following?.();
+		});
+		ws.on("error", () => {});
+	}
+
+	/** Sends `send` session `id`'s transcript and meta, then each change, until the returned function is called. */
+	async function follow(id: number, send: (event: ServerEvent) => void, feed: SessionsFeed): Promise<() => void> {
+		const record = await host.sessions.get(id);
+		if (record === undefined) throw new Error(`No session ${id}`);
+		const state = await (await host.conversation(id)).viewState(context);
+		let sent: string[] = [];
+		let sentMeta = "";
+		let stopped = false;
+		let pending: ConversationView | undefined;
+		let timer: NodeJS.Timeout | undefined;
+
+		async function publish(view: ConversationView) {
+			const items = itemsOf(view);
+			const keys = items.map((item) => JSON.stringify(item));
+			const start = firstChange(sent, keys);
+			if (start < keys.length || keys.length !== sent.length) send({ type: "items", session: id, start, items: items.slice(start), length: items.length });
+			sent = keys;
+			const meta = await metaOf(record!, view, items);
+			if (stopped) return;
+			const metaJson = JSON.stringify(meta);
+			if (metaJson !== sentMeta) send({ type: "meta", session: id, meta });
+			sentMeta = metaJson;
+			feed.update(meta.summary);
+		}
+		// Commits come every 100 ms while an answer streams; send at most every 50 ms.
+		const schedule = (view: ConversationView) => {
+			pending = view;
+			timer ??= setTimeout(() => {
+				timer = undefined;
+				const next = pending!;
+				pending = undefined;
+				if (!stopped) publish(next).catch((error) => console.error("[api]", error));
+			}, 50);
+		};
+		await publish(state.value);
+		const unsubscribe = state.subscribe((view) => schedule(view));
+		const unwatchApprovals = host.approvals.onChange((request) => {
+			if (request.conversationId === id) schedule(state.value);
+		});
+		return () => {
+			stopped = true;
+			clearTimeout(timer);
+			unsubscribe();
+			unwatchApprovals();
+			state.dispose();
+		};
+	}
+
+	async function metaOf(record: SessionRecord, view: ConversationView, items: readonly Item[]): Promise<SessionMeta> {
+		const approval = (await host.approvals.all()).find((r) => r.conversationId === record.id && r.status === "pending");
+		// SAFETY: a document in the view is the JSON of its kind's state.
+		const agent = view.docs["pi.agent"] as { model?: { provider: string; modelId: string }; thinkingLevel?: Thinking } | undefined;
+		const ref = agent?.model ?? host.model;
+		const info = host.modelInfo(ref);
+		// SAFETY: as above.
+		const retry = (view.docs["pi.live"] as { generation?: { retry?: { at: number; error: string } } } | undefined)?.generation?.retry;
+		return {
+			summary: summaryOf(record, view, items, approval !== undefined),
+			model: { provider: ref.provider, id: ref.modelId, name: info.name },
+			thinking: agent?.thinkingLevel ?? host.thinking,
+			context: { used: contextUsed(view), window: info.window },
+			queued: queuedOf(view),
+			...(approval === undefined ? {} : { approval: { id: approval.id, summary: approval.summary, command: approval.command } }),
+			...(retry === undefined ? {} : { retry }),
+		};
+	}
+
+	return {
+		server,
+		listen: (port: number, done?: () => void) => server.listen(port, "127.0.0.1", done),
+		close: async () => {
+			feed.close();
+			for (const ws of sockets.clients) ws.terminate();
+			sockets.close();
+			server.closeAllConnections();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+		},
+	};
+}
+
+function summaryOf(record: SessionRecord, view: ConversationView, items: readonly Item[], waiting: boolean): SessionSummary {
+	const state = stateOf(view, waiting);
+	return { ...record, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state) };
+}
+
+type SessionsFeed = ReturnType<typeof sessionsFeed>;
+
+/**
+ * Every session's summary, kept current: a session is read again when a task of it starts or ends, when one of its
+ * approvals changes, and when it's created. A session someone follows is updated from its view as it changes.
+ */
+function sessionsFeed(host: Host) {
+	const summaries = new Map<number, SessionSummary>();
+	const listeners = new Set<(sessions: SessionSummary[]) => void>();
+	let live = new Set<number>();
+	let ready: Promise<void> | undefined;
+	let graphStop: (() => Promise<unknown>) | undefined;
+	let timer: NodeJS.Timeout | undefined;
+	const dirty = new Set<number>();
+	const unsubscribe: (() => unknown)[] = [];
+	let closed = false;
+
+	const list = () => [...summaries.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+	const broadcast = () => {
+		const sessions = list();
+		for (const listener of listeners) listener(sessions);
+	};
+
+	async function read(id: number): Promise<SessionSummary | undefined> {
+		const record = await host.sessions.get(id);
+		if (record === undefined) return undefined;
+		const state = await (await host.conversation(id)).viewState(context);
+		try {
+			const waiting = (await host.approvals.all()).some((r) => r.conversationId === id && r.status === "pending");
+			return summaryOf(record, state.value, itemsOf(state.value), waiting);
+		} finally {
+			state.dispose();
+		}
+	}
+
+	async function flush() {
+		timer = undefined;
+		const ids = [...dirty];
+		dirty.clear();
+		for (const id of ids) {
+			const summary = await read(id);
+			if (summary !== undefined) summaries.set(id, summary);
+		}
+		if (!closed && ids.length > 0) broadcast();
+	}
+
+	function mark(ids: Iterable<number>) {
+		for (const id of ids) dirty.add(id);
+		timer ??= setTimeout(() => void flush().catch((error) => console.error("[api]", error)), 150);
+	}
+
+	async function start() {
+		for (const record of await host.sessions.list()) {
+			const summary = await read(record.id);
+			if (summary !== undefined) summaries.set(record.id, summary);
+		}
+		const graph = await host.harness.watchTaskGraph(context);
+		graphStop = () => graph.stop();
+		const onGraph = (value: typeof graph.value) => {
+			const now = new Set(Object.values(value.tasks).map((task) => Number(task.conversationId)));
+			// Sessions working now, and those that just stopped.
+			mark(new Set([...now, ...live]));
+			live = now;
+		};
+		live = new Set(Object.values(graph.value.tasks).map((task) => Number(task.conversationId)));
+		graph.start(async (value) => onGraph(value));
+		unsubscribe.push(host.approvals.onChange((request) => mark([request.conversationId])), host.sessions.onCreate((record) => mark([record.id])));
+	}
+
+	return {
+		/** Calls `listener` with every session now and after each change. */
+		subscribe(listener: (sessions: SessionSummary[]) => void): () => void {
+			listeners.add(listener);
+			ready ??= start();
+			ready.then(() => listeners.has(listener) && listener(list()), (error) => console.error("[api]", error));
+			return () => listeners.delete(listener);
+		},
+		/** A followed session's new summary, from its view. */
+		update(summary: SessionSummary) {
+			const before = summaries.get(summary.id);
+			summaries.set(summary.id, summary);
+			if (JSON.stringify(before) !== JSON.stringify(summary)) broadcast();
+		},
+		/** Reads session `id` again. */
+		touch(id: number) {
+			mark([id]);
+		},
+		close() {
+			closed = true;
+			clearTimeout(timer);
+			for (const stop of unsubscribe) stop();
+			void graphStop?.();
+		},
+	};
+}
+

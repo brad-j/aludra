@@ -1,6 +1,6 @@
 # Design brief
 
-For the Hallmark design pass (milestone 2). Brad confirmed these answers on 2026-10-11. Run Hallmark's design flow with them as given; don't ask the three questions again.
+For the Hallmark design pass (milestone 2). The approved design moved away from the atmospheric tone below toward a quieter, transcript-first look; `design/prototype.html` and plan.md's "Milestone 2 design" are what the app follows. Brad confirmed these answers on 2026-10-11. Run Hallmark's design flow with them as given; don't ask the three questions again.
 
 - **Audience:** Brad alone, at the desk and on his phone.
 - **Use case:** see what every session is doing at a glance; steer or stop one; start a session or save an idea in under ten seconds. Typing straight into a prompt box is always available.

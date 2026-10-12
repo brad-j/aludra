@@ -1,0 +1,17 @@
+# systemd user unit for the aludra host on egwene. To install:
+#   ln -s "$PWD/deploy/aludra.service" ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now aludra
+# Sessions run commands with this unit's environment, so PATH comes from the user manager
+# (systemctl --user show-environment). Settings come from aludra.json in the checkout, or the defaults.
+[Unit]
+Description=aludra coding agent host
+
+[Service]
+WorkingDirectory=%h/westwood/Projects/Software/aludra
+ExecStart=/usr/bin/env node --no-warnings src/main.ts serve
+Restart=always
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

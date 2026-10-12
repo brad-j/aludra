@@ -1,0 +1,19 @@
+# systemd user unit for aludra's own Tailscale node, so the app is at https://aludra.<tailnet>.ts.net. It's a second
+# tailscaled on egwene, run as Brad's user in userspace mode with its own state, so egwene's own Tailscale is untouched
+# and serving needs no root. To install:
+#   ln -s "$PWD/deploy/aludra-tailscale.service" ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now aludra-tailscale
+#   tailscale --socket ~/.local/share/aludra/tailscale/tailscaled.sock up --hostname aludra   # prints a login link, once
+#   tailscale --socket ~/.local/share/aludra/tailscale/tailscaled.sock serve --bg 8724        # stored in the node's state
+# User units stop at logout unless lingering is on (loginctl enable-linger).
+[Unit]
+Description=Tailscale node for aludra
+
+[Service]
+ExecStart=/usr/bin/tailscaled --tun=userspace-networking --port=0 --statedir=%h/.local/share/aludra/tailscale --socket=%h/.local/share/aludra/tailscale/tailscaled.sock
+Restart=always
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

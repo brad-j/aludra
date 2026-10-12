@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#141516">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>aludra · prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Fira+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Hallmark · route: custom (tuned) · redesign toward Brad's references (Pi Mobile screenshots, 2026-10-11)
+ * macrostructure: transcript-first app (session is the screen; sessions in a drawer, by machine and directory)
+ * theme: custom · vibe: "quiet terminal-adjacent reader, near-black, content first" · paper: oklch(16.5% 0.003 260) · accent: oklch(85% 0.105 215)
+ * display: Fira Sans 600 · body: Fira Sans 400 · mono: Fira Code · axes: dark / humanist-sans / neutral
+ * idea: "the transcript is the interface; chrome is a hairline and a few icons" · nav: header icons + drawer · footer: composer
+ * studied: references (layout and density only; no copied content) · Hallmark v1.1.0
+ * pre-emit critique: P5 H5 E4 S5 R5 V4
+ */
+:root {
+	/* Near-black, barely cool. Colour lives in syntax, state marks and the one accent. */
+	--color-paper: oklch(16.5% 0.003 260);
+	--color-paper-2: oklch(21% 0.004 260);
+	--color-paper-3: oklch(25.5% 0.005 260);
+	--color-rule: oklch(27% 0.004 260);
+	--color-rule-2: oklch(36% 0.005 260);
+	--color-ink: oklch(93% 0.003 260);
+	--color-ink-2: oklch(79% 0.005 260);
+	--color-ink-3: oklch(64% 0.006 260);
+	--color-accent: oklch(85% 0.105 215);
+	--color-accent-ink: oklch(17% 0.03 235);
+	--color-focus: oklch(88% 0.14 215);
+	--color-wait: oklch(84% 0.13 82);
+	--color-wait-ink: oklch(20% 0.04 82);
+	--color-bad: oklch(72% 0.15 22);
+	--color-add: oklch(80% 0.12 155);
+	--color-add-wash: oklch(80% 0.12 155 / 0.09);
+	--color-del: oklch(74% 0.13 22);
+	--color-del-wash: oklch(74% 0.13 22 / 0.09);
+	--color-scrim: oklch(8% 0.003 260 / 0.62);
+	/* Syntax: the only place colour runs freely. */
+	--syn-keyword: oklch(76% 0.11 305);
+	--syn-string: oklch(80% 0.12 145);
+	--syn-name: oklch(80% 0.09 235);
+	--syn-number: oklch(80% 0.12 60);
+	--syn-comment: oklch(63% 0.006 260);
+
+	--font-body: "Fira Sans", Seravek, "Gill Sans Nova", Ubuntu, sans-serif;
+	--font-mono: "Fira Code", "SF Mono", ui-monospace, monospace;
+
+	--text-2xs: 0.75rem;
+	--text-xs: 0.8125rem;
+	--text-sm: 0.875rem;
+	--text-md: 1rem;
+	--text-body: 1.0625rem;
+	--text-lg: 1.125rem;
+
+	--space-3xs: 0.125rem;
+	--space-2xs: 0.25rem;
+	--space-xs: 0.5rem;
+	--space-sm: 0.75rem;
+	--space-md: 1rem;
+	--space-lg: 1.5rem;
+	--space-xl: 2rem;
+	--space-2xl: 3rem;
+
+	--radius-sm: 5px;
+	--radius-md: 8px;
+	--radius-lg: 14px;
+	--radius-pill: 999px;
+	--rule-hair: 1px;
+	--tap: 44px;
+
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+	--ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+	--dur-micro: 120ms;
+	--dur-short: 220ms;
+	--dur-long: 380ms;
+	--dur-spin: 900ms;
+
+	--z-float: 5;
+	--z-drawer: 20;
+	--z-sheet: 30;
+	--drawer-width: min(86vw, 22rem);
+	--measure: 40rem; /* about 70 characters of Fira Sans at 17px */
+	color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow-x: clip; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+	background: var(--color-paper);
+	color: var(--color-ink);
+	font-family: var(--font-body);
+	font-size: var(--text-md);
+	line-height: 1.45;
+	-webkit-font-smoothing: antialiased;
+	-webkit-tap-highlight-color: transparent;
+	overscroll-behavior: none;
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+h1, h2, h3 { margin: 0; font-weight: 600; font-style: normal; }
+code, pre, .mono { font-family: var(--font-mono); font-variant-ligatures: none; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+svg { flex: none; }
+
+/* ── Frame ─────────────────────────────────────────────────────────────────── */
+.app { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); height: var(--vvh, 100dvh); }
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-top: env(safe-area-inset-top); }
+.drawer {
+	position: fixed; z-index: var(--z-drawer); inset: 0 auto 0 0; width: var(--drawer-width);
+	display: flex; flex-direction: column;
+	padding-top: env(safe-area-inset-top);
+	background: var(--color-paper);
+	border-inline-end: var(--rule-hair) solid var(--color-rule);
+	transform: translateX(-101%);
+	transition: transform var(--dur-long) var(--ease-out);
+}
+.app[data-drawer="open"] .drawer { transform: none; }
+.scrim {
+	position: fixed; inset: 0; z-index: var(--z-drawer);
+	background: var(--color-scrim); opacity: 0; pointer-events: none;
+	transition: opacity var(--dur-long) var(--ease-out);
+}
+.app[data-drawer="open"] .scrim { opacity: 1; pointer-events: auto; }
+.app[data-drawer="open"] .drawer { z-index: calc(var(--z-drawer) + 1); }
+@media (min-width: 60rem) {
+	.app { grid-template-columns: 21rem minmax(0, 1fr); }
+	.drawer { position: static; width: auto; transform: none; transition: none; }
+	.scrim, .menu-btn { display: none !important; }
+}
+
+/* ── Header: a menu, the session, a few icons. ─────────────────────────────── */
+.head {
+	display: flex; align-items: center; gap: var(--space-2xs);
+	min-height: 3.5rem;
+	padding: var(--space-2xs) max(var(--space-xs), env(safe-area-inset-right)) var(--space-2xs) max(var(--space-2xs), env(safe-area-inset-left));
+	border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+.head .who { flex: 1; min-width: 0; display: grid; padding-inline: var(--space-2xs); }
+.head h1 { font-size: var(--text-lg); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.path {
+	justify-self: start; max-width: 100%;
+	padding: 0; border: 0; background: transparent;
+	font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-3);
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	/* rtl so a long path loses its start and keeps the project; left so it lines up with the title. */
+	direction: rtl; text-align: left;
+	text-decoration: underline dotted var(--color-rule-2); text-underline-offset: 4px;
+	position: relative;
+}
+.path::after { content: ""; position: absolute; inset: -10px 0; }
+@media (hover: hover) and (pointer: fine) { .path:hover { color: var(--color-ink-2); } }
+
+.icon-btn {
+	display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2xs);
+	min-width: var(--tap); height: var(--tap); padding: 0 var(--space-xs);
+	border: 0; border-radius: var(--radius-md); background: transparent;
+	color: var(--color-ink-2); font-size: var(--text-xs); font-variant-numeric: tabular-nums; white-space: nowrap;
+	transition: background-color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+.icon-btn svg { width: 1.375rem; height: 1.375rem; }
+@media (hover: hover) and (pointer: fine) { .icon-btn:hover { background: var(--color-paper-2); color: var(--color-ink); } }
+.icon-btn:active { transform: translateY(1px); background: var(--color-paper-2); }
+.icon-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; background: transparent; }
+.icon-btn .add { color: var(--color-add); }
+.icon-btn .del { color: var(--color-del); }
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+.btn {
+	display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2xs);
+	min-height: var(--tap); padding: 0 var(--space-md);
+	border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-md);
+	background: transparent; color: var(--color-ink); font-size: var(--text-sm); font-weight: 500; white-space: nowrap;
+	transition: background-color var(--dur-micro) var(--ease-out), border-color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) { .btn:hover { background: var(--color-paper-2); border-color: var(--color-ink-3); } }
+.btn:active { transform: translateY(1px); background: var(--color-paper-2); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn[data-state="loading"] { cursor: progress; }
+.btn[data-state="error"] { border-color: var(--color-bad); color: var(--color-bad); }
+.btn[data-state="success"] { border-color: var(--color-add); color: var(--color-add); }
+.btn.wait { background: var(--color-wait); border-color: var(--color-wait); color: var(--color-wait-ink); }
+@media (hover: hover) and (pointer: fine) { .btn.wait:hover { background: var(--color-wait); border-color: var(--color-ink); } }
+.btn.small { min-height: 2rem; padding: 0 var(--space-sm); font-size: var(--text-xs); position: relative; }
+.btn.small::after { content: ""; position: absolute; inset: -6px -2px; }
+
+/* ── State marks: shape and colour together. ───────────────────────────────── */
+.mark { flex: none; display: inline-grid; place-items: center; width: 1rem; height: 1rem; color: var(--color-ink-3); }
+.mark svg { width: 100%; height: 100%; }
+.mark[data-state="running"] { color: var(--color-accent); }
+.mark[data-state="running"] svg { animation: spin var(--dur-spin) linear infinite; }
+.mark[data-state="waiting"] { color: var(--color-wait); }
+.mark[data-state="failed"] { color: var(--color-bad); }
+@keyframes spin { to { transform: rotate(1turn); } }
+
+/* ── Drawer: sessions by machine and directory. ───────────────────────────── */
+.drawer-head { display: flex; align-items: center; gap: var(--space-xs); min-height: 3.5rem; padding: var(--space-2xs) var(--space-xs) var(--space-2xs) var(--space-md); border-bottom: var(--rule-hair) solid var(--color-rule); }
+.drawer-head h2 { flex: 1; font-size: var(--text-lg); }
+.drawer-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--space-xs) var(--space-xs) var(--space-lg); }
+.machine { display: flex; align-items: center; gap: var(--space-xs); padding: var(--space-sm) var(--space-xs) var(--space-2xs); font-size: var(--text-xs); color: var(--color-ink-3); }
+.machine .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-add); }
+.dir { padding-top: var(--space-sm); }
+/* A hairline between projects, so each group reads as one block. */
+.dir + .dir { margin-top: var(--space-xs); border-top: var(--rule-hair) solid var(--color-rule); }
+.dir-head { display: flex; align-items: baseline; gap: var(--space-xs); padding: var(--space-2xs) var(--space-xs) var(--space-xs); }
+/* Project names in the accent, a size up from the session titles under them. */
+.dir-head .name { font-size: var(--text-lg); font-weight: 600; color: var(--color-accent); white-space: nowrap; }
+.dir-head .where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-3); }
+.rows { list-style: none; margin: 0; padding: 0; }
+.session-row {
+	display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto; column-gap: var(--space-sm); align-items: start;
+	width: 100%; min-height: var(--tap); padding: var(--space-xs);
+	border: 0; border-radius: var(--radius-md); background: transparent; text-align: start;
+	transition: background-color var(--dur-micro) var(--ease-out);
+}
+.session-row .mark { margin-top: var(--space-3xs); }
+@media (hover: hover) and (pointer: fine) { .session-row:hover { background: var(--color-paper-2); } }
+.session-row:active { background: var(--color-paper-2); }
+.session-row[aria-current="true"] { background: var(--color-paper-3); }
+.session-row .title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); }
+.session-row .line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--color-ink-3); }
+.session-row[data-state="waiting"] .line { color: var(--color-wait); }
+.session-row[data-state="failed"] .line { color: var(--color-bad); }
+.session-row .age { font-size: var(--text-2xs); color: var(--color-ink-3); font-variant-numeric: tabular-nums; padding-top: var(--space-3xs); }
+.session-row.is-new, .idea-row.is-new { animation: arrive var(--dur-long) var(--ease-out); }
+@keyframes arrive { from { background: var(--color-paper-3); } }
+.idea-row { display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto; column-gap: var(--space-sm); align-items: center; min-height: var(--tap); padding: 0 var(--space-xs); border-radius: var(--radius-md); }
+.idea-row .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--color-ink-2); }
+.drawer-foot { padding: var(--space-sm) var(--space-md) max(var(--space-sm), env(safe-area-inset-bottom)); border-top: var(--rule-hair) solid var(--color-rule); }
+.meter { display: grid; gap: var(--space-2xs); width: 100%; padding: var(--space-2xs) 0; border: 0; background: transparent; text-align: start; color: var(--color-ink-3); font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
+.meter .row { display: grid; grid-template-columns: 3rem minmax(0, 1fr) 2.5rem; align-items: center; gap: var(--space-xs); }
+.meter .track { height: 3px; border-radius: var(--radius-pill); background: var(--color-rule-2); overflow: hidden; }
+.meter .fill { display: block; height: 100%; background: var(--color-ink-2); transform-origin: left; }
+.meter .pct { text-align: end; color: var(--color-ink-2); }
+
+/* ── Transcript ────────────────────────────────────────────────────────────── */
+.scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.scroll {
+	flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+	padding: var(--space-md) max(var(--space-md), env(safe-area-inset-right)) var(--space-xl) max(var(--space-md), env(safe-area-inset-left));
+}
+.column { max-width: var(--measure); margin-inline: auto; display: grid; gap: var(--space-md); }
+.user {
+	justify-self: end; max-width: 88%;
+	padding: var(--space-xs) var(--space-sm);
+	border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+	background: var(--color-paper-3);
+	font-size: var(--text-body); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.user .tag { display: block; font-size: var(--text-2xs); color: var(--color-accent); }
+.prose { font-size: var(--text-body); line-height: 1.6; overflow-wrap: anywhere; }
+.prose p { margin: 0 0 var(--space-sm); }
+.prose p:last-child, .prose ol:last-child, .prose ul:last-child { margin-bottom: 0; }
+.prose ol, .prose ul { margin: 0 0 var(--space-sm); padding-inline-start: var(--space-lg); }
+.prose li { margin: var(--space-2xs) 0; }
+.prose li::marker { color: var(--color-ink-3); }
+.prose strong { font-weight: 600; }
+.prose code { padding: var(--space-3xs) var(--space-2xs); border-radius: var(--radius-sm); background: var(--color-paper-2); font-size: 0.86em; }
+.copy-row { display: flex; margin-top: calc(var(--space-xs) * -1); }
+.copy-row .icon-btn { min-width: 2.25rem; height: 2.25rem; padding: 0; color: var(--color-ink-3); position: relative; }
+.copy-row .icon-btn::after { content: ""; position: absolute; inset: -4px; }
+.copy-row .icon-btn svg { width: 1.125rem; height: 1.125rem; }
+.copy-row .icon-btn[data-state="success"] { color: var(--color-add); }
+
+/* Tool calls: one mono row each. A finished turn folds them into a summary. */
+.calls { display: grid; }
+.call-row {
+	display: grid; grid-template-columns: 1rem 3.25rem minmax(0, 1fr) auto; column-gap: var(--space-xs); align-items: center;
+	min-height: 2.25rem; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-2);
+}
+.call-row .mark { width: 0.875rem; height: 0.875rem; }
+.call-row .tool { color: var(--color-ink-3); }
+.call-row .arg {
+	min-width: 0; padding: var(--space-2xs) 0; border: 0; background: transparent; text-align: start;
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: inherit; font-size: inherit; color: var(--color-ink);
+	text-decoration: underline dotted var(--color-rule-2); text-underline-offset: 4px; position: relative;
+}
+.call-row .arg::after { content: ""; position: absolute; inset: -4px 0; }
+@media (hover: hover) and (pointer: fine) { .call-row .arg:hover { text-decoration-color: var(--color-ink-3); } }
+.call-row .arg[aria-expanded="true"] { text-decoration-style: solid; }
+.call-row .took { color: var(--color-ink-3); font-variant-numeric: tabular-nums; }
+.call-row .took.bad { color: var(--color-bad); }
+.fold-row {
+	display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto auto; column-gap: var(--space-xs); align-items: center;
+	width: 100%; min-height: 2.25rem; padding: 0; border: 0; background: transparent; text-align: start;
+	font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-2);
+}
+.fold-row .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-row .took { color: var(--color-ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fold-row .chev, .block-head .chev { width: 1rem; height: 1rem; color: var(--color-ink-3); transition: transform var(--dur-short) var(--ease-in-out); }
+.fold-row[aria-expanded="true"] .chev, .block-head[aria-expanded="true"] .chev { transform: rotate(180deg); }
+@media (hover: hover) and (pointer: fine) { .fold-row:hover { color: var(--color-ink); } }
+.fold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-short) var(--ease-in-out); }
+.fold[data-open="true"] { grid-template-rows: 1fr; }
+.fold > div { min-height: 0; overflow: hidden; }
+
+/* Code and output blocks. */
+.block { border-radius: var(--radius-md); background: var(--color-paper-2); overflow: hidden; }
+.block-head {
+	display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; column-gap: var(--space-xs); align-items: center;
+	width: 100%; min-height: 2.75rem; padding: 0 var(--space-sm); border: 0; background: transparent; text-align: start;
+	font-size: var(--text-sm);
+}
+.block-head .glyph { color: var(--color-ink-3); font-family: var(--font-mono); font-size: var(--text-xs); }
+.block-head .label { font-weight: 600; }
+.block-head .preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-3); }
+.block pre {
+	margin: 0; padding: 0 var(--space-sm) var(--space-sm);
+	font-size: var(--text-xs); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; color: var(--color-ink-2);
+}
+.block pre.tail { height: calc(4 * 1.6em + var(--space-sm)); overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; white-space: pre; }
+.block .k { color: var(--syn-keyword); }
+.block .s { color: var(--syn-string); }
+.block .n { color: var(--syn-name); }
+.block .d { color: var(--syn-number); }
+.block .c { color: var(--syn-comment); font-style: italic; }
+.block .ins { display: block; background: var(--color-add-wash); color: var(--color-add); }
+.block .rem { display: block; background: var(--color-del-wash); color: var(--color-del); }
+.block .hunk { display: block; color: var(--color-ink-3); }
+
+.failure { display: grid; gap: var(--space-xs); padding: var(--space-sm); border-radius: var(--radius-md); background: var(--color-paper-2); }
+.failure h3 { display: flex; align-items: center; gap: var(--space-xs); font-size: var(--text-md); color: var(--color-bad); }
+.failure p { margin: 0; font-size: var(--text-sm); color: var(--color-ink-2); }
+.failure .ref { display: flex; align-items: center; gap: var(--space-xs); flex-wrap: wrap; font-size: var(--text-xs); color: var(--color-ink-3); }
+.failure .ref code { color: var(--color-ink-2); overflow-wrap: anywhere; }
+.failure .next { display: flex; gap: var(--space-xs); flex-wrap: wrap; }
+.note { font-size: var(--text-sm); color: var(--color-ink-3); }
+.empty { padding: var(--space-lg) 0; color: var(--color-ink-3); }
+.empty h2 { font-size: var(--text-lg); color: var(--color-ink); margin-bottom: var(--space-xs); }
+
+.to-bottom {
+	position: absolute; z-index: var(--z-float); inset: auto auto var(--space-sm) 50%;
+	display: grid; place-items: center; width: 2.75rem; height: 2.75rem; margin-inline-start: -1.375rem;
+	border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-md);
+	background: var(--color-paper-2); color: var(--color-ink);
+	opacity: 0; transform: translateY(var(--space-xs)); pointer-events: none;
+	transition: opacity var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out);
+}
+.to-bottom[data-show="true"] { opacity: 1; transform: none; pointer-events: auto; }
+.to-bottom svg { width: 1.25rem; height: 1.25rem; }
+
+/* ── Composer: flat, under a hairline. ─────────────────────────────────────── */
+.dock {
+	padding: var(--space-2xs) max(var(--space-xs), env(safe-area-inset-right)) max(var(--space-2xs), env(safe-area-inset-bottom)) max(var(--space-xs), env(safe-area-inset-left));
+	border-top: var(--rule-hair) solid var(--color-rule);
+	background: var(--color-paper);
+}
+.dock > * { max-width: calc(var(--measure) + var(--space-md)); margin-inline: auto; }
+.dock textarea {
+	display: block; width: 100%; min-height: 2.75rem; max-height: 10rem;
+	padding: var(--space-sm) var(--space-xs) var(--space-2xs);
+	border: 0; background: transparent; resize: none;
+	font-size: var(--text-body); line-height: 1.45; field-sizing: content;
+}
+.dock textarea::placeholder { color: var(--color-ink-3); }
+.dock textarea:focus-visible { outline: none; }
+.dock-row { display: flex; align-items: center; gap: var(--space-2xs); }
+.dock-row .grow { flex: 1; min-width: 0; }
+.mode {
+	min-height: var(--tap); padding: 0 var(--space-sm); border: 0; border-radius: var(--radius-md); background: transparent;
+	font-size: var(--text-sm); font-weight: 600; white-space: nowrap;
+}
+.mode .other { color: var(--color-ink-3); font-weight: 400; }
+@media (hover: hover) and (pointer: fine) { .mode:hover { background: var(--color-paper-2); } }
+.meta {
+	min-width: 0; min-height: var(--tap); padding: 0 var(--space-xs); border: 0; border-radius: var(--radius-md); background: transparent;
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--color-ink-3); font-variant-numeric: tabular-nums;
+}
+@media (hover: hover) and (pointer: fine) { .meta:hover { color: var(--color-ink-2); background: var(--color-paper-2); } }
+.send { color: var(--color-ink); }
+.send:disabled { color: var(--color-ink-3); opacity: 1; }
+.stop { color: var(--color-ink); }
+.queued { list-style: none; margin: var(--space-2xs) auto 0; padding: 0; display: grid; gap: var(--space-2xs); }
+.queued li { display: flex; align-items: center; gap: var(--space-xs); min-height: 2.25rem; padding-inline-start: var(--space-sm); border-radius: var(--radius-md); background: var(--color-paper-2); font-size: var(--text-sm); color: var(--color-ink-2); }
+.queued li .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queued .tag { font-size: var(--text-2xs); color: var(--color-ink-3); }
+
+.approval {
+	display: grid; gap: var(--space-xs);
+	margin-block: var(--space-xs) var(--space-2xs); padding: var(--space-sm);
+	border-radius: var(--radius-lg); background: var(--color-paper-2);
+	border: var(--rule-hair) solid var(--color-wait);
+}
+.approval .what { display: flex; gap: var(--space-xs); align-items: start; font-size: var(--text-sm); }
+.approval .what .mark { margin-top: var(--space-3xs); }
+.approval pre { margin: 0; padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-sm); background: var(--color-paper); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-xs); }
+
+/* ── Changes ───────────────────────────────────────────────────────────────── */
+.totals { display: flex; align-items: baseline; gap: var(--space-sm); font-variant-numeric: tabular-nums; }
+.totals .add { color: var(--color-add); font-weight: 600; font-size: var(--text-lg); }
+.totals .del { color: var(--color-del); font-weight: 600; font-size: var(--text-lg); }
+.totals .since { font-size: var(--text-xs); color: var(--color-ink-3); }
+.files { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2xs); }
+.file-head {
+	display: grid; grid-template-columns: minmax(0, 1fr) auto 3rem; gap: var(--space-sm); align-items: center;
+	width: 100%; min-height: var(--tap); padding: 0 var(--space-sm);
+	border: 0; border-radius: var(--radius-md); background: transparent; text-align: start;
+}
+@media (hover: hover) and (pointer: fine) { .file-head:hover { background: var(--color-paper-2); } }
+.file-head[aria-expanded="true"] { background: var(--color-paper-2); border-end-start-radius: 0; border-end-end-radius: 0; }
+/* rtl so a long path loses its start, not its file name; left so it still lines up. */
+.file-head .fpath { font-family: var(--font-mono); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.file-head .fpath bdi { direction: ltr; }
+.file-head .counts { font-size: var(--text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.file-head .counts .add { color: var(--color-add); }
+.file-head .counts .del { color: var(--color-del); }
+.file-head .new { color: var(--color-ink-3); }
+.file-head .bar-mini { display: flex; height: 4px; border-radius: var(--radius-pill); overflow: hidden; background: var(--color-rule); }
+.file-head .bar-mini i { display: block; height: 100%; }
+.file-head .bar-mini .a { background: var(--color-add); }
+.file-head .bar-mini .d { background: var(--color-del); }
+.files .block { border-radius: 0 0 var(--radius-md) var(--radius-md); }
+.files .block pre { padding-top: var(--space-xs); white-space: pre; overflow-x: auto; }
+
+/* ── Sheets ────────────────────────────────────────────────────────────────── */
+.sheet-backdrop { position: fixed; inset: 0; z-index: var(--z-sheet); background: var(--color-scrim); opacity: 0; transition: opacity var(--dur-short) var(--ease-out); }
+.sheet-backdrop[data-open="true"] { opacity: 1; }
+.sheet {
+	position: fixed; z-index: var(--z-sheet);
+	/* --keyboard: how far the iOS keyboard covers the layout viewport. */
+	inset: auto 0 var(--keyboard, 0px) 0;
+	max-height: min(80dvh, 36rem); display: flex; flex-direction: column;
+	padding: var(--space-xs) max(var(--space-md), env(safe-area-inset-right)) max(var(--space-md), env(safe-area-inset-bottom)) max(var(--space-md), env(safe-area-inset-left));
+	border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-paper-2); border-top: var(--rule-hair) solid var(--color-rule-2);
+	transform: translateY(100%); transition: transform var(--dur-long) var(--ease-out);
+}
+.sheet[data-open="true"] { transform: none; }
+.sheet[data-closing="true"] { transition: transform calc(var(--dur-long) * 0.75) var(--ease-in); }
+@media (min-width: 40rem) {
+	.sheet { inset: auto auto 50% 50%; width: 26rem; border-radius: var(--radius-lg); border: var(--rule-hair) solid var(--color-rule-2); transform: translate(-50%, 54%); opacity: 0; transition: transform var(--dur-short) var(--ease-out), opacity var(--dur-short) var(--ease-out); }
+	.sheet[data-open="true"] { transform: translate(-50%, 50%); opacity: 1; }
+}
+.sheet .grabber { width: 2.25rem; height: 4px; margin: 0 auto var(--space-sm); border-radius: var(--radius-pill); background: var(--color-rule-2); }
+@media (min-width: 40rem) { .sheet .grabber { display: none; } }
+.sheet h2 { font-size: var(--text-md); margin-bottom: var(--space-sm); }
+.sheet .search { width: 100%; min-height: var(--tap); padding: 0 var(--space-sm); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-md); background: var(--color-paper); font-size: var(--text-md); }
+.sheet .search::placeholder { color: var(--color-ink-3); }
+.sheet .search:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 0; }
+.sheet .list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: var(--space-xs) calc(var(--space-xs) * -1) 0; padding: 0; list-style: none; }
+.pick { display: flex; align-items: center; gap: var(--space-sm); width: 100%; min-height: var(--tap); padding: 0 var(--space-xs); border: 0; border-radius: var(--radius-md); background: transparent; text-align: start; }
+@media (hover: hover) and (pointer: fine) { .pick:hover { background: var(--color-paper-3); } }
+.pick[aria-checked="true"] { color: var(--color-accent); }
+.pick[aria-checked="true"]::after { content: "\2713"; font-weight: 600; }
+.pick .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick .sub { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-3); white-space: nowrap; }
+.pick.danger { color: var(--color-bad); }
+.group-label { margin: var(--space-md) 0 var(--space-xs); font-size: var(--text-xs); color: var(--color-ink-3); font-weight: 500; }
+.seg { display: inline-flex; padding: var(--space-3xs); border-radius: var(--radius-md); background: var(--color-paper); border: var(--rule-hair) solid var(--color-rule); }
+.seg button { min-height: 2rem; padding: 0 var(--space-sm); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-ink-3); font-size: var(--text-xs); font-weight: 500; white-space: nowrap; position: relative; }
+.seg button::after { content: ""; position: absolute; inset: -6px 0; }
+.seg button[aria-pressed="true"] { background: var(--color-paper-3); color: var(--color-ink); }
+.windows { display: grid; gap: var(--space-md); font-variant-numeric: tabular-nums; }
+.windows .w { display: grid; gap: var(--space-2xs); }
+.windows .top { display: flex; justify-content: space-between; font-size: var(--text-sm); }
+.windows .track { height: 4px; border-radius: var(--radius-pill); background: var(--color-rule-2); overflow: hidden; }
+.windows .fill { display: block; height: 100%; background: var(--color-ink-2); }
+.windows .sub { font-size: var(--text-xs); color: var(--color-ink-3); }
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after { animation-duration: 150ms !important; animation-iteration-count: 1 !important; transition-duration: 150ms !important; }
+	.mark[data-state="running"] svg { animation: spin 2400ms linear infinite !important; }
+	.drawer, .sheet { transition: opacity 150ms linear !important; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app" data-drawer="closed">
+	<aside class="drawer" id="drawer" aria-label="Sessions">
+		<div class="drawer-head">
+			<h2>Sessions</h2>
+			<button class="icon-btn" data-nav="new" aria-label="New session">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+			</button>
+		</div>
+		<div class="drawer-list" id="drawer-list"></div>
+		<div class="drawer-foot"><button class="meter" id="meter" type="button" aria-label="Subscription windows"></button></div>
+	</aside>
+	<div class="scrim" id="scrim"></div>
+	<main class="main" id="main"></main>
+</div>
+<div class="sheet-backdrop" id="backdrop" hidden></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden></div>
+
+<script>
+// Sample data: what the host would send. Times are minutes before now.
+const now = Date.now();
+const min = (m) => now - m * 60_000;
+const ROOT = "~/westwood/Projects";
+
+const projects = [
+	["aludra", "Software"], ["gaidin", "Software"], ["homelab", "Software"], ["nurb", "Software"], ["bradjohnsonio-site", "Software"],
+	["skiesabove", "Software"], ["artifact-hub", "Software"], ["eyes-and-ears", "Software"], ["pocket-agent", "Software"],
+	["esp32-projects", "Electronics"], ["pocket-agent-hardware", "Electronics"], ["coprint", "Fabrication"], ["grinder-top", "Fabrication"],
+].map(([name, group]) => ({ name, dir: `${ROOT}/${group}/${name}` }));
+const dirOf = (name) => projects.find((p) => p.name === name).dir;
+
+const API_TS = `// The app's API: loopback HTTP and a WebSocket per watcher, behind Tailscale Serve.
+import { createServer } from "node:http";
+import { WebSocketServer } from "ws";
+
+export function serveApi(host: Host, port: number) {
+\tconst server = createServer(async (request, response) => {
+\t\t// Tailscale Serve vouches for who's asking.
+\t\tif (!fromTailscale(request)) return refuse(response, 403);
+\t\tconst route = routes.find((r) => r.match(request));
+\t\tawait (route?.handle(request, response) ?? refuse(response, 404));
+\t});
+\tconst sockets = new WebSocketServer({ server, path: "/api/watch" });
+\tsockets.on("connection", (socket, request) => watch(host, socket, request));
+\treturn server.listen(port, "127.0.0.1");
+}`;
+
+const sessions = [
+	{
+		id: 31, project: "aludra", title: "Add the HTTP and WebSocket API for the app", state: "running", started: min(6),
+		line: "bash pnpm test", model: "Opus 5.5", thinking: "high", context: 41_200,
+		turns: [{
+			ask: "Add the HTTP and WebSocket API for the app. Loopback only, Tailscale identity header like gaidin's web view.", at: min(6),
+			calls: [
+				{ tool: "read", arg: "docs/plan.md", took: "0.1s" }, { tool: "read", arg: "../gaidin/src/web.ts", took: "0.1s" },
+				{ tool: "read", arg: "../gaidin/docs/security.md", took: "0.1s" }, { tool: "read", arg: "src/server.ts", took: "0.1s" },
+				{ tool: "write", arg: "src/api.ts", took: "0.2s", code: API_TS },
+				{ tool: "edit", arg: "src/server.ts", took: "0.1s", diff: ["@@ -151,6 +151,7 @@", " \tconst server = listen(host, socketPath, watchers);", "+\tconst api = serveApi(host, config.api.port);", " \tconsole.error(`aludra listening on ${socketPath}`);"] },
+				{ tool: "write", arg: "test/api.test.ts", took: "0.2s" },
+			],
+			answer: null,
+		}],
+		live: { tool: "bash", cmd: "pnpm test", took: 14, tail: ["▶ api", "  ✔ refuses a request without the Tailscale identity header (2ms)", "  ✔ streams a session's events over the socket (48ms)"] },
+	},
+	{
+		id: 28, project: "gaidin", title: "Bump Pi Durable to 1.2.0 and rerun the live check", state: "waiting", started: min(22),
+		line: "Wants to run git push origin main", model: "Opus 5.5", thinking: "high", context: 88_900,
+		approval: { what: "git push", command: "git push origin main", why: "Pushing 2 commits: “Pi Durable 1.2.0” and “Live check after the upgrade”." },
+		turns: [{
+			ask: "Bump Pi Durable to 1.2.0, run pnpm check and the live check, and push if both pass.", at: min(22),
+			calls: [
+				{ tool: "bash", arg: "pnpm add @earendil-works/pi-durable@1.2.0", took: "9.1s" },
+				{ tool: "read", arg: "node_modules/@earendil-works/pi-durable/CHANGELOG.md", took: "0.1s" },
+				{ tool: "edit", arg: "src/approvals.ts", took: "0.1s", diff: ["@@ -298,4 +298,4 @@ export function signalOf(api, context) {", "-\tconst closed = \"signal\" in api && api.signal instanceof AbortSignal ? api.signal : undefined;", "+\tconst closed = api.runtimeSignal;", " \treturn AbortSignal.any([context.abortSignal, closed].filter((s) => s !== undefined));"] },
+				{ tool: "bash", arg: "pnpm check", took: "1m 48s", out: "tsc · oxlint · node --test\n# tests 186\n# pass 186\n# fail 0" },
+				{ tool: "bash", arg: "node scripts/live-check.ts", took: "2m 10s", out: "ok    two at once\nok    compaction summary from the bridge\nok    after kill -9 the run finished its steps\n\nAll live checks passed." },
+				{ tool: "bash", arg: "git commit -am \"Pi Durable 1.2.0\"", took: "0.3s" },
+			],
+			answer: "<p>1.2.0 renamed the hook's abort signal, so <code>signalOf</code> in <code>src/approvals.ts</code> reads <code>api.runtimeSignal</code> now. Both checks pass:</p><ul><li><strong>pnpm check:</strong> 186 tests, no failures.</li><li><strong>Live check:</strong> two sessions at once, compaction, and <code>kill -9</code> recovery all pass.</li></ul><p>Two commits are ready. Pushing needs your approval.</p>",
+		}],
+	},
+	{
+		id: 24, project: "homelab", title: "Why did the think-2 backup fail last night?", state: "failed", started: min(95),
+		failure: { kind: "refused", title: "Refused by Opus 5.5 safeguards", detail: "Classified as [cyber]. The last request read /etc/pve/storage.cfg and asked about the credentials in it.", ref: "req_011CXa7RmT9qkV2pLw4nH3dE" },
+		line: "Refused by safeguards · [cyber]", model: "Opus 5.5", thinking: "high", context: 23_400,
+		turns: [{
+			ask: "Why did the think-2 backup fail last night? Look at the vzdump log.", at: min(95),
+			calls: [
+				{ tool: "bash", arg: "ssh think-2 'journalctl -u pvescheduler --since yesterday'", took: "1.2s", out: "Oct 11 03:10:02 think-2 vzdump[48211]: ERROR: Backup of VM 104 failed - storage 'nas-backup' is not online" },
+				{ tool: "bash", arg: "ssh think-2 'cat /etc/pve/storage.cfg'", took: "0.8s" },
+			],
+			answer: null,
+		}],
+	},
+	{
+		id: 22, project: "bradjohnsonio-site", title: "Move the nav to the left on wide screens", state: "failed", started: min(140),
+		failure: { kind: "tests", title: "Tests failed", detail: "3 of 41 e2e tests failed in e2e/nav.spec.ts: the nav overlaps the article title at 1024px.", ref: "pnpm e2e · exit 1" },
+		line: "3 of 41 e2e tests failed", model: "Sonnet 5.5", thinking: "medium", context: 61_000,
+		turns: [{
+			ask: "Move the nav to the left on wide screens.", at: min(140),
+			calls: [{ tool: "read", arg: "src/layouts/Base.astro", took: "0.1s" }, { tool: "edit", arg: "src/styles/global.css", took: "0.1s" }, { tool: "bash", arg: "pnpm e2e", took: "38s", bad: true, out: "  ✘ nav › stays clear of the title at 1024px\n  ✘ nav › stays clear of the title at 1100px\n  ✘ nav › keeps the skip link first\n  3 failed · 38 passed" }],
+			answer: "<p>The nav sits in a left column from 64rem up. Three e2e tests fail: at 1024px the column overlaps the article title. I stopped there rather than guess at a breakpoint.</p>",
+		}],
+	},
+	{
+		id: 19, project: "skiesabove", title: "Pull tonight's ISS passes into the planner", state: "failed", started: min(300),
+		failure: { kind: "bridge", title: "Claude Code stopped answering", detail: "The bridge's Claude Code process exited with code 1 during the second request. Nothing after the last tool call ran.", ref: "pi-claude-bridge · exit 1" },
+		line: "Bridge error: Claude Code exited (code 1)", model: "Opus 5.5", thinking: "high", context: 12_800,
+		turns: [{ ask: "Pull tonight's ISS passes into the planner.", at: min(300), calls: [{ tool: "read", arg: "src/planner.ts", took: "0.1s" }], answer: null }],
+	},
+	{
+		id: 17, project: "nurb", title: "Bracket for the desk lamp, 4 mm walls", state: "done", started: min(180),
+		line: "Added parts/lamp_bracket.py", model: "Opus 5.5", thinking: "high", context: 34_000,
+		turns: [{ ask: "Design a bracket for the desk lamp: clamps a 25 mm tube, 4 mm walls, two M4 screws.", at: min(180),
+			calls: [{ tool: "read", arg: "parts/shelf_bracket.py", took: "0.1s" }, { tool: "write", arg: "parts/lamp_bracket.py", took: "0.1s" }, { tool: "bash", arg: "nurb check parts/lamp_bracket.py", took: "3.4s", out: "lamp_bracket: printable, no supports on its back face" }],
+			answer: "<p>Added <code>parts/lamp_bracket.py</code>: a split clamp for a 25 mm tube with 4 mm walls and two M4 holes 32 mm apart. <code>nurb check</code> says it prints without supports on its back face.</p>" }],
+	},
+	{
+		id: 12, project: "aludra", title: "Milestone 1: host and CLI", state: "done", started: min(60 * 26),
+		line: "All live checks passed", model: "Opus 5.5", thinking: "high", context: 402_000,
+		turns: [{ ask: "start milestone 1", at: min(60 * 26), calls: [{ tool: "read", arg: "docs/plan.md", took: "0.1s" }, { tool: "write", arg: "src/bridge.ts", took: "0.2s" }, { tool: "bash", arg: "pnpm check", took: "41s" }, { tool: "bash", arg: "node scripts/live-check.ts", took: "1m 52s" }],
+			answer: "<p>Milestone 1 is done. Two sessions run at once, compaction rebuilds Claude Code's session, and a run survives <code>kill -9</code>.</p>" }],
+	},
+];
+
+const ideas = [
+	{ project: "aludra", text: "Show the subscription windows in the session footer, not only in the drawer" },
+	{ project: "homelab", text: "Weekly check that every VM on think-1 and think-2 has a backup younger than 2 days" },
+	{ project: "gaidin", text: "Hand coding requests to aludra instead of the sandbox" },
+];
+
+const changes = {
+	31: [
+		{ path: "src/api.ts", add: 212, del: 0, isNew: true, hunk: API_TS.split("\n").slice(0, 8).map((l) => `+${l}`) },
+		{ path: "test/api.test.ts", add: 140, del: 0, isNew: true, hunk: ["+test(\"refuses a request without the Tailscale identity header\", async (t) => {", "+\tconst response = await fetch(`${base}/api/sessions`);", "+\tassert.equal(response.status, 403);", "+});"] },
+		{ path: "src/server.ts", add: 18, del: 4, hunk: ["@@ -151,6 +151,7 @@ export async function serve(config: Config) {", " \tconst server = listen(host, socketPath, watchers);", "+\tconst api = serveApi(host, config.api.port);", " \tconsole.error(`aludra listening on ${socketPath}`);"] },
+		{ path: "src/config.ts", add: 9, del: 1, hunk: ["@@ -27,6 +27,8 @@ export type Config = {", " \tdataDir: string;", "+\t/** Loopback port for the app's API; tailscale serve proxies to it. */", "+\tapi: { port: number; user: string };"] },
+		{ path: "package.json", add: 2, del: 0, hunk: ["@@ -30,6 +30,7 @@", " \t\t\"jiti\": \"2.7.0\",", "+\t\t\"ws\": \"8.21.0\","] },
+	],
+};
+
+const models = ["Opus 5.5", "Sonnet 5.5", "Haiku 5.5", "Fable 5.1"];
+const thinkingLevels = ["off", "low", "medium", "high", "xhigh"];
+const windows = { fiveHour: { used: 0.38, resets: "23:00" }, week: { used: 0.12, resets: "Monday 09:00" } };
+
+let view = { screen: "session", id: null };
+let draftProject = "aludra";
+const open = new Set();
+const queued = new Map();
+let nextId = 32;
+
+const $ = (s, root = document) => root.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[c]);
+const wide = () => matchMedia("(min-width: 60rem)").matches;
+function age(at) {
+	const m = Math.max(0, Math.round((Date.now() - at) / 60_000));
+	if (m < 1) return "now";
+	if (m < 60) return `${m}m`;
+	const h = Math.round(m / 60);
+	return h < 48 ? `${h}h` : `${Math.round(h / 24)}d`;
+}
+const tokens = (n) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`);
+
+const svg = (body, view = "0 0 24 24") => `<svg viewBox="${view}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const icon = {
+	menu: svg('<path d="M4 7h16M4 12h16M4 17h10"/>'),
+	back: svg('<path d="M15 5l-7 7 7 7"/>'),
+	files: svg('<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>'),
+	more: svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>'),
+	plus: svg('<path d="M12 5v14M5 12h14"/>'),
+	send: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+	stop: svg('<rect x="6" y="6" width="12" height="12" rx="2"/>'),
+	down: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+	chev: '<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>',
+	copy: svg('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 4.5H6a1.5 1.5 0 0 0-1.5 1.5v10"/>'),
+	check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+};
+const markSvg = {
+	running: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-opacity="0.3" stroke-width="1.8"/><path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+	waiting: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z" fill="currentColor"/><path d="M8 5v3.75M8 11v.01" stroke="var(--color-wait-ink)" stroke-width="1.6" stroke-linecap="round"/></svg>',
+	failed: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+	done: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+	stopped: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+	idea: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.75" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 2.2"/></svg>',
+};
+const stateLabel = { running: "Running", waiting: "Waiting for you", failed: "Failed", done: "Done", stopped: "Stopped", idea: "Idea" };
+const mark = (state) => `<span class="mark" data-state="${state}" role="img" aria-label="${stateLabel[state]}">${markSvg[state]}</span>`;
+
+/** A little TypeScript highlighting: comments, strings, keywords, numbers, called names. */
+function highlight(code) {
+	const pattern = /(\/\/[^\n]*)|("(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*')|\b(const|let|await|async|function|return|import|from|export|if|new|of|for)\b|\b(\d+)\b|\b([A-Za-z_$][\w$]*)(?=\()/g;
+	let out = "", last = 0;
+	for (const m of code.matchAll(pattern)) {
+		out += esc(code.slice(last, m.index));
+		const cls = m[1] ? "c" : m[2] ? "s" : m[3] ? "k" : m[4] ? "d" : "n";
+		out += `<span class="${cls}">${esc(m[0])}</span>`;
+		last = m.index + m[0].length;
+	}
+	return out + esc(code.slice(last));
+}
+const diffLines = (lines) => lines.map((l) => `<span class="${l.startsWith("@@") ? "hunk" : l[0] === "+" ? "ins" : l[0] === "-" ? "rem" : ""}">${esc(l)}</span>`).join("");
+
+/** One line for a finished round of calls. */
+function summarize(calls) {
+	const n = { read: 0, bash: 0, edit: 0 };
+	for (const c of calls) n[c.tool === "write" ? "edit" : c.tool] += 1;
+	const parts = [];
+	if (n.read) parts.push(`read ${n.read} file${n.read === 1 ? "" : "s"}`);
+	if (n.bash) parts.push(`ran ${n.bash} command${n.bash === 1 ? "" : "s"}`);
+	if (n.edit) parts.push(`edited ${n.edit}`);
+	return parts.join(" · ");
+}
+
+// ── Drawer ──────────────────────────────────────────────────────────────────
+const urgency = { waiting: 0, running: 1, failed: 2, stopped: 3, done: 4 };
+function renderDrawer() {
+	const byProject = new Map();
+	for (const s of sessions) byProject.set(s.project, [...(byProject.get(s.project) ?? []), s]);
+	for (const idea of ideas) if (!byProject.has(idea.project)) byProject.set(idea.project, []);
+	const rank = (list) => Math.min(...list.map((s) => urgency[s.state]), 9);
+	const latest = (list) => Math.max(...list.map((s) => s.started), 0);
+	const ordered = [...byProject].sort(([, a], [, b]) => rank(a) - rank(b) || latest(b) - latest(a));
+	$("#drawer-list").innerHTML = `<div class="machine"><span class="dot" aria-hidden="true"></span>egwene · local</div>` + ordered.map(([name, list]) => {
+		const rows = list.sort((a, b) => urgency[a.state] - urgency[b.state] || b.started - a.started).map((s) => `
+			<li><button class="session-row${s.isNew ? " is-new" : ""}" data-state="${s.state}" data-open-session="${s.id}" ${s.id === view.id ? 'aria-current="true"' : ""}>
+				${mark(s.state)}<span><span class="title">${esc(s.title)}</span><span class="line">${esc(s.line)}</span></span><span class="age">${age(s.started)}</span>
+			</button></li>`).join("");
+		const projectIdeas = ideas.filter((i) => i.project === name).map((idea) => `
+			<li class="idea-row${idea.isNew ? " is-new" : ""}">${mark("idea")}<span class="text">${esc(idea.text)}</span><button class="btn small" data-start-idea="${ideas.indexOf(idea)}">Start</button></li>`).join("");
+		return `<section class="dir"><div class="dir-head"><span class="name">${esc(name)}</span><span class="where">${esc(dirOf(name).replace(ROOT, "~/w/P"))}</span></div><ul class="rows">${rows}${projectIdeas}</ul></section>`;
+	}).join("");
+	for (const s of sessions) s.isNew = false;
+	for (const i of ideas) i.isNew = false;
+	const row = (label, w) => `<span class="row"><span>${label}</span><span class="track"><i class="fill" style="transform: scaleX(${w.used})"></i></span><span class="pct">${Math.round(w.used * 100)}%</span></span>`;
+	$("#meter").innerHTML = row("5-hour", windows.fiveHour) + row("Week", windows.week);
+}
+
+// ── Main ────────────────────────────────────────────────────────────────────
+function renderMain() {
+	const main = $("#main");
+	if (view.screen === "new") return renderNew(main);
+	const s = sessions.find((x) => x.id === view.id);
+	const files = changes[s.id] ?? [];
+	const add = files.reduce((n, f) => n + f.add, 0), del = files.reduce((n, f) => n + f.del, 0);
+	const head = view.screen === "changes"
+		? `<button class="icon-btn" data-nav="session" aria-label="Back to the session">${icon.back}</button><div class="who"><h1>Changes</h1><span class="path"><bdi>${esc(s.title)}</bdi></span></div>`
+		: `<button class="icon-btn menu-btn" data-nav="drawer" aria-label="Sessions">${icon.menu}</button>
+			<div class="who"><h1>${esc(s.title)}</h1><button class="path" data-nav="changes" aria-label="Changes in ${esc(dirOf(s.project))}"><bdi>egwene:${esc(dirOf(s.project))}</bdi></button></div>
+			<button class="icon-btn" data-nav="changes" aria-label="Changes: ${files.length} files">${icon.files}${files.length ? `<span>${files.length}</span>` : ""}</button>
+			<button class="icon-btn" data-sheet="more" aria-label="Session menu">${icon.more}</button>`;
+	main.innerHTML = `<header class="head">${head}</header>
+		<div class="scroll-wrap"><div class="scroll" id="scroll"><div class="column">${view.screen === "changes" ? changesView(s, files, add, del) : transcript(s)}</div></div>
+		<button class="to-bottom" id="to-bottom" aria-label="Jump to the latest">${icon.down}</button></div>
+		${view.screen === "changes" ? "" : `<footer class="dock">${dock(s)}</footer>`}`;
+	if (view.screen === "session") { const sc = $("#scroll"); sc.scrollTop = sc.scrollHeight; }
+	watchScroll();
+}
+
+function renderNew(main) {
+	const projectIdeas = ideas.filter((i) => i.project === draftProject);
+	main.innerHTML = `<header class="head">
+			<button class="icon-btn menu-btn" data-nav="drawer" aria-label="Sessions">${icon.menu}</button>
+			<div class="who"><h1>New session</h1><button class="path" data-sheet="project"><bdi>egwene:${esc(dirOf(draftProject))}</bdi></button></div>
+			<button class="icon-btn" data-sheet="project" aria-label="Change project">${icon.files}</button>
+		</header>
+		<div class="scroll-wrap"><div class="scroll"><div class="column">
+			<div class="empty"><h2>${esc(draftProject)}</h2>Type what it should do, or keep it as an idea for later. Tap the path to change project.</div>
+			${projectIdeas.length ? `<ul class="rows">${projectIdeas.map((idea) => `<li class="idea-row">${mark("idea")}<span class="text">${esc(idea.text)}</span><button class="btn small" data-start-idea="${ideas.indexOf(idea)}">Start</button></li>`).join("")}</ul>` : ""}
+		</div></div></div>
+		<footer class="dock"><form id="new-form">
+			<label class="visually-hidden" for="text">What should it do?</label>
+			<textarea id="text" rows="1" placeholder="What should it do?" enterkeyhint="send"></textarea>
+			<div class="dock-row">
+				<button class="icon-btn" type="button" data-save-idea aria-label="Save as idea" disabled>${icon.plus}<span>Idea</span></button>
+				<span class="grow"></span>
+				<button class="meta" type="button" data-sheet="model">Opus 5.5 · high</button>
+				<button class="icon-btn send" type="submit" aria-label="Start session" disabled>${icon.send}</button>
+			</div>
+		</form></footer>`;
+}
+
+function callRows(s, t, ti, live) {
+	return t.calls.map((c, ci) => {
+		const key = `${s.id}:${ti}:${ci}`;
+		const detail = c.code ? `<pre>${highlight(c.code)}</pre>` : c.diff ? `<pre>${diffLines(c.diff)}</pre>` : c.out ? `<pre>${esc(c.out)}</pre>` : "";
+		return `<div class="call-row">${mark(c.bad ? "failed" : "done")}<span class="tool">${c.tool}</span>
+			${detail ? `<button class="arg" data-fold="${key}" aria-expanded="${open.has(key)}" title="${esc(c.arg)}">${esc(c.arg)}</button>` : `<span class="arg" title="${esc(c.arg)}">${esc(c.arg)}</span>`}
+			<span class="took${c.bad ? " bad" : ""}">${c.took}</span></div>
+			${detail ? `<div class="fold" data-open="${open.has(key)}"><div><div class="block">${detail}</div></div></div>` : ""}`;
+	}).join("") + (live ? liveBlock(live) : "");
+}
+
+function liveBlock(live) {
+	return `<div class="block" aria-live="polite"><div class="block-head"><span class="glyph">&gt;_</span><span class="label">${live.tool}</span><span class="preview">${esc(live.cmd)}</span>${mark("running")}<span class="preview">${live.took}s</span></div><pre class="tail">${live.tail.map(esc).join("\n")}</pre></div>`;
+}
+
+function transcript(s) {
+	const out = s.turns.map((t, ti) => {
+		const last = ti === s.turns.length - 1;
+		const live = last && s.state === "running" ? s.live : null;
+		const key = `${s.id}:${ti}`;
+		let calls = "";
+		if (t.calls.length && (live || !last || s.state !== "running")) {
+			calls = live
+				? `<div class="calls">${callRows(s, t, ti, live)}</div>`
+				: `<div class="calls"><button class="fold-row" data-fold="${key}" aria-expanded="${open.has(key)}">${mark(t.calls.some((c) => c.bad) ? "failed" : "done")}<span class="what">${summarize(t.calls)}</span><span class="took">${t.calls.length} calls</span>${icon.chev}</button>
+					<div class="fold" data-open="${open.has(key)}"><div>${callRows(s, t, ti, null)}</div></div></div>`;
+		} else if (live) calls = liveBlock(live);
+		return `<div class="user">${t.steer ? '<span class="tag">Steer</span>' : ""}${esc(t.ask)}</div>
+			${calls}
+			${t.answer ? `<div class="prose">${t.answer}</div><div class="copy-row"><button class="icon-btn" data-copy aria-label="Copy answer">${icon.copy}</button></div>` : ""}
+			${last && s.state === "stopped" ? '<p class="note">Stopped. Nothing else runs until you send something.</p>' : ""}
+			${last && s.failure ? failureView(s.failure) : ""}`;
+	}).join("");
+	return out;
+}
+
+function failureView(f) {
+	const next = { refused: ["Reword and retry", "Start fresh"], tests: ["Ask it to fix them", "Show the test output"], bridge: ["Retry the request", "Run aludra doctor"] }[f.kind];
+	return `<section class="failure"><h3>${mark("failed")}${esc(f.title)}</h3><p>${esc(f.detail)}</p>
+		<div class="ref"><code>${esc(f.ref)}</code>${f.kind === "refused" ? `<button class="btn small" data-copy-ref="${esc(f.ref)}">Copy ID</button>` : ""}</div>
+		<div class="next">${next.map((label) => `<button class="btn small">${label}</button>`).join("")}</div></section>`;
+}
+
+function changesView(s, files, add, del) {
+	if (!files.length) return `<p class="empty">No changes since this session started.</p>`;
+	const sorted = [...files].sort((a, b) => b.add + b.del - (a.add + a.del));
+	const most = Math.max(...sorted.map((f) => f.add + f.del));
+	return `<div class="totals"><span class="add">+${add}</span><span class="del">−${del}</span><span class="since">${files.length} files since ${age(s.started)} ago</span></div>
+	<ul class="files">${sorted.map((f) => {
+		const key = `file:${f.path}`;
+		return `<li><button class="file-head" data-fold="${key}" aria-expanded="${open.has(key)}">
+			<span class="fpath"><bdi>${esc(f.path)}</bdi></span>
+			<span class="counts">${f.isNew ? '<span class="new">new </span>' : ""}<span class="add">+${f.add}</span> <span class="del">−${f.del}</span></span>
+			<span class="bar-mini" aria-hidden="true"><i class="a" style="width:${(f.add / most) * 100}%"></i><i class="d" style="width:${(f.del / most) * 100}%"></i></span>
+		</button><div class="fold" data-open="${open.has(key)}"><div><div class="block"><pre>${diffLines(f.hunk)}</pre></div></div></div></li>`;
+	}).join("")}</ul>`;
+}
+
+function dock(s) {
+	const q = queued.get(s.id) ?? [];
+	const running = s.state === "running";
+	const mode = s.mode ?? "steer";
+	const approval = s.state === "waiting" && s.approval ? `<section class="approval" aria-label="Approval">
+		<div class="what">${mark("waiting")}<span>${esc(s.approval.why)}</span></div><pre>${esc(s.approval.command)}</pre>
+		<div class="buttons"><button class="btn" data-decide="deny">Deny</button><button class="btn wait" data-decide="allow">Allow ${esc(s.approval.what)}</button></div></section>` : "";
+	return `${approval}${q.length ? `<ul class="queued">${q.map((text, i) => `<li><span class="tag">Next</span><span class="grow">${esc(text)}</span><button class="icon-btn" data-unqueue="${i}" aria-label="Remove from queue">×</button></li>`).join("")}</ul>` : ""}
+		<form id="session-form">
+			<label class="visually-hidden" for="text">${running ? "Steer or queue a message" : "Follow up"}</label>
+			<textarea id="text" rows="1" placeholder="${running ? (mode === "steer" ? "Steer the current run…" : "Queue for when it's done…") : "Follow up…"}" enterkeyhint="send"></textarea>
+			<div class="dock-row">
+				<button class="icon-btn" type="button" data-sheet="more" aria-label="More">${icon.plus}</button>
+				${running ? `<button class="mode" type="button" data-toggle-mode aria-label="Deliver as ${mode === "steer" ? "steer; tap for queue" : "queue; tap for steer"}">${mode === "steer" ? "Steer" : "Queue"}</button>` : ""}
+				<span class="grow"></span>
+				<button class="meta" type="button" data-sheet="model">${esc(s.model)} · ${esc(s.thinking)} · ${tokens(s.context)}</button>
+				${running ? `<button class="icon-btn stop" type="button" data-stop aria-label="Stop the run">${icon.stop}</button>` : ""}
+				<button class="icon-btn send" type="submit" aria-label="Send" ${running ? "hidden" : ""} disabled>${icon.send}</button>
+			</div>
+		</form>`;
+}
+
+function watchScroll() {
+	const sc = $("#scroll"), btn = $("#to-bottom");
+	if (!sc || !btn) return;
+	const update = () => (btn.dataset.show = String(sc.scrollHeight - sc.scrollTop - sc.clientHeight > 160));
+	sc.addEventListener("scroll", update, { passive: true });
+	update();
+}
+
+// ── Navigation ──────────────────────────────────────────────────────────────
+function route() {
+	const m = /^#(?:s\/(\d+)(\/changes)?|(new))$/.exec(location.hash);
+	if (m?.[3]) view = { screen: "new", id: null };
+	else if (m?.[1]) view = { screen: m[2] ? "changes" : "session", id: Number(m[1]) };
+	else view = { screen: "session", id: sessions.find((s) => s.state === "waiting")?.id ?? sessions[0].id };
+	// With no route, a phone opens on the drawer: what every session is doing, at a glance.
+	setDrawer(!m && !wide());
+	renderDrawer();
+	renderMain();
+}
+function setDrawer(isOpen) { $("#app").dataset.drawer = isOpen ? "open" : "closed"; }
+window.addEventListener("hashchange", route);
+
+// ── The sample run: a few seconds of work, so streaming can be judged. ──────
+function tick(s) {
+	if (s.state !== "running" || !s.live) return;
+	const step = s.script.shift();
+	if (!step) return;
+	if (step.tail) s.live.tail = [...s.live.tail, step.tail].slice(-4);
+	s.live.took = step.took ?? s.live.took;
+	if (step.call) {
+		s.turns.at(-1).calls.push(step.call);
+		s.live = step.next ? { ...step.next, tail: [] } : s.live;
+	}
+	if (step.done) {
+		const turn = s.turns.at(-1);
+		turn.calls.push({ tool: s.live.tool, arg: s.live.cmd, took: `${s.live.took}s`, out: s.live.tail.join("\n") });
+		turn.answer = step.answer;
+		s.state = "done"; s.line = step.line; s.live = null;
+		const next = (queued.get(s.id) ?? []).shift();
+		if (next) startTurn(s, next);
+	}
+	refresh(s);
+	if (s.state === "running") setTimeout(() => tick(s), 1500);
+}
+const apiScript = () => [
+	{ tail: "  ✔ lists sessions grouped by project (6ms)", took: 15 },
+	{ tail: "  ✔ approves a pending request over the API (31ms)", took: 17 },
+	{ tail: "▶ bridge", took: 18 },
+	{ tail: "  ✔ a request's abort reaches the bridge only while its stream runs (4ms)", took: 19 },
+	{ tail: "ℹ tests 27 · pass 27 · fail 0", took: 21, done: true, line: "27 tests pass",
+		answer: "<p>The API is in <code>src/api.ts</code>:</p><ol><li><strong>HTTP:</strong> <code>GET /api/sessions</code>, <code>POST /api/sessions/:id/messages</code> and the approvals.</li><li><strong>WebSocket:</strong> one per watcher at <code>/api/watch</code>, sending the session's events.</li><li><strong>Identity:</strong> any request without Tailscale's identity header gets a 403, as in gaidin's web view.</li></ol><p>27 tests pass.</p>" },
+];
+function startTurn(s, text, steer = false) {
+	s.turns.push({ ask: text, at: Date.now(), calls: [], answer: null, steer });
+	s.state = "running"; s.line = "read AGENTS.md";
+	s.live = { tool: "bash", cmd: "rg -n \"TODO\" src", took: 0, tail: [] };
+	s.script = [
+		{ call: { tool: "read", arg: "AGENTS.md", took: "0.1s" }, took: 0 },
+		{ call: { tool: "read", arg: "docs/plan.md", took: "0.1s" }, took: 1 },
+		{ tail: "src/host.ts:212:  // TODO: per-session model choices", took: 2 },
+		{ tail: "src/server.ts:88:  // TODO: stream partial answers", took: 3, done: true, line: "Found 2 TODOs", answer: "<p>Two TODOs in <code>src</code>: per-session model choices in <code>src/host.ts</code>, and streaming partial answers in <code>src/server.ts</code>. Want me to start on either?</p>" },
+	];
+	setTimeout(() => tick(s), 1200);
+}
+function refresh(s) {
+	renderDrawer();
+	if (s.id === view.id && view.screen === "session") {
+		const sc = $("#scroll");
+		const atBottom = !sc || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 60;
+		const top = sc?.scrollTop ?? 0;
+		const ta = $("#text"), draft = ta?.value ?? "", focused = document.activeElement === ta;
+		renderMain();
+		const t = $("#text");
+		if (t) { t.value = draft; syncSend(t); if (focused) t.focus({ preventScroll: true }); }
+		if (!atBottom) $("#scroll").scrollTop = top;
+	}
+}
+
+// ── Events ──────────────────────────────────────────────────────────────────
+function syncSend(ta) {
+	const form = ta.closest("form");
+	const empty = ta.value.trim() === "";
+	const send = form.querySelector('[type="submit"]');
+	send.disabled = empty;
+	const s = sessions.find((x) => x.id === view.id);
+	if (form.id === "session-form" && s?.state === "running") send.hidden = empty;
+	const idea = form.querySelector("[data-save-idea]");
+	if (idea) idea.disabled = empty;
+}
+document.addEventListener("input", (e) => {
+	if (e.target.id === "text") syncSend(e.target);
+	if (e.target.matches(".sheet .search")) renderProjectList(e.target.value);
+});
+document.addEventListener("keydown", (e) => {
+	if (e.key === "Enter" && !e.shiftKey && e.target.id === "text" && matchMedia("(pointer: fine)").matches) { e.preventDefault(); e.target.closest("form").requestSubmit(); }
+	if (e.key === "Escape") { if (!$("#sheet").hidden) closeSheet(); else if ($("#app").dataset.drawer === "open") setDrawer(false); }
+});
+document.addEventListener("submit", (e) => {
+	e.preventDefault();
+	const ta = $("#text");
+	const text = ta.value.trim();
+	if (!text) return;
+	if (e.target.id === "new-form") {
+		const s = { id: nextId++, project: draftProject, title: text.split("\n")[0].slice(0, 80), state: "running", started: Date.now(), line: "Starting", model: "Opus 5.5", thinking: "high", context: 0, turns: [], isNew: true };
+		sessions.unshift(s); startTurn(s, text);
+		location.hash = `#s/${s.id}`;
+		return;
+	}
+	const s = sessions.find((x) => x.id === view.id);
+	if (s.state === "running" && (s.mode ?? "steer") === "queue") queued.set(s.id, [...(queued.get(s.id) ?? []), text]);
+	// A steer joins the running work after the current tool round.
+	else if (s.state === "running") s.turns.push({ ask: text, at: Date.now(), calls: [], answer: null, steer: true });
+	else { s.approval = null; s.failure = null; startTurn(s, text); }
+	ta.value = "";
+	refresh(s);
+	$("#text")?.focus({ preventScroll: true });
+});
+document.addEventListener("click", (e) => {
+	if (e.target.id === "scrim") { setDrawer(false); return; }
+	if (e.target.id === "backdrop") { closeSheet(); return; }
+	const t = e.target.closest("button");
+	if (!t) return;
+	const s = sessions.find((x) => x.id === view.id);
+	if (t.dataset.openSession) { location.hash = `#s/${t.dataset.openSession}`; setDrawer(false); return; }
+	if (t.dataset.nav === "drawer") { setDrawer(true); return; }
+	if (t.dataset.nav === "new") { location.hash = "#new"; setDrawer(false); return; }
+	if (t.dataset.nav === "changes") { location.hash = `#s/${view.id}/changes`; return; }
+	if (t.dataset.nav === "session") { location.hash = `#s/${view.id}`; return; }
+	if (t.dataset.fold) {
+		const key = t.dataset.fold;
+		open.has(key) ? open.delete(key) : open.add(key);
+		t.setAttribute("aria-expanded", String(open.has(key)));
+		const fold = t.closest(".call-row")?.nextElementSibling ?? t.nextElementSibling;
+		fold.dataset.open = String(open.has(key));
+		return;
+	}
+	if (t.id === "to-bottom") { $("#scroll").scrollTo({ top: $("#scroll").scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); return; }
+	if (t.hasAttribute("data-toggle-mode")) { s.mode = (s.mode ?? "steer") === "steer" ? "queue" : "steer"; refresh(s); return; }
+	if (t.hasAttribute("data-stop")) { s.state = "stopped"; s.live = null; s.line = "Stopped"; s.script = []; queued.delete(s.id); closeSheet(); refresh(s); return; }
+	if (t.dataset.unqueue) { queued.get(s.id).splice(Number(t.dataset.unqueue), 1); refresh(s); return; }
+	if (t.dataset.decide) {
+		const allow = t.dataset.decide === "allow";
+		const turn = s.turns.at(-1);
+		turn.calls.push({ tool: "bash", arg: s.approval.command, took: allow ? "1.4s" : "denied", bad: !allow });
+		turn.answer += allow ? "<p>Pushed 2 commits to <code>origin/main</code>.</p>" : "<p>Didn't push. The two commits are still on <code>main</code> locally.</p>";
+		s.approval = null; s.state = "done"; s.line = allow ? "Pushed to origin/main" : "Push denied; commits kept locally";
+		refresh(s); return;
+	}
+	if (t.hasAttribute("data-copy")) { navigator.clipboard?.writeText(t.closest(".copy-row").previousElementSibling.innerText); t.dataset.state = "success"; t.innerHTML = icon.check; setTimeout(() => { delete t.dataset.state; t.innerHTML = icon.copy; }, 1500); return; }
+	if (t.dataset.copyRef) { navigator.clipboard?.writeText(t.dataset.copyRef); t.dataset.state = "success"; t.textContent = "Copied"; setTimeout(() => { delete t.dataset.state; t.textContent = "Copy ID"; }, 1500); return; }
+	if (t.dataset.startIdea !== undefined) {
+		const [idea] = ideas.splice(Number(t.dataset.startIdea), 1);
+		const created = { id: nextId++, project: idea.project, title: idea.text.slice(0, 80), state: "running", started: Date.now(), line: "Starting", model: "Opus 5.5", thinking: "high", context: 0, turns: [], isNew: true };
+		sessions.unshift(created); startTurn(created, idea.text);
+		location.hash = `#s/${created.id}`; setDrawer(false);
+		return;
+	}
+	if (t.hasAttribute("data-save-idea")) {
+		const ta = $("#text");
+		ideas.unshift({ project: draftProject, text: ta.value.trim(), isNew: true });
+		ta.value = ""; syncSend(ta);
+		renderDrawer(); renderMain();
+		return;
+	}
+	if (t.id === "meter") { openSheet("windows"); return; }
+	if (t.dataset.sheet) { openSheet(t.dataset.sheet); return; }
+	if (t.dataset.pickProject) { draftProject = t.dataset.pickProject; closeSheet(); renderMain(); $("#text")?.focus(); return; }
+	if (t.dataset.pickModel) { s.model = t.dataset.pickModel; openSheet("model"); refresh(s); return; }
+	if (t.dataset.pickThinking) { s.thinking = t.dataset.pickThinking; openSheet("model"); refresh(s); return; }
+});
+
+// ── Sheets ──────────────────────────────────────────────────────────────────
+let lastFocus = null;
+function openSheet(kind) {
+	const sheet = $("#sheet"), backdrop = $("#backdrop");
+	if (sheet.hidden) lastFocus = document.activeElement;
+	const s = sessions.find((x) => x.id === view.id) ?? { model: "Opus 5.5", thinking: "high" };
+	if (kind === "project") {
+		sheet.innerHTML = `<div class="grabber"></div><h2 id="sheet-title">Project</h2><input class="search" type="search" placeholder="aludra" aria-label="Find a project" autocomplete="off"><ul class="list" id="project-list"></ul>`;
+		renderProjectList("");
+	} else if (kind === "model") {
+		sheet.innerHTML = `<div class="grabber"></div><h2 id="sheet-title">Model</h2>
+			<ul class="list">${models.map((m) => `<li><button class="pick" role="menuitemradio" aria-checked="${m === s.model}" data-pick-model="${m}"><span class="grow">${m}</span></button></li>`).join("")}</ul>
+			<p class="group-label">Thinking</p>
+			<div class="seg" role="group" aria-label="Thinking">${thinkingLevels.map((l) => `<button type="button" data-pick-thinking="${l}" aria-pressed="${l === s.thinking}">${l}</button>`).join("")}</div>`;
+	} else if (kind === "more") {
+		const running = s.state === "running";
+		sheet.innerHTML = `<div class="grabber"></div><h2 id="sheet-title">${esc(s.title ?? "Session")}</h2><ul class="list">
+			<li><button class="pick" data-sheet="model"><span class="grow">Model and thinking</span><span class="sub">${esc(s.model)} · ${esc(s.thinking)}</span></button></li>
+			<li><button class="pick" data-nav="changes"><span class="grow">Changes</span><span class="sub">${(changes[s.id] ?? []).length} files</span></button></li>
+			<li><button class="pick" data-sheet="windows"><span class="grow">Subscription</span><span class="sub">5-hour ${Math.round(windows.fiveHour.used * 100)}%</span></button></li>
+			${running ? '<li><button class="pick danger" data-stop><span class="grow">Stop the run</span></button></li>' : ""}
+		</ul>`;
+	} else {
+		const w = (label, x, sub) => `<div class="w"><div class="top"><span>${label}</span><span>${Math.round(x.used * 100)}% used</span></div><span class="track"><i class="fill" style="width:${x.used * 100}%"></i></span><span class="sub">${sub}</span></div>`;
+		sheet.innerHTML = `<div class="grabber"></div><h2 id="sheet-title">Subscription</h2><div class="windows">${w("Five-hour window", windows.fiveHour, `Resets at ${windows.fiveHour.resets}`)}${w("Weekly", windows.week, `Resets ${windows.week.resets}`)}<span class="sub">Max plan · from the bridge's last rate-limit event, 2m ago</span></div>`;
+	}
+	sheet.hidden = false; backdrop.hidden = false; sheet.dataset.closing = "false";
+	requestAnimationFrame(() => { sheet.dataset.open = "true"; backdrop.dataset.open = "true"; });
+	(sheet.querySelector(".search") ?? sheet.querySelector("button"))?.focus({ preventScroll: true });
+}
+function closeSheet() {
+	const sheet = $("#sheet"), backdrop = $("#backdrop");
+	if (sheet.hidden) return;
+	sheet.dataset.closing = "true"; sheet.dataset.open = "false"; backdrop.dataset.open = "false";
+	setTimeout(() => { sheet.hidden = true; backdrop.hidden = true; }, 300);
+	lastFocus?.focus?.({ preventScroll: true });
+}
+document.addEventListener("click", (e) => { if (e.target.closest(".sheet [data-nav]")) closeSheet(); }, true);
+function renderProjectList(query) {
+	const q = query.trim().toLowerCase();
+	const recent = [...new Set(sessions.map((s) => s.project))];
+	const matches = projects.filter((p) => p.name.includes(q)).sort((a, b) => (recent.indexOf(a.name) + 1 || 99) - (recent.indexOf(b.name) + 1 || 99));
+	$("#project-list").innerHTML = matches.length
+		? matches.map((p) => `<li><button class="pick" role="menuitemradio" aria-checked="${p.name === draftProject}" data-pick-project="${p.name}"><span class="grow">${esc(p.name)}</span><span class="sub">${esc(p.dir.replace(ROOT, "~/w/P"))}</span></button></li>`).join("")
+		: `<li class="empty">No project matches “${esc(query)}”.</li>`;
+}
+
+// ── The keyboard: keep the composer and sheets above it on iOS. ─────────────
+if (window.visualViewport) {
+	const fit = () => {
+		document.documentElement.style.setProperty("--vvh", `${visualViewport.height}px`);
+		document.documentElement.style.setProperty("--keyboard", `${Math.max(0, innerHeight - visualViewport.height - visualViewport.offsetTop)}px`);
+		window.scrollTo(0, 0);
+	};
+	visualViewport.addEventListener("resize", fit);
+	fit();
+}
+
+route();
+for (const s of sessions) if (s.state === "running") { s.script = apiScript(); setTimeout(() => tick(s), 2000); }
+</script>
+</body>
+</html>
