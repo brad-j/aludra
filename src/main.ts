@@ -1,15 +1,21 @@
 #!/usr/bin/env -S node --no-warnings
 // The aludra command.
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { talk } from "./cli.ts";
-import { loadConfig } from "./config.ts";
+import { expandHome, loadConfig } from "./config.ts";
 import { printChecks, runChecks } from "./doctor.ts";
 import { findProjects } from "./projects.ts";
-import { serve } from "./server.ts";
+import { isListening, serve, socketPathFor } from "./server.ts";
+import { currentSpec, installService, platformOf, serviceState, uninstallService } from "./service.ts";
+import { init } from "./setup.ts";
 
 const USAGE = `usage: aludra [--config FILE] COMMAND
 
+  init [--root PATTERN]... [--user LOGIN]... [--name NAME] [--yes] [--force]
+                                         write the settings file, asking for what isn't given
+  service install | uninstall | status   run the host in the background and at login (launchd or systemd)
   serve                                  run the host: sessions, the bridge, the socket the CLI uses
   ask --project NAME "MESSAGE"           start a session in a project and print its run
   ask --session ID [--steer] "MESSAGE"   send a session a follow-up (or a steer) and print the run
@@ -22,7 +28,7 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   doctor                                 check the settings and everything the host needs
 
 --id REQUEST with ask makes it safe to retry: the same id finds the same message rather than sending it twice.
-Settings come from --config, ALUDRA_CONFIG or aludra.json beside package.json; without one, the defaults.`;
+Settings come from --config, ALUDRA_CONFIG or ~/.config/aludra/config.json ($XDG_CONFIG_HOME); aludra init writes one.`;
 
 const { values, positionals } = parseArgs({
 	options: {
@@ -31,6 +37,11 @@ const { values, positionals } = parseArgs({
 		session: { type: "string", short: "s" },
 		steer: { type: "boolean" },
 		id: { type: "string" },
+		root: { type: "string", multiple: true },
+		user: { type: "string", multiple: true },
+		name: { type: "string" },
+		yes: { type: "boolean", short: "y" },
+		force: { type: "boolean" },
 		help: { type: "boolean", short: "h" },
 	},
 	allowPositionals: true,
@@ -54,6 +65,47 @@ function sessionId(): number {
 }
 
 switch (command) {
+	case "init":
+		try {
+			const file = values.config ?? process.env.ALUDRA_CONFIG;
+			const lines = await init(config, {
+				...(file === undefined ? {} : { file: resolve(expandHome(file)) }),
+				...(values.root === undefined ? {} : { roots: values.root }),
+				...(values.user === undefined ? {} : { users: values.user }),
+				...(values.name === undefined ? {} : { name: values.name }),
+				yes: values.yes === true,
+				force: values.force === true,
+			});
+			console.log(lines.join("\n"));
+		} catch (error) {
+			fail(`aludra init: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		process.exit(0);
+	case "service": {
+		const platform = platformOf();
+		if (platform === undefined) fail(`aludra service runs on macOS (launchd) and Linux (systemd), not ${process.platform}; run aludra serve instead`);
+		const action = rest[0];
+		try {
+			if (action === "install") {
+				if (loaded.errors.length > 0) fail("aludra can't start; fix these settings first:", ...loaded.errors.map((e) => `  ${e}`));
+				if (!serviceState(platform).running && (await isListening(socketPathFor(config)))) {
+					fail("an aludra serve is already running outside the service; stop it (Ctrl+C where it runs), then install");
+				}
+				console.log(installService(platform, currentSpec(config)).join("\n"));
+			} else if (action === "uninstall") {
+				console.log(uninstallService(platform).join("\n"));
+			} else if (action === "status") {
+				const state = serviceState(platform);
+				console.log(state.detail);
+				process.exit(state.running ? 0 : 1);
+			} else {
+				fail("usage: aludra service install | uninstall | status");
+			}
+		} catch (error) {
+			fail(`aludra service ${action}: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		process.exit(0);
+	}
 	case "serve":
 		if (loaded.errors.length > 0) fail("aludra can't start; fix these settings:", ...loaded.errors.map((e) => `  ${e}`));
 		await serve(config);

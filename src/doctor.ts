@@ -2,7 +2,7 @@
 // anything (after gaidin's doctor.ts). Loading the bridge starts no Claude Code query.
 import { spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_DIR } from "./api.ts";
@@ -10,6 +10,8 @@ import { claudeExecutable, loadBridge, PROVIDER } from "./bridge.ts";
 import type { Config, Loaded } from "./config.ts";
 import { expandRoot } from "./projects.ts";
 import { isListening, socketPathFor } from "./server.ts";
+import { currentSpec, installedUnit, launchdPlist, lingers, platformOf, serviceState, systemdUnit } from "./service.ts";
+import { servesPort, tailnetSelf, tailscaleFor } from "./tailscale.ts";
 
 export type Check = { status: "ok" | "warn" | "fail" | "skip"; area: string; detail: string };
 
@@ -21,7 +23,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), app(config), push(), service()];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), app(config), push(), service(config)];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -46,7 +48,7 @@ async function data(config: Config): Promise<Check[]> {
 	const running = await isListening(socketPathFor(config));
 	return [
 		{ status: "ok", area: "data", detail: config.dataDir },
-		{ status: running ? "ok" : "warn", area: "host", detail: running ? "running" : "not running; start it with aludra serve" },
+		{ status: running ? "ok" : "warn", area: "host", detail: running ? "running" : "not running; run: aludra service install (or aludra serve)" },
 	];
 }
 
@@ -111,26 +113,19 @@ async function app(config: Config): Promise<Check[]> {
 		{ status: "ok", area: "app", detail: `API on 127.0.0.1:${config.api.port} for ${config.api.users.join(", ")}` },
 		{ status: built ? "ok" : "fail", area: "app", detail: built ? "built" : "not built; run pnpm build" },
 	];
-	// aludra's own node (deploy/aludra-tailscale.service) if it's set up, else the machine's.
-	const socket = join(homedir(), ".local/share/aludra/tailscale/tailscaled.sock");
-	const own = existsSync(socket);
-	const cli = (...args: string[]) => spawnSync("tailscale", [...(own ? ["--socket", socket] : []), ...args], { encoding: "utf8", timeout: 10_000 });
-	const serve = cli("serve", "status", "--json");
-	if (serve.error !== undefined) return [...checks, { status: "warn", area: "app", detail: "tailscale isn't installed, so the app has no way in" }];
-	const served = serve.stdout.includes(`127.0.0.1:${config.api.port}`);
-	let name = "";
-	try {
-		name = (JSON.parse(cli("status", "--json").stdout) as { Self?: { DNSName?: string } }).Self?.DNSName?.replace(/\.$/, "") ?? "";
-	} catch {}
-	const fix = own ? `tailscale --socket ${socket} serve --bg ${config.api.port}` : `tailscale serve --bg ${config.api.port}`;
-	return [...checks, {
-		status: served ? "ok" : "warn",
-		area: "app",
-		detail: served ? `https://${name}/ proxies to 127.0.0.1:${config.api.port}` : `tailscale serve isn't proxying to port ${config.api.port}; run: ${fix}`,
-	}];
+	const tailscale = tailscaleFor(config);
+	const serve = tailscale.run("serve", "status", "--json");
+	const fix = tailscale.command("serve", "--bg", String(config.api.port));
+	if (serve === undefined) return [...checks, { status: "warn", area: "app", detail: "tailscale isn't installed, so the apps have no way in; install it from tailscale.com" }];
+	const self = tailnetSelf(tailscale);
+	if (self === undefined) return [...checks, { status: "warn", area: "app", detail: `tailscale isn't logged in; run: ${tailscale.command("up")}` }];
+	if (!servesPort(serve.stdout, config.api.port)) return [...checks, { status: "warn", area: "app", detail: `tailscale serve isn't sending anything to port ${config.api.port}; run: ${fix}` }];
+	return [
+		...checks,
+		{ status: "ok", area: "app", detail: `https://${self.dnsName}/ is the app; the Mac app adds wss://${self.dnsName}/amyrlin` },
+	];
 }
 
-/** Web Push goes through the browser makers' push services, so the host has to reach them. */
 async function push(): Promise<Check[]> {
 	const services = ["web.push.apple.com", "fcm.googleapis.com"];
 	const unreachable = (await Promise.all(services.map(async (host) => ((await fetch(`https://${host}/`, { signal: AbortSignal.timeout(10_000) }).then(() => true, () => false)) ? [] : [host])))).flat();
@@ -138,12 +133,17 @@ async function push(): Promise<Check[]> {
 	return [{ status: "ok", area: "push", detail: "push services reachable; turn notifications on from the drawer in the app" }];
 }
 
-async function service(): Promise<Check[]> {
-	const result = spawnSync("systemctl", ["--user", "is-active", "aludra.service"], { encoding: "utf8", timeout: 10_000 });
-	if (result.error !== undefined) return [{ status: "skip", area: "service", detail: "no systemd here; run the host with aludra serve" }];
-	const state = result.stdout.trim();
-	if (state === "active") return [{ status: "ok", area: "service", detail: "aludra.service is active" }];
-	return [{ status: "warn", area: "service", detail: `aludra.service is ${state || "not installed"}; deploy/aludra.service runs the host` }];
+async function service(config: Config): Promise<Check[]> {
+	const platform = platformOf();
+	if (platform === undefined) return [{ status: "skip", area: "service", detail: `no service on ${process.platform}; run the host with aludra serve` }];
+	const state = serviceState(platform);
+	if (!state.installed) return [{ status: "warn", area: "service", detail: "not installed, so the host runs only while aludra serve does; run: aludra service install" }];
+	const checks: Check[] = [{ status: state.running ? "ok" : "warn", area: "service", detail: state.running ? state.detail : `${state.detail}; run: aludra service install` }];
+	// After an upgrade or a switch of Node, the unit may still name the old paths.
+	const current = platform === "launchd" ? launchdPlist(currentSpec(config)) : systemdUnit(currentSpec(config));
+	if (installedUnit(platform) !== current) checks.push({ status: "warn", area: "service", detail: "the service runs a different aludra, Node, PATH or settings file than this one; run: aludra service install" });
+	if (platform === "systemd" && !lingers()) checks.push({ status: "warn", area: "service", detail: `the host stops when you log out; run: loginctl enable-linger ${userInfo().username}` });
+	return checks;
 }
 
 export function printChecks(checks: Check[]): number {
