@@ -37,6 +37,7 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 - **Ideas:** a session with a draft first message, not yet sent, kept in a Pi Durable document and filed under its project. Starting it submits the draft.
 - **CLI:** talks to the host over a Unix socket in the data directory, one JSON object per line (gaidin's pattern). The app's API below is separate.
 - **API:** loopback HTTP and WebSocket, exposed through Tailscale Serve, trusting its identity header the way gaidin's web view does (`gaidin/docs/security.md`). Live state from `conversation.watch()`.
+- **Mac app:** the amyrlin Mac app's protocol v1 at `/amyrlin` on the same server (see "The amyrlin Mac app").
 - **App:** TanStack Start, built as a PWA (manifest, service worker, Web Push, safe areas). Gaidin's `src/push.ts` and `web/sw.js` are the starting point for push.
 
 ## Milestones
@@ -70,6 +71,15 @@ Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gai
 - **Result.** A three-step bash task killed with `kill -9` during step 1's `sleep 15` resumed on restart: the model saw the interrupted call, checked state, ran steps 2 and 3 and answered correctly. The bridge log showed the `five_hour` rate-limit window, so it ran on the subscription.
 - **Classifier false positive.** One recovery request was refused by Opus 5.5's safeguards as `[cyber]`. The test read a file named `secret.txt` and the note said "The agent process restarted". With `notes.txt` and "(Continuing where we left off.)" it passed. These refusals can happen in real use; the app must show them plainly as their own failure, with the request ID.
 - `CLAUDE_BRIDGE_DEBUG=1` with `CLAUDE_BRIDGE_DEBUG_PATH` gives a detailed log of the bridge's session handling.
+
+## The amyrlin Mac app (2026-10-12)
+
+[amyrlin](https://github.com/brad-j/amyrlin), a native Mac app, is a second client of this host: the same sessions show on the phone and the Mac, so one started on either continues on the other. It speaks amyrlin's protocol v1 (its `docs/protocol.md`) over one WebSocket at `/amyrlin`, beside `/api/live`.
+
+- **Code:** `src/amyrlin/translate.ts` turns `watchEvents()` into v1 frames (ported from amyrlin's reference translation); `src/amyrlin/endpoint.ts` handles the commands, the session list and approvals; `src/api.ts` routes the upgrade.
+- **Who gets in:** the same `Tailscale-User-Login` check as the API, and no `Origin` header. A native app sends none and a browser always does, so a web page can't open this socket with Brad's identity.
+- **Mapping:** a conversation is a session, tied to its project when made (`conversations.create` takes a project directory and the first message); `configure` changes model and thinking only. Pending approvals become `approval.requested`; approved, denied, and expired, stopped or superseded become `approval.resolved` with approve, deny or cancelled. Forks and archiving answer `unsupported`. The app's host ID and handled create request IDs live in a session document, `aludra.amyrlin`.
+- **Tests:** `test/amyrlin.test.ts` checks the translation against amyrlin's 18 recorded scenarios and their expected frames (`test/fixtures/amyrlin/`, copied from amyrlin), and drives the endpoint over a socket with a faux model: refusals, a session from the Mac with history paging, approve, deny, stop during an approval, and settings. `scripts/amyrlin-capture.ts` records a session for amyrlin's own reducer test.
 
 ## The desk layout (2026-10-12)
 

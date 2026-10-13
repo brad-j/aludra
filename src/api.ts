@@ -29,6 +29,7 @@ import { hostname } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 import type { ConversationView } from "@earendil-works/pi-durable";
 import { WebSocketServer, type WebSocket } from "ws";
+import { createAmyrlinEndpoint } from "./amyrlin/endpoint.ts";
 import type { Bootstrap, ClientEvent, Item, PushState, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
 import { THINKING } from "./config.ts";
 import { context, type Host, type SessionRecord } from "./host.ts";
@@ -127,6 +128,8 @@ export type ApiOptions = {
 	appDir?: string;
 	/** Notifications to devices; without it, none are sent. */
 	push?: Push;
+	/** The host's name in the amyrlin Mac app. Default: this machine's name. */
+	name?: string;
 };
 
 export function createApi(host: Host, options: ApiOptions) {
@@ -330,8 +333,21 @@ export function createApi(host: Host, options: ApiOptions) {
 	});
 
 	const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+	// The amyrlin Mac app (src/amyrlin/endpoint.ts). A native app sends no Origin, and a browser always does, so a web
+	// page can't open this socket with Brad's Tailscale identity.
+	const amyrlin = createAmyrlinEndpoint(host, { name: options.name ?? hostname().split(".")[0]! });
+	const amyrlinSockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 	server.on("upgrade", (request, socket, head) => {
 		const path = new URL(request.url ?? "/", "http://host").pathname;
+		if (path === "/amyrlin") {
+			if (request.headers["tailscale-user-login"] !== options.user || request.headers.origin !== undefined) {
+				socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+				return;
+			}
+			const name = request.headers["tailscale-user-name"];
+			amyrlinSockets.handleUpgrade(request, socket, head, (ws) => amyrlin.connect(ws, { login: options.user, name: typeof name === "string" ? name : options.user }));
+			return;
+		}
 		if (path !== "/api/live" || request.headers["tailscale-user-login"] !== options.user || !sameOrigin(request, false)) {
 			socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
 			return;
@@ -458,6 +474,9 @@ export function createApi(host: Host, options: ApiOptions) {
 			for (const timer of timers) clearTimeout(timer);
 			for (const ws of sockets.clients) ws.terminate();
 			sockets.close();
+			amyrlin.close();
+			for (const ws of amyrlinSockets.clients) ws.terminate();
+			amyrlinSockets.close();
 			server.closeAllConnections();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
 		},
