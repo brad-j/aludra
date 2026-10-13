@@ -77,6 +77,7 @@ Decisions:
   - `scripts/install.sh` builds, packs and installs globally with npm, then reinstalls the service if there is one. A README.
   - The launchd agent and the systemd unit were each installed under a test name, served the API, and uninstalled cleanly.
 - **Egwene moved, 2026-10-13:** `~/.config/aludra/config.json` with the old defaults written out (workspace `egwene` with both roots, Brad's login, approval hosts think-1, think-2 and monitor-01); `scripts/install.sh` run with the user manager's PATH (`systemctl --user show-environment`), which has more than an SSH shell's (rustup, perl); the unit linked from `deploy/` replaced by the written one, with all sessions idle. The checkout stays for development; the host runs the installed package. Data directory unchanged.
+- **Phase 3, the Mac app, done 2026-10-13** (amyrlin `2af8d0ea`): with no machines its window shows aludra's install commands and adds one; a machine that can't connect says why and what to run under its name, read from the WebSocket upgrade's HTTP status (403: the login isn't in `api.users`; 502: nothing behind tailscale serve) or the network error. Its README covers setup and opening the ad hoc signed app on another Mac (Control-click Open no longer bypasses Gatekeeper; Privacy & Security's Open Anyway, or removing the quarantine attribute).
 - **CI** isn't set up: private repositories get 2,000 Actions minutes a month and macOS minutes count ten times, so if it comes, Linux only.
 
 ## Spike findings (2026-10-11)
