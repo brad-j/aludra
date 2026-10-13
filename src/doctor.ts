@@ -6,6 +6,7 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_DIR } from "./api.ts";
+import { listBackups } from "./backup.ts";
 import { claudeExecutable, loadBridge, PROVIDER } from "./bridge.ts";
 import type { Config, Loaded } from "./config.ts";
 import { expandRoot } from "./projects.ts";
@@ -23,7 +24,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), app(config), push(), service(config)];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), app(config), push(), service(config), backups(config)];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -124,6 +125,16 @@ async function app(config: Config): Promise<Check[]> {
 		...checks,
 		{ status: "ok", area: "app", detail: `https://${self.dnsName}/ is the app; the Mac app adds wss://${self.dnsName}/amyrlin` },
 	];
+}
+
+async function backups(config: Config): Promise<Check[]> {
+	const newest = listBackups(config.backup.dir)[0];
+	const where = config.backup.dir.startsWith(config.dataDir) ? "beside the database; set backup.dir to another disk or a synced folder to keep copies off this one" : config.backup.dir;
+	if (newest === undefined) return [{ status: "warn", area: "backup", detail: `none yet; the running host makes one within the hour, or run: aludra backup (${where})` }];
+	const hours = (Date.now() - newest.at.getTime()) / 3_600_000;
+	const age = hours < 1 ? "under an hour" : hours < 48 ? `${Math.round(hours)} hours` : `${Math.round(hours / 24)} days`;
+	const late = hours > config.backup.everyHours * 2;
+	return [{ status: late ? "warn" : "ok", area: "backup", detail: `newest ${age} old${late ? ", later than it should be; is the host running?" : ""}; ${where}` }];
 }
 
 async function push(): Promise<Check[]> {

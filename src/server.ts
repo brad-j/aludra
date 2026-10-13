@@ -12,6 +12,7 @@ import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchEvents } from "@earendil-works/pi-durable";
 import { createApi } from "./api.ts";
+import { scheduleBackups } from "./backup.ts";
 import { createPush, loadPushKeys } from "./push.ts";
 import type { Config } from "./config.ts";
 import { context, conversationId, type Host, openHost, type SessionRecord } from "./host.ts";
@@ -160,6 +161,7 @@ export async function serve(config: Config) {
 	host.resume();
 	const server = listen(host, socketPath, watchers);
 	console.error(`aludra listening on ${socketPath}, model ${host.model.provider}/${host.model.modelId}`);
+	const stopBackups = scheduleBackups(config);
 	const push = createPush({ harness: host.harness, keys: loadPushKeys(config.dataDir) });
 	const { users } = config.api;
 	const api = users.length === 0 ? undefined : createApi(host, { users, push });
@@ -168,6 +170,7 @@ export async function serve(config: Config) {
 	else api.listen(config.api.port, () => console.error(`aludra app and API on 127.0.0.1:${config.api.port}, for ${users.join(", ")}`));
 
 	async function shutdown() {
+		stopBackups();
 		await api?.close();
 		server.close();
 		for (const socket of watchers) socket.destroy();

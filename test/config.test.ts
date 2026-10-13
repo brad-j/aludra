@@ -17,6 +17,8 @@ test("without a file, the settings are the defaults, and say a workspace is need
 	assert.deepEqual(config.api, { port: 8724, users: [] });
 	assert.deepEqual(config.approvals, { hosts: [], waitHours: 24 });
 	assert.equal(config.dataDir, join(homedir(), ".local/share/aludra"));
+	assert.deepEqual(config.backup, { dir: join(homedir(), ".local/share/aludra/backups"), everyHours: 24, keep: 7 });
+	assert.equal(configFor(JSON.stringify({ backup: { dir: "~/nas/aludra", keep: 3 } }), {}).config.backup.dir, join(homedir(), "nas/aludra"));
 });
 
 test("the data and settings directories follow the platform and XDG", () => {

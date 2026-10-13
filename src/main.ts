@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { backupNow } from "./backup.ts";
 import { talk } from "./cli.ts";
 import { expandHome, loadConfig } from "./config.ts";
 import { printChecks, runChecks } from "./doctor.ts";
@@ -25,6 +26,7 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   approvals                              list calls waiting for approval
   approve ID | deny ID                   answer one
   projects                               list the projects the workspaces' roots match
+  backup                                 copy the database into the backup directory now
   doctor                                 check the settings and everything the host needs
 
 --id REQUEST with ask makes it safe to retry: the same id finds the same message rather than sending it twice.
@@ -134,6 +136,13 @@ switch (command) {
 		process.exit(await talk(config, { type: "decide", id: rest[0], allow: command === "approve" }));
 	case "projects":
 		for (const project of findProjects(config.workspaces)) console.log(`${project.name.padEnd(24)} ${project.workspace.padEnd(8)} ${project.dir}`);
+		process.exit(0);
+	case "backup":
+		try {
+			console.log(`wrote ${await backupNow(config)}`);
+		} catch (error) {
+			fail(`aludra backup: ${error instanceof Error ? error.message : String(error)}`);
+		}
 		process.exit(0);
 	case "doctor":
 		process.exit(printChecks(await runChecks(loaded)));

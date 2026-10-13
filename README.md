@@ -42,7 +42,8 @@ removes the unit; `npm uninstall -g aludra` removes the command.
 	"api": { "users": ["you@example.com"], "port": 8724 },
 	"model": { "id": "claude-opus-5-5", "thinking": "high" },
 	"claude": { "path": "claude" },
-	"approvals": { "hosts": ["prod-db"], "waitHours": 24 }
+	"approvals": { "hosts": ["prod-db"], "waitHours": 24 },
+	"backup": { "dir": "/mnt/nas/aludra", "everyHours": 24, "keep": 7 }
 }
 ```
 
@@ -50,8 +51,16 @@ removes the unit; `npm uninstall -g aludra` removes the command.
 - `api.users`: the Tailscale logins let in. Everyone listed sees and runs every session on this machine.
 - `claude.path`: the Claude Code to run, found on PATH by default.
 - `approvals.hosts`: ssh, scp and rsync to these wait for your approval, like `git push` always does.
+- `backup`: the running host copies its database every `everyHours` and keeps the newest `keep`. The copies go in
+  `backups/` in the data directory unless `dir` names another disk or a synced folder, which keeps them safe from
+  this one failing. `aludra backup` makes one now; `aludra doctor` says how old the newest is.
 - `dataDir`: the database and keys. Default `~/Library/Application Support/aludra` on macOS, `~/.local/share/aludra`
   elsewhere.
+
+## Restoring a backup
+
+Stop the host (`aludra service uninstall`), copy a backup over `aludra.sqlite` in the data directory, delete
+`aludra.sqlite-wal` and `aludra.sqlite-shm` beside it, and start it again (`aludra service install`).
 
 ## How it's kept safe
 

@@ -5,6 +5,7 @@
 //     "model": { "provider": "claude-bridge", "id": "claude-opus-5-5", "thinking": "high" },
 //     "claude": { "path": "claude" },
 //     "approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
+//     "backup": { "dir": "/mnt/nas/aludra", "everyHours": 24, "keep": 7 },
 //     "api": { "port": 8724, "users": ["you@example.com"] },
 //     "dataDir": "~/.local/share/aludra"
 //   }
@@ -17,7 +18,8 @@
 // `api.users` are the Tailscale logins the app's API and the amyrlin endpoint let in (src/api.ts); without any, the API
 // doesn't start, since every request would be refused. Everyone listed sees and runs every session. `model.choices`
 // are the models the app offers. `claude.path` is the Claude Code the bridge runs, the user's own install and login;
-// a bare name is looked up on PATH.
+// a bare name is looked up on PATH. `backup` copies the database while the host runs (src/backup.ts); its directory is
+// backups/ in the data directory unless it names another disk or a synced folder.
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -39,6 +41,8 @@ export type Config = {
 	api: { port: number; users: string[] };
 	/** Calls that wait for the user: `git push`, and ssh, scp, rsync or sftp naming one of `hosts`. */
 	approvals: { hosts: string[]; waitHours: number };
+	/** Copies of the database: one every `everyHours`, the newest `keep` kept, in `dir`. */
+	backup: { dir: string; everyHours: number; keep: number };
 	dataDir: string;
 };
 
@@ -75,7 +79,8 @@ const DEFAULTS = {
 	claude: { path: "claude" },
 	api: { port: 8724, users: [] },
 	approvals: { hosts: [], waitHours: 24 },
-} satisfies Omit<Config, "workspaces" | "dataDir">;
+	backup: { everyHours: 24, keep: 7 },
+} satisfies Omit<Config, "workspaces" | "dataDir" | "backup"> & { backup: Omit<Config["backup"], "dir"> };
 
 const EXAMPLE_WORKSPACE = '"workspaces": [{ "name": "code", "roots": ["~/code/*"] }]';
 
@@ -85,6 +90,7 @@ const settingsFile = object({
 	claude: optional(object({ path: optional(string) })),
 	api: optional(object({ port: optional(integer), users: optional(array(string)) })),
 	approvals: optional(object({ hosts: optional(array(string)), waitHours: optional(number) })),
+	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	dataDir: optional(string),
 });
 
@@ -110,7 +116,10 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 		api: { ...DEFAULTS.api, ...file.api },
 		approvals: { ...DEFAULTS.approvals, ...file.approvals },
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
+		backup: { ...DEFAULTS.backup, dir: "" },
 	};
+	const { dir, ...backup } = file.backup ?? {};
+	config.backup = { ...DEFAULTS.backup, ...backup, dir: dir === undefined ? join(config.dataDir, "backups") : resolve(expandHome(dir)) };
 	if (env.ALUDRA_MODEL === "faux") config.model = { ...config.model, provider: "faux", id: "faux-1", choices: ["faux-1"] };
 	if (!config.model.choices.includes(config.model.id)) config.model.choices = [config.model.id, ...config.model.choices];
 	const names = config.workspaces.map((w) => w.name);
@@ -118,6 +127,8 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	if (config.workspaces.length === 0) errors.push(`no workspaces: name the folders that hold your projects, such as ${EXAMPLE_WORKSPACE}`);
 	if (!(config.approvals.waitHours > 0)) errors.push("approvals.waitHours should be more than 0");
 	if (config.api.port < 1 || config.api.port > 65535) errors.push("api.port should be a port number");
+	if (!(config.backup.everyHours > 0)) errors.push("backup.everyHours should be more than 0");
+	if (config.backup.keep < 1) errors.push("backup.keep should be 1 or more");
 	return { config, errors };
 }
 
