@@ -80,17 +80,19 @@ test("an answer renders as Markdown, and the model and thinking change from the 
 	await expect(page.locator(".dock .meta")).toContainText("faux-1 · low");
 });
 
-test("a session is renamed from its menu, and the header and the drawer show the new title", async ({ page }) => {
+test("a session is renamed from its menu, and the header and the drawer show the new title", async ({ page }, info) => {
+	// Phone and desk share one host, so each names its session its own way.
+	const name = `A better name, ${info.project.name}`;
 	await start(page, "alpha", "Say something short");
 	await page.getByRole("button", { name: "Session menu" }).first().click();
 	await page.locator(".sheet").getByRole("button", { name: "Rename" }).click();
 	const field = page.locator(".sheet").getByLabel("Title");
 	await expect(field).toHaveValue("Say something short");
-	await field.fill("A better name");
+	await field.fill(name);
 	await page.locator(".sheet").getByRole("button", { name: "Rename" }).click();
-	await expect(page.locator("header h1")).toHaveText("A better name");
+	await expect(page.locator("header h1")).toHaveText(name);
 	if (phone(page)) await page.getByRole("button", { name: "Sessions" }).first().click();
-	await expect(page.locator(".session-row").filter({ hasText: "A better name" })).toHaveCount(1);
+	await expect(page.locator(".session-row").filter({ hasText: name })).toHaveCount(1);
 });
 
 test("a git push waits for approval above the composer, and Deny blocks it", async ({ page }) => {
