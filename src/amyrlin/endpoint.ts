@@ -346,6 +346,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			tools,
 			defaults: { model: host.model, thinkingLevel: host.thinking },
 			projects: host.projects().map((p) => ({ workspace: p.workspace, name: p.name, path: p.path, dir: p.dir })),
+			projectColors: await host.colors.list(),
 		};
 	}
 
@@ -491,10 +492,15 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 						const id = `s${nextSubscription++}`;
 						const send = subscriber(id);
 						const onSummary = (conversation: Json) => void send([{ type: "conversation.updated", conversation }]);
-						subscriptions.set(id, async () => void summaryListeners.delete(onSummary));
+						let stopColors = () => {};
+						subscriptions.set(id, async () => {
+							summaryListeners.delete(onSummary);
+							stopColors();
+						});
 						respond({ subscription: id });
-						await send([{ type: "host.snapshot", host: await identity(), spend: await hostSpend(), conversations: listSummaries() }]);
+						await send([{ type: "host.snapshot", host: await identity(), spend: await hostSpend(), conversations: listSummaries(), projectColors: await host.colors.list() }]);
 						summaryListeners.add(onSummary);
+						if (subscriptions.has(id)) stopColors = host.colors.onChange((projectColors) => void send([{ type: "host.projectColors", projectColors }]));
 						return;
 					}
 					case "unsubscribe": {
@@ -546,6 +552,14 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 					return {};
 				case "approval.answer":
 					return answer(p);
+				case "projects.setColor": {
+					if (typeof p.project !== "string" || !(p.color === null || typeof p.color === "number")) throw new ProtocolError("bad_request", "projects.setColor takes a project name and a colour, or null");
+					try {
+						return { projectColors: await host.colors.set(p.project, p.color) };
+					} catch (error) {
+						throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+					}
+				}
 				case "conversation.history":
 					return history(p);
 				default:

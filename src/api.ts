@@ -13,6 +13,7 @@
 //   POST /api/ideas                       { project, text }                            → { id }
 //   POST /api/ideas/:id/start                                                          → { id } of the session
 //   POST /api/ideas/:id/delete
+//   POST /api/projects/color              { project, color: 0-10 | null }                 a picked colour, or the hashed one again
 //   GET  /api/push                        the key devices sign up with, and the devices
 //   POST /api/push/subscribe              { endpoint, keys: { p256dh, auth }, label }
 //   POST /api/push/unsubscribe            { endpoint }
@@ -33,7 +34,7 @@ import { createAmyrlinEndpoint } from "./amyrlin/endpoint.ts";
 import type { Bootstrap, ClientEvent, Item, PushState, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
 import { PACKAGE_DIR, THINKING } from "./config.ts";
 import { context, type Host, type SessionRecord } from "./host.ts";
-import { boolean, integer, literal, object, optional, ParseError, parseJson, string } from "./parse.ts";
+import { boolean, integer, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
 import type { ApprovalRequest } from "./permissions.ts";
 import type { Push, PushMessage } from "./push.ts";
@@ -118,6 +119,7 @@ const withdrawal = object({ submission: integer });
 const decision = object({ allow: boolean });
 const clientEvent = object({ type: literal("follow", "visible"), session: optional(integer), visible: optional(boolean) });
 const newIdea = object({ project: string, text: string });
+const projectColor = object({ project: string, color: nullable(integer) });
 const subscription = object({ endpoint: string, keys: object({ p256dh: string, auth: string }), label: optional(string) });
 const endpointBody = object({ endpoint: string });
 
@@ -201,6 +203,10 @@ export function createApi(host: Host, options: ApiOptions) {
 	}
 
 	async function post(path: string, body: string, origin: string): Promise<unknown> {
+		if (path === "/api/projects/color") {
+			const request = parseJson(body, projectColor, "the colour");
+			return { colors: await host.colors.set(request.project, request.color ?? null) };
+		}
 		if (path === "/api/ideas") {
 			const request = parseJson(body, newIdea, "the idea");
 			if (request.text.trim() === "") throw new HttpError(400, "Say what the idea is");
@@ -372,6 +378,8 @@ export function createApi(host: Host, options: ApiOptions) {
 		const sendIdeas = () => void ideasEvent().then(send, (error) => console.error("[api]", error));
 		const stopIdeas = host.ideas.onChange(sendIdeas);
 		sendIdeas();
+		const stopColors = host.colors.onChange((colors) => send({ type: "colors", colors }));
+		void host.colors.list().then((colors) => send({ type: "colors", colors }), (error) => console.error("[api]", error));
 		const watcher = { session: null as number | null, visible: true };
 		watchers.set(ws, watcher);
 		let following: (() => void) | undefined;
@@ -401,6 +409,7 @@ export function createApi(host: Host, options: ApiOptions) {
 			clearInterval(ping);
 			watchers.delete(ws);
 			stopIdeas();
+			stopColors();
 			stopFeed();
 			following?.();
 		});

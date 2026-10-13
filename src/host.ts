@@ -17,6 +17,7 @@ import { type Config, expandHome, type Thinking } from "./config.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
 import { findProjects, type Project } from "./projects.ts";
+import { ParseError } from "./parse.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
@@ -46,6 +47,17 @@ export const Ideas = defineDoc<{ next: number; ideas: Record<string, IdeaRecord>
 	version: 1,
 	scope: "session",
 	initial: () => ({ next: 1, ideas: {} }),
+});
+
+/** How many project hues the apps have (app/lib/projects.ts, amyrlin's ProjectColor); a colour is an index into them. */
+export const PROJECT_HUES = 11;
+
+/** Projects whose colour was picked rather than hashed from the name: name to hue index. */
+export const Colors = defineDoc<{ colors: Record<string, number> }>({
+	kind: "aludra.colors",
+	version: 1,
+	scope: "session",
+	initial: () => ({ colors: {} }),
 });
 
 export const Sessions = defineDoc<{ sessions: Record<string, SessionRecord> }>({
@@ -295,6 +307,33 @@ export async function openHost(options: HostOptions) {
 		return target.submit({ type: "input", content, whenBusy: options.steer ? "steer" : "followUp", ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }, context);
 	}
 
+	const colorListeners = new Set<(colors: Record<string, number>) => void>();
+
+	/** The picked project colours: name to hue index. */
+	async function listColors(): Promise<Record<string, number>> {
+		return { ...(await harness.snapshot(Colors, context))?.colors };
+	}
+
+	/** Gives `project` hue `color`, or its own hashed one again with null. */
+	async function setColor(project: string, color: number | null): Promise<Record<string, number>> {
+		// ParseErrors, since they're about what was asked: the API answers them with 400.
+		if (project.trim() === "") throw new ParseError("a colour needs a project name");
+		if (color !== null && !(Number.isInteger(color) && color >= 0 && color < PROJECT_HUES)) throw new ParseError(`a colour is a hue from 0 to ${PROJECT_HUES - 1}`);
+		const colors = await root.commit(async (tx) => {
+			const doc = await tx.doc(Colors);
+			if (color === null) delete doc.colors[project];
+			else doc.colors[project] = color;
+			return { ...doc.colors };
+		}, context);
+		colorListeners.forEach((listener) => listener(colors));
+		return colors;
+	}
+
+	function onColors(listener: (colors: Record<string, number>) => void): () => void {
+		colorListeners.add(listener);
+		return () => void colorListeners.delete(listener);
+	}
+
 	const ideaListeners = new Set<() => void>();
 	const ideasChanged = () => ideaListeners.forEach((listener) => listener());
 
@@ -391,6 +430,7 @@ export async function openHost(options: HostOptions) {
 		sessions: { list, get, create, createScratch, onCreate, states },
 		scratchRoot,
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
+		colors: { list: listColors, set: setColor, onChange: onColors },
 		conversation,
 		submit,
 		configure,

@@ -14,6 +14,12 @@ test("project colours match the amyrlin Mac app's", () => {
 	assert.equal(projectColor("amyrlin"), "oklch(80% 0.12 300)");
 });
 
+test("a picked colour wins over the name's, for that project only", () => {
+	assert.equal(projectColor("aludra", { aludra: 0 }), "oklch(80% 0.12 300)");
+	assert.equal(projectColor("amyrlin", { aludra: 2 }), "oklch(80% 0.12 300)");
+	assert.equal(projectColor("aludra", { aludra: 99 }), projectColor("aludra"), "an index out of range falls back");
+});
+
 test("the picker shows Recent first, then folders largest first", () => {
 	const groups = projectGroups(projects, [session(1, "Software/gaidin", 100), session(2, "Fabrication/keychain", 300), session(3, "Software/gaidin", 200)]);
 	assert.deepEqual(groups.map((g) => g.title), ["Recent", "Software", "Fabrication", "Electronics", "Personal"]);

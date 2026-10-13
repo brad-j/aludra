@@ -30,6 +30,7 @@ function useFolded(): [Set<string>, (dir: string) => void] {
 export function Drawer() {
 	const sessions = useLive((s) => s.sessions);
 	const ideas = useLive((s) => s.ideas);
+	const colors = useLive((s) => s.colors);
 	const machine = useLive((s) => s.bootstrap?.machine);
 	const connection = useLive((s) => s.connection);
 	const { setDrawer } = useUi();
@@ -69,7 +70,7 @@ export function Drawer() {
 					// A folded project still says when one of its sessions needs you or is working.
 					const note = list.some((s) => s.state === "waiting") ? "needs you" : list.some((s) => s.state === "running") ? "working" : String(list.length + projectIdeas.length);
 					return (
-					<section className="dir" key={dir} data-folded={isFolded} style={{ "--project": projectColor(project), "--project-wash": projectWash(project) } as CSSProperties}>
+					<section className="dir" key={dir} data-folded={isFolded} style={{ "--project": projectColor(project, colors), "--project-wash": projectWash(project, colors) } as CSSProperties}>
 						<button type="button" className="dir-head" aria-expanded={!isFolded} onClick={() => toggleFolded(dir)}>
 							<span className="name">{project}</span>
 							<span className="where">{project === NO_PROJECT ? "scratch" : shortPath(dir)}</span>

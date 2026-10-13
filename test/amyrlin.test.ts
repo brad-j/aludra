@@ -243,3 +243,23 @@ test("a session made with no project runs in a scratch directory of its own, and
 	assert.equal(record?.scratch, true);
 	assert.equal(record?.project, "no project");
 });
+
+test("a picked project colour is in host.info and the host snapshot, and reaches every watcher", async (t) => {
+	const { url } = await api(t);
+	const mac = await client(t, url);
+	const other = await client(t, url);
+	assert.deepEqual((await mac.request("host.info")).projectColors, {});
+	const { subscription } = await other.request("host.watch");
+	await other.event(subscription, type("host.snapshot"), "the snapshot");
+
+	assert.deepEqual(await mac.request("projects.setColor", { project: "one", color: 4 }), { projectColors: { one: 4 } });
+	const seen = await other.event(subscription, type("host.projectColors"), "the colour change");
+	assert.deepEqual(seen.find(type("host.projectColors")).projectColors, { one: 4 });
+	assert.deepEqual((await mac.request("host.info")).projectColors, { one: 4 });
+
+	await assert.rejects(mac.request("projects.setColor", { project: "one", color: 11 }), { code: "bad_request" });
+	await assert.rejects(mac.request("projects.setColor", { project: "one" }), { code: "bad_request" });
+	assert.deepEqual(await mac.request("projects.setColor", { project: "one", color: null }), { projectColors: {} });
+	const { subscription: again } = await mac.request("host.watch");
+	assert.deepEqual((await mac.event(again, type("host.snapshot"), "a new snapshot")).find(type("host.snapshot")).projectColors, {});
+});

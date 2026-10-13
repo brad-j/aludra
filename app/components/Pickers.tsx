@@ -43,6 +43,7 @@ export function ModelPicker({ model, thinking, onChange }: { model: string; thin
 export function ProjectPicker({ current, onPick }: { current: string; onPick: (project: string) => void }) {
 	const projects = useLive((s) => s.bootstrap?.projects ?? []);
 	const sessions = useLive((s) => s.sessions ?? []);
+	const colors = useLive((s) => s.colors);
 	const [query, setQuery] = useState("");
 	const groups = projectGroups(projects, sessions);
 	const [groupId, setGroupId] = useState<string | undefined>(undefined);
@@ -77,7 +78,7 @@ export function ProjectPicker({ current, onPick }: { current: string; onPick: (p
 						<ul className="rows">
 							{group.entries.map(({ project, sessions: count, lastActive }) => (
 								<li key={project.dir}>
-									<button className="pick project-pick" role="radio" aria-checked={project.path === current || project.name === current} style={{ "--project": projectColor(project.name), "--project-wash": projectWash(project.name) } as CSSProperties} onClick={() => onPick(project.path)}>
+									<button className="pick project-pick" role="radio" aria-checked={project.path === current || project.name === current} style={{ "--project": projectColor(project.name, colors), "--project-wash": projectWash(project.name, colors) } as CSSProperties} onClick={() => onPick(project.path)}>
 										<span className="swatch" aria-hidden="true" />
 										<span className="grow">{project.name}</span>
 										<span className="sub">{count === 0 ? project.path : `${count} session${count === 1 ? "" : "s"}${lastActive === undefined ? "" : ` · ${age(lastActive)}`}`}</span>

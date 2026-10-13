@@ -88,6 +88,8 @@ export type Bootstrap = {
 export type ServerEvent =
 	| { type: "sessions"; sessions: SessionSummary[] }
 	| { type: "ideas"; ideas: Idea[] }
+	/** Projects whose colour was picked: name to hue index (app/lib/projects.ts). */
+	| { type: "colors"; colors: Record<string, number> }
 	/** The transcript from `start` on; items before it are unchanged, and the transcript is `length` long. */
 	| { type: "items"; session: number; start: number; items: Item[]; length: number }
 	| { type: "meta"; session: number; meta: SessionMeta }

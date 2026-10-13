@@ -10,6 +10,8 @@ export type LiveState = {
 	bootstrap?: Bootstrap;
 	sessions?: SessionSummary[];
 	ideas: Idea[];
+	/** Projects whose colour was picked: name to hue index. */
+	colors: Record<string, number>;
 	/** The session followed, and what's arrived of it. */
 	followed: number | null;
 	items: Item[];
@@ -18,7 +20,7 @@ export type LiveState = {
 	error?: string;
 };
 
-let state: LiveState = { connection: "connecting", followed: null, items: [], ideas: [] };
+let state: LiveState = { connection: "connecting", followed: null, items: [], ideas: [], colors: {} };
 const listeners = new Set<() => void>();
 
 function set(change: Partial<LiveState>) {
@@ -92,6 +94,8 @@ function receive(event: ServerEvent) {
 			return set({ sessions: event.sessions });
 		case "ideas":
 			return set({ ideas: event.ideas });
+		case "colors":
+			return set({ colors: event.colors });
 		case "items":
 			if (event.session !== state.followed) return;
 			return set({ items: [...state.items.slice(0, event.start), ...event.items].slice(0, event.length) });
