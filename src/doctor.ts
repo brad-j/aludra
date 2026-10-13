@@ -111,7 +111,7 @@ async function app(config: Config): Promise<Check[]> {
 	const built = existsSync(join(APP_DIR, "_shell.html"));
 	const checks: Check[] = [
 		{ status: "ok", area: "app", detail: `API on 127.0.0.1:${config.api.port} for ${config.api.users.join(", ")}` },
-		{ status: built ? "ok" : "fail", area: "app", detail: built ? "built" : "not built; run pnpm build" },
+		{ status: built ? "ok" : "fail", area: "app", detail: built ? "built" : "not built; run pnpm build in a checkout, or sh scripts/install.sh" },
 	];
 	const tailscale = tailscaleFor(config);
 	const serve = tailscale.run("serve", "status", "--json");

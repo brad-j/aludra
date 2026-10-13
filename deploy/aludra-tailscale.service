@@ -1,6 +1,7 @@
-# systemd user unit for aludra's own Tailscale node, so the app is at https://aludra.<tailnet>.ts.net. It's a second
-# tailscaled on egwene, run as Brad's user in userspace mode with its own state, so egwene's own Tailscale is untouched
-# and serving needs no root. To install:
+# Optional, Linux: a Tailscale node of aludra's own, so the app is at https://aludra.<tailnet>.ts.net rather than at the
+# machine's name. It's a second tailscaled, run as your user in userspace mode with its own state in aludra's data
+# directory, so the machine's own Tailscale is untouched and serving needs no root. aludra finds its socket there and
+# uses it for doctor and init. To install:
 #   ln -s "$PWD/deploy/aludra-tailscale.service" ~/.config/systemd/user/
 #   systemctl --user daemon-reload && systemctl --user enable --now aludra-tailscale
 #   tailscale --socket ~/.local/share/aludra/tailscale/tailscaled.sock up --hostname aludra   # prints a login link, once
