@@ -23,7 +23,7 @@ The first of these that's set:
 	"model": {
 		"id": "claude-opus-5-5",
 		"thinking": "high",
-		"choices": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"]
+		"choices": ["claude-opus-5-5", "claude-sonnet-5-5", "openai/gpt-6.1-sol"]
 	},
 	"claude": { "path": "claude" },
 	"approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
@@ -58,8 +58,17 @@ An old single `api.user` is an error rather than being ignored, since ignoring i
 
 - `id`: the default model for new sessions. Default `claude-opus-5-5`.
 - `thinking`: the default thinking level: `off`, `minimal`, `low`, `medium`, `high` or `xhigh`. Default `high`.
-- `choices`: the models the apps offer in the model picker. Default Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1. The default `id` is added if it isn't listed. A choice the bridge doesn't have is left out of the picker.
-- `provider`: `claude-bridge` (the default) or `faux`. You won't normally set this; see `ALUDRA_MODEL` below.
+- `choices`: the models the apps offer in the model picker. Default Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1. The default `id` is added if it isn't listed. A choice its provider doesn't have is left out of the picker. Two choices can't share an ID, even from different providers.
+- `provider`: the provider of a model written without one. `claude-bridge` (the default), `openai` or `faux`. You won't normally set this; see `ALUDRA_MODEL` below for `faux`.
+
+A model is `provider/id`, or a bare ID of `provider`:
+
+| Provider | Models | Signed in with |
+| --- | --- | --- |
+| `claude-bridge` | Claude, through the Claude Code you installed: `claude-opus-5-5` | `claude auth login` |
+| `openai` | OpenAI's, on your ChatGPT plan: `openai/gpt-6.1-sol` | `aludra login openai` |
+
+Claude Code is only needed when a choice is a Claude model. After `aludra login openai`, the command lists the models your ChatGPT account offers, already written as choices. The sign-in reaches a running host from its next request; a change to `choices` needs a restart, like any other setting.
 
 Each session keeps its own model and thinking level, which you can change from the apps at any time. The change applies to the session's next request.
 
@@ -105,6 +114,8 @@ Where the database, keys and scratch directories go. Default `~/Library/Applicat
 | `aludra.sqlite` | Every session, idea, approval and setting the apps change: one Pi Durable database. `-wal` and `-shm` sit beside it while the host runs. |
 | `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |
 | `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
+| `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, and its refreshed tokens. Owner-only. |
+| `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |
 | `bridge/` | The bridge's own settings (`claude-bridge.json`, with `claude.path`) and a small module that points the bridge there instead of at pi's own settings. |
 | `scratch/<id>/` | The working directory of each no-project session. |
 | `backups/` | Copies of the database, unless `backup.dir` says otherwise. |

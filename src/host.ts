@@ -7,12 +7,14 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { UserMessage } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { type CompactionPolicy, configure as configureAgent, type ConversationId, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef, ProviderDoc } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice } from "./api-types.ts";
 import { type Bridge, bridgeProvider, loadBridge, type Notice, PROVIDER } from "./bridge.ts";
+import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
 import { type Config, expandHome, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
@@ -166,13 +168,23 @@ export async function openHost(options: HostOptions) {
 	} else if (config.model.provider === "faux" && options.bridge === undefined) {
 		({ models, model } = fauxModels());
 	} else {
-		bridged = bridgeProvider(options.bridge ?? (await loadBridge({ claudePath: config.claude.path, dir: resolve(config.dataDir, "bridge") }, notify)));
-		const mutable = createModels();
-		mutable.setProvider(bridged.provider);
+		// Each provider the settings name; one with no model chosen isn't loaded, so Claude Code is needed only for Claude.
+		const used = new Set([config.model.provider, ...config.model.choices.map((c) => c.provider)]);
+		const mutable = createModels({ credentials: fileCredentialStore(credentialsFile(config.dataDir)) });
+		if (used.has(PROVIDER) || options.bridge !== undefined) {
+			bridged = bridgeProvider(options.bridge ?? (await loadBridge({ claudePath: config.claude.path, dir: resolve(config.dataDir, "bridge") }, notify)));
+			mutable.setProvider(bridged.provider);
+			extensions.push(bridged.extension);
+		}
+		if (used.has("openai")) {
+			mutable.setProvider(openaiProvider());
+			const auth = await mutable.checkAuth("openai");
+			if (auth === undefined) console.error("[models] OpenAI's models are in model.choices, but this machine isn't signed in; run: aludra login openai");
+			else if (auth.type === "api_key") console.error(`[models] OpenAI's models run on ${auth.source ?? "an API key"}, billed per token; aludra login openai uses a ChatGPT plan instead`);
+		}
 		models = mutable;
-		model = { provider: PROVIDER, modelId: config.model.id };
-		extensions.push(bridged.extension);
-		if (models.getModel(PROVIDER, model.modelId) === undefined) throw new Error(`pi-claude-bridge has no model ${model.modelId}`);
+		model = { provider: config.model.provider, modelId: config.model.id };
+		if (models.getModel(model.provider, model.modelId) === undefined) throw new Error(`${model.provider === PROVIDER ? "pi-claude-bridge" : model.provider} has no model ${model.modelId}`);
 	}
 
 	let approvals: ApprovalService | undefined;
@@ -211,12 +223,12 @@ export async function openHost(options: HostOptions) {
 		return found === undefined ? undefined : { ...found };
 	}
 
-	/** The models sessions can use: the settings' choices the provider has, or the one model given. */
+	/** The models sessions can use: the settings' choices their providers have, or the one model given. */
 	function choices(): ModelChoice[] {
-		const ids = options.models === undefined ? config.model.choices : [model.modelId];
-		return ids.flatMap((id) => {
-			const found = models.getModel(model.provider, id);
-			return found === undefined ? [] : [{ provider: model.provider, id, name: displayName(found.name) }];
+		const refs: ModelRef[] = options.models === undefined ? config.model.choices.map((c) => ({ provider: c.provider, modelId: c.id })) : [model];
+		return refs.flatMap((ref) => {
+			const found = models.getModel(ref.provider, ref.modelId);
+			return found === undefined ? [] : [{ provider: ref.provider, id: ref.modelId, name: displayName(found.name) }];
 		});
 	}
 

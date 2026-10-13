@@ -24,9 +24,11 @@ A page from another site, open in your browser on a tailnet device, would carry 
 
 `/amyrlin` takes the same identity check, and also refuses any upgrade that carries an `Origin` header. A native app sends none and a browser always does, so a web page can't open it with your identity.
 
-## Claude credentials
+## Model credentials
 
-aludra never signs anyone in, and never reads or stores Claude credentials. It runs the Claude Code binary you installed (`claude.path`), which uses the login you made with `claude auth login`. The bridge's own settings live in `bridge/` in aludra's data directory, so pi's own bridge settings, if you also use pi, are left alone.
+**Claude.** aludra never signs anyone in to Claude, and never reads or stores Claude credentials. It runs the Claude Code binary you installed (`claude.path`), which uses the login you made with `claude auth login`. The bridge's own settings live in `bridge/` in aludra's data directory, so pi's own bridge settings, if you also use pi, are left alone.
+
+**OpenAI.** `aludra login openai` uses Sign in with ChatGPT, OpenAI's flow for open-source apps running on your own machine. The sign-in registers aludra with your ChatGPT account and grants it use of your plan for model requests; it doesn't grant access to your ChatGPT conversations. The tokens are kept in `credentials.json` in the data directory, owner-only, and the protected-path gate keeps sessions from reading it. Requests go straight to `api.openai.com` with `store: false`, carrying the session's transcript like any model request. Without a sign-in, an `OPENAI_API_KEY` in the host's environment is used instead, billed per token; doctor and the host's log say so.
 
 ## Permissions
 
@@ -66,7 +68,7 @@ Sessions run as you, with the PATH the service was installed with, so they can d
 - The data directory is created `0700`, and the service runs with a `0077` umask, so files the host writes are yours alone. Sessions inherit that umask, so files they create in projects are owner-only too.
 - The settings file `aludra init` writes is `0600`.
 - Backups are `0600` whatever directory they're in, since `backup.dir` may be a shared disk.
-- The push key (`push-keys.json`) is `0600`.
+- The push key (`push-keys.json`) and the sign-ins (`credentials.json`) are `0600`.
 
 The database holds every session's full transcript, including anything a tool printed. Treat it and its backups like the code they came from.
 

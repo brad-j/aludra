@@ -2,7 +2,7 @@
 //
 //   {
 //     "workspaces": [{ "name": "code", "roots": ["~/code/*", "~/work/*/*"] }],
-//     "model": { "provider": "claude-bridge", "id": "claude-opus-5-5", "thinking": "high" },
+//     "model": { "id": "claude-opus-5-5", "thinking": "high", "choices": ["claude-opus-5-5", "openai/gpt-6.1-sol"] },
 //     "claude": { "path": "claude" },
 //     "approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
 //     "backup": { "dir": "/mnt/nas/aludra", "everyHours": 24, "keep": 7 },
@@ -17,7 +17,8 @@
 //
 // `api.users` are the Tailscale logins the app's API and the amyrlin endpoint let in (src/api.ts); without any, the API
 // doesn't start, since every request would be refused. Everyone listed sees and runs every session. `model.choices`
-// are the models the app offers. `claude.path` is the Claude Code the bridge runs, the user's own install and login;
+// are the models the app offers, each `provider/id` or a bare ID of `model.provider` (claude-bridge unless set); so is
+// `model.id`. OpenAI's models run on the ChatGPT sign-in `aludra login openai` keeps (src/login.ts). `claude.path` is the Claude Code the bridge runs, the user's own install and login;
 // a bare name is looked up on PATH. `backup` copies the database while the host runs (src/backup.ts); its directory is
 // backups/ in the data directory unless it names another disk or a synced folder.
 import { existsSync, readFileSync } from "node:fs";
@@ -30,11 +31,16 @@ export type Thinking = (typeof THINKING)[number];
 
 export type Workspace = { name: string; roots: string[] };
 
+/** The model providers: Claude Code through pi-claude-bridge, OpenAI on a ChatGPT sign-in, and the scripted faux model. */
+export const PROVIDERS = ["claude-bridge", "openai", "faux"] as const;
+export type ProviderId = (typeof PROVIDERS)[number];
+export type ModelSetting = { provider: ProviderId; id: string };
+
 export type Config = {
 	/** The file the settings came from, if any. */
 	file?: string;
 	workspaces: Workspace[];
-	model: { provider: "claude-bridge" | "faux"; id: string; thinking: Thinking; choices: string[] };
+	model: { provider: ProviderId; id: string; thinking: Thinking; choices: ModelSetting[] };
 	/** The Claude Code binary the bridge runs. */
 	claude: { path: string };
 	/** The app's API on loopback; tailscale serve is the way in. */
@@ -75,7 +81,7 @@ export function defaultDataDir(env: NodeJS.ProcessEnv = process.env, platform: N
 }
 
 const DEFAULTS = {
-	model: { provider: "claude-bridge", id: "claude-opus-5-5", thinking: "high", choices: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"] },
+	model: { provider: "claude-bridge", id: "claude-opus-5-5", thinking: "high", choices: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"].map((id) => ({ provider: "claude-bridge" as const, id })) },
 	claude: { path: "claude" },
 	api: { port: 8724, users: [] },
 	approvals: { hosts: [], waitHours: 24 },
@@ -86,13 +92,23 @@ const EXAMPLE_WORKSPACE = '"workspaces": [{ "name": "code", "roots": ["~/code/*"
 
 const settingsFile = object({
 	workspaces: optional(array(object({ name: string, roots: array(string) }))),
-	model: optional(object({ provider: optional(literal("claude-bridge", "faux")), id: optional(string), thinking: optional(literal(...THINKING)), choices: optional(array(string)) })),
+	model: optional(object({ provider: optional(literal(...PROVIDERS)), id: optional(string), thinking: optional(literal(...THINKING)), choices: optional(array(string)) })),
 	claude: optional(object({ path: optional(string) })),
 	api: optional(object({ port: optional(integer), users: optional(array(string)) })),
 	approvals: optional(object({ hosts: optional(array(string)), waitHours: optional(number) })),
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	dataDir: optional(string),
 });
+
+/** `provider/id`, or a bare ID of `fallback`. Model IDs may hold slashes; only a known provider before the first one counts. */
+function modelSetting(text: string, fallback: ProviderId, errors: string[]): ModelSetting {
+	const slash = text.indexOf("/");
+	if (slash === -1) return { provider: fallback, id: text };
+	const provider = text.slice(0, slash);
+	if (!(PROVIDERS as readonly string[]).includes(provider)) errors.push(`model ${text} names no provider aludra has; it has ${PROVIDERS.filter((p) => p !== "faux").join(" and ")}`);
+	// SAFETY: checked just above; an unknown one is an error, so the host never starts with it.
+	return { provider: provider as ProviderId, id: text.slice(slash + 1) };
+}
 
 /** The settings from `text` over the defaults, with the environment on top. */
 export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): Loaded {
@@ -111,7 +127,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	}
 	const config: Config = {
 		workspaces: file.workspaces ?? [],
-		model: { ...DEFAULTS.model, ...file.model },
+		model: { ...DEFAULTS.model, thinking: file.model?.thinking ?? DEFAULTS.model.thinking },
 		claude: { ...DEFAULTS.claude, ...file.claude, path: expandHome(file.claude?.path ?? DEFAULTS.claude.path) },
 		api: { ...DEFAULTS.api, ...file.api },
 		approvals: { ...DEFAULTS.approvals, ...file.approvals },
@@ -120,8 +136,19 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	};
 	const { dir, ...backup } = file.backup ?? {};
 	config.backup = { ...DEFAULTS.backup, ...backup, dir: dir === undefined ? join(config.dataDir, "backups") : resolve(expandHome(dir)) };
-	if (env.ALUDRA_MODEL === "faux") config.model = { ...config.model, provider: "faux", id: "faux-1", choices: ["faux-1"] };
-	if (!config.model.choices.includes(config.model.id)) config.model.choices = [config.model.id, ...config.model.choices];
+	const fallback = file.model?.provider ?? DEFAULTS.model.provider;
+	const chosen = modelSetting(file.model?.id ?? DEFAULTS.model.id, fallback, errors);
+	if (file.model?.provider !== undefined && chosen.provider !== file.model.provider) errors.push(`model.id ${file.model.id} isn't a ${file.model.provider} model, as model.provider says`);
+	config.model.provider = chosen.provider;
+	config.model.id = chosen.id;
+	if (file.model?.choices !== undefined) config.model.choices = file.model.choices.map((choice) => modelSetting(choice, fallback, errors));
+	if (env.ALUDRA_MODEL === "faux") config.model = { ...config.model, provider: "faux", id: "faux-1", choices: [{ provider: "faux", id: "faux-1" }] };
+	const { provider, id } = config.model;
+	if (!config.model.choices.some((c) => c.provider === provider && c.id === id)) config.model.choices = [{ provider, id }, ...config.model.choices];
+	// The apps pick a model by its ID.
+	const ids = config.model.choices.map((c) => c.id);
+	const twice = ids.find((choice, i) => ids.indexOf(choice) !== i);
+	if (twice !== undefined) errors.push(`two of model.choices are ${twice}; the apps pick models by ID, so keep one`);
 	const names = config.workspaces.map((w) => w.name);
 	if (new Set(names).size !== names.length) errors.push("two workspaces share a name");
 	if (config.workspaces.length === 0) errors.push(`no workspaces: name the folders that hold your projects, such as ${EXAMPLE_WORKSPACE}`);

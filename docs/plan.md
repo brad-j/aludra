@@ -87,6 +87,18 @@ Decisions:
 - **Docs, 2026-10-13:** `docs/` now describes aludra as it stands, apart from this plan's history: setup, configuration, using it, the CLI, security, operations, architecture, the API and development, indexed from the README. The README keeps the quick start; restoring backups moved to `docs/operations.md`.
 - **CI** isn't set up: private repositories get 2,000 Actions minutes a month and macOS minutes count ten times, so if it comes, Linux only.
 
+## OpenAI on a ChatGPT sign-in (2026-10-13)
+
+Brad asked for a second provider on his ChatGPT plan, with OpenRouter or OrcaRouter maybe later. Built on the `chatgpt-sign-in` branch; not yet run against a real sign-in.
+
+- **Sign in with ChatGPT, not the Codex client.** pi-ai 1.1.0 has two ChatGPT logins. `openai-codex` borrows the Codex CLI's client ID against `chatgpt.com/backend-api`, the same kind of reuse aludra avoids for Claude. `openai` uses OpenAI's own Sign in with ChatGPT ([developers.openai.com/siwc](https://developers.openai.com/siwc/token-sharing-open-source)), meant for open-source apps on the user's machine: a client registered per user, a stable host ID per installation, requests to `api.openai.com` on the plan. aludra uses that one. Its preview rules (`store: false`, no `temperature` or `max_output_tokens`) are pi-ai's to follow, and it does when the token is a ChatGPT one.
+- **The routers can't carry the plan.** OpenRouter's and OrcaRouter's bring-your-own-key take API keys billed per token, and a ChatGPT sign-in is for the user's own app talking to OpenAI. Either would be a separate pay-per-token provider: OpenRouter is in pi-ai already; OrcaRouter is OpenAI-compatible and would need a small custom provider. Paid providers would also reverse "No spend tracking": a session's cost would have to show.
+- **Settings:** `model.choices` entries are `provider/id` or a bare ID of `model.provider` (claude-bridge unless set), and `model.id` may name its provider too; existing files mean what they did. Choice IDs must be unique, since the apps pick by ID. A provider is loaded only when a choice uses it, so a machine without Claude Code can run OpenAI alone.
+- **Credentials:** `credentials.json` in the data directory (`src/credentials.ts`), a pi-ai `CredentialStore` read afresh for every request, with a lock file between the CLI and the host. The protected-path rules already cover the name. `device-id` beside it is the installation's host ID.
+- **CLI:** `aludra login openai` runs pi-ai's flow with `agentName: "aludra"` (callback on `127.0.0.1:1455`, or a pasted redirect URL over SSH), then lists the account's models from `GET /v1/models` as choices. `aludra logout openai`. Doctor's `openai` line checks the sign-in and that the account offers each choice; `claude` is skipped when no choice is Claude.
+- **Switching provider mid-session** needs no glue: Pi Durable's transcript is provider-neutral, and the bridge rebuilds Claude Code's session when it finds messages it didn't see (its "Case 4", written for provider switches).
+- **Not done:** the app's picker lists every choice in one list, without provider headings; the subscription meter stays Claude-only. The live check is Brad's: sign in on egwene, add a choice, run a session on it, and switch one session Claude → GPT → Claude.
+
 ## Spike findings (2026-10-11)
 
 Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gaidin's `node_modules` symlinked in, so their paths need adjusting to run again.

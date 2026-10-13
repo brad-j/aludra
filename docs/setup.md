@@ -9,7 +9,7 @@ Install aludra on each macOS or Linux computer whose projects you want to reach.
 - pnpm, to build. `corepack enable pnpm` is enough; the repository pins the version it wants.
 - npm, which comes with Node. The install script uses it to install the packed build globally.
 - git, for the changes view. Projects outside git still work; they just have no changes view.
-- [Claude Code](https://claude.com/product/claude-code), installed and logged in with `claude auth login`. aludra runs this binary and never sees your credentials. A subscription login is what you want: `aludra doctor` warns when Claude Code is logged in some other way, since runs would then be billed.
+- [Claude Code](https://claude.com/product/claude-code), installed and logged in with `claude auth login`, for Claude models. aludra runs this binary and never sees your credentials. A subscription login is what you want: `aludra doctor` warns when Claude Code is logged in some other way, since runs would then be billed. For OpenAI's models on a ChatGPT plan, see [below](#optional-openais-models-on-your-chatgpt-plan).
 - [Tailscale](https://tailscale.com), on this machine and on every device you'll use aludra from.
 
 ## Install
@@ -49,7 +49,7 @@ aludra init --root '~/code/*' --root '~/work/*/*' --user you@example.com --name 
 aludra doctor
 ```
 
-Doctor checks the settings, Node, the data directory, each workspace pattern, the pinned versions, Claude Code's login, the model, the built app, Tailscale and `tailscale serve`, the push services, the service, and backups. Each line is `ok`, `warn`, `fail` or `skip`, and anything that isn't `ok` says what to run. It exits 1 if anything failed. It doesn't start a Claude Code query, so it costs nothing to run. [operations.md](operations.md#what-doctor-checks) explains each check.
+Doctor checks the settings, Node, the data directory, each workspace pattern, the pinned versions, Claude Code's login, the model, the ChatGPT sign-in if you offer OpenAI's models, the built app, Tailscale and `tailscale serve`, the push services, the service, and backups. Each line is `ok`, `warn`, `fail` or `skip`, and anything that isn't `ok` says what to run. It exits 1 if anything failed. It doesn't start a Claude Code query, so it costs nothing to run. [operations.md](operations.md#what-doctor-checks) explains each check.
 
 ## Run it as a service
 
@@ -99,6 +99,16 @@ npm uninstall -g aludra    # removes the command
 ```
 
 Your settings (`~/.config/aludra/`) and data (see [configuration.md](configuration.md#the-data-directory)) stay until you delete them. Run `tailscale serve reset` if nothing else on the machine uses `tailscale serve`.
+
+## Optional: OpenAI's models on your ChatGPT plan
+
+Sessions can run OpenAI's models as well as Claude, and switch between them mid-session. Sign this machine in with ChatGPT:
+
+```sh
+aludra login openai
+```
+
+It prints an address to open in a browser. On SSH, the browser ends on a `127.0.0.1:1455` page that doesn't load; paste that page's address back at the prompt. It then lists the models your account offers. Add the ones you want to `model.choices` in the settings, such as `"openai/gpt-6.1-sol"`, and restart the host with `aludra service install`. They appear in the apps' model picker. [configuration.md](configuration.md#model) has the details.
 
 ## Optional: a Tailscale node of aludra's own (Linux)
 

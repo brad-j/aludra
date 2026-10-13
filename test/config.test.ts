@@ -12,7 +12,7 @@ test("without a file, the settings are the defaults, and say a workspace is need
 	assert.equal(errors.length, 1);
 	assert.match(errors[0]!, /no workspaces/);
 	assert.deepEqual(config.workspaces, []);
-	assert.deepEqual(config.model, { provider: "claude-bridge", id: "claude-opus-5-5", thinking: "high", choices: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"] });
+	assert.deepEqual(config.model, { provider: "claude-bridge", id: "claude-opus-5-5", thinking: "high", choices: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"].map((id) => ({ provider: "claude-bridge", id })) });
 	assert.deepEqual(config.claude, { path: "claude" });
 	assert.deepEqual(config.api, { port: 8724, users: [] });
 	assert.deepEqual(config.approvals, { hosts: [], waitHours: 24 });
@@ -34,11 +34,31 @@ test("a file's settings go over the defaults, and the environment over both", ()
 	const { config, errors } = configFor(JSON.stringify({ workspaces, model: { thinking: "xhigh" }, claude: { path: "~/bin/claude" }, api: { users: ["a@x", "b@x"] }, dataDir: "~/aludra" }), { ALUDRA_MODEL: "faux" });
 	assert.deepEqual(errors, []);
 	assert.deepEqual(config.workspaces, workspaces);
-	assert.deepEqual(config.model, { provider: "faux", id: "faux-1", thinking: "xhigh", choices: ["faux-1"] });
+	assert.deepEqual(config.model, { provider: "faux", id: "faux-1", thinking: "xhigh", choices: [{ provider: "faux", id: "faux-1" }] });
 	assert.equal(config.claude.path, join(homedir(), "bin/claude"));
 	assert.deepEqual(config.api.users, ["a@x", "b@x"]);
 	assert.equal(config.dataDir, join(homedir(), "aludra"));
 	assert.equal(configFor(undefined, { ALUDRA_DATA_DIR: "/tmp/x" }).config.dataDir, "/tmp/x");
+});
+
+test("model choices name their provider, or are the default provider's; so does the default model", () => {
+	const settings = (model: object) => configFor(JSON.stringify({ workspaces: [{ name: "a", roots: [] }], model }), {});
+	const mixed = settings({ choices: ["claude-opus-5-5", "openai/gpt-6.1-sol"] });
+	assert.deepEqual(mixed.errors, []);
+	assert.deepEqual(mixed.config.model.choices, [{ provider: "claude-bridge", id: "claude-opus-5-5" }, { provider: "openai", id: "gpt-6.1-sol" }]);
+
+	// The default goes first when it isn't listed.
+	const openai = settings({ id: "openai/gpt-6.1-sol", choices: ["claude-sonnet-5-5"] });
+	assert.deepEqual(openai.errors, []);
+	assert.deepEqual([openai.config.model.provider, openai.config.model.id], ["openai", "gpt-6.1-sol"]);
+	assert.deepEqual(openai.config.model.choices, [{ provider: "openai", id: "gpt-6.1-sol" }, { provider: "claude-bridge", id: "claude-sonnet-5-5" }]);
+
+	// Bare IDs belong to model.provider when it's set.
+	assert.deepEqual(settings({ provider: "openai", id: "gpt-6.1-sol", choices: ["gpt-6-luna"] }).config.model.choices, [{ provider: "openai", id: "gpt-6.1-sol" }, { provider: "openai", id: "gpt-6-luna" }]);
+
+	assert.match(settings({ choices: ["mystery/model-1"] }).errors[0]!, /names no provider/);
+	assert.match(settings({ provider: "claude-bridge", id: "openai/gpt-6.1-sol" }).errors[0]!, /isn't a claude-bridge model/);
+	assert.match(settings({ choices: ["claude-opus-5-5", "faux/claude-opus-5-5"] }).errors[0]!, /two of model.choices are claude-opus-5-5/);
 });
 
 test("settings that don't read right are errors, not defaults", () => {

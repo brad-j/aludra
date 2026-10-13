@@ -10,6 +10,7 @@ import { printChecks, runChecks } from "./doctor.ts";
 import { findProjects } from "./projects.ts";
 import { isListening, serve, socketPathFor } from "./server.ts";
 import { currentSpec, installService, platformOf, serviceState, uninstallService } from "./service.ts";
+import { login, logout } from "./login.ts";
 import { init } from "./setup.ts";
 
 const USAGE = `usage: aludra [--config FILE] COMMAND
@@ -27,6 +28,7 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   approve ID | deny ID                   answer one
   projects                               list the projects the workspaces' roots match
   backup                                 copy the database into the backup directory now
+  login openai | logout openai           sign in with ChatGPT, so OpenAI's models run on your plan
   doctor                                 check the settings and everything the host needs
 
 --id REQUEST with ask makes it safe to retry: the same id finds the same message rather than sending it twice.
@@ -142,6 +144,14 @@ switch (command) {
 			console.log(`wrote ${await backupNow(config)}`);
 		} catch (error) {
 			fail(`aludra backup: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		process.exit(0);
+	case "login":
+	case "logout":
+		try {
+			console.log((await (command === "login" ? login : logout)(config, rest[0])).join("\n"));
+		} catch (error) {
+			fail(`aludra ${command}: ${error instanceof Error ? error.message : String(error)}`);
 		}
 		process.exit(0);
 	case "doctor":

@@ -48,7 +48,14 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
   3. The bridge's extension (`src/bridge.ts`), which records each conversation's `cwd` and system prompt for the provider.
   4. Permissions (`src/permissions.ts`), last, so it wraps every tool the others bring.
 
-## The model provider
+## Model providers
+
+Pi Durable gets one pi-ai `Models` collection with each provider `model.choices` names, and a credential store over `credentials.json` in the data directory (`src/credentials.ts`). Sessions can change provider between requests: the bridge rebuilds Claude Code's session from the transcript when it finds messages it didn't see.
+
+- **OpenAI** is pi-ai's own `openai` provider, which Pi Durable drives directly, with nothing in between. `aludra login openai` (`src/login.ts`) runs pi-ai's Sign in with ChatGPT flow with the machine's installation ID, and the store keeps and refreshes the tokens. The store reads the file for every request, so a login from the CLI reaches a running host; a lock file keeps the CLI and the host from writing at once.
+- **Claude** goes through the bridge, below.
+
+### The bridge
 
 `src/bridge.ts` loads [pi-claude-bridge](https://www.npmjs.com/package/pi-claude-bridge) 0.9.2, a pi extension that drives Claude Code through the Agent SDK. The bridge was written for the pi coding agent's loop, so it loads through jiti with a stand-in for pi's `ExtensionAPI` that keeps its provider and event handlers. Its `streamSimple` is wrapped with five fixes Pi Durable needs:
 

@@ -6,7 +6,7 @@ aludra [--config FILE] COMMAND
 
 `--config` names the settings file for any command ([configuration.md](configuration.md#where-the-file-is)). `aludra --help` prints the summary.
 
-Commands fall into two groups. `init`, `service`, `serve`, `projects`, `backup` and `doctor` work on their own. The rest talk to the running host over its Unix socket in the data directory, and print "can't reach the aludra server" if it isn't running.
+Commands fall into two groups. `init`, `service`, `serve`, `login`, `logout`, `projects`, `backup` and `doctor` work on their own. The rest talk to the running host over its Unix socket in the data directory, and print "can't reach the aludra server" if it isn't running.
 
 ## Setting up
 
@@ -29,6 +29,12 @@ Runs the host in the background and at login: a launchd agent on macOS, a system
 ### `aludra serve`
 
 Runs the host in the foreground: the sessions, the CLI's socket, and (with `api.users` set) the app and its API on `127.0.0.1:<api.port>`. Ctrl+C stops it; running sessions continue at the next start. The service runs this command. Use it directly to watch the host's log in a terminal, or on a platform without launchd or systemd.
+
+### `aludra login openai` and `aludra logout openai`
+
+`login` signs this machine in with ChatGPT, so OpenAI's models in `model.choices` run on your ChatGPT plan rather than an API key. It prints an address to open in a browser. If the browser is on this machine, the sign-in finishes on its own. If it's elsewhere (you're on SSH), the browser ends on a `http://127.0.0.1:1455/auth/callback?...` page that fails to load: copy that address from the address bar and paste it at the prompt. Afterwards it lists the models your account offers, written as choices to add to the settings.
+
+The sign-in is kept in `credentials.json` in the data directory, and the running host uses it from its next request. Sign in on each machine separately. `logout` removes it from this machine. Claude has no `aludra login`: Claude Code keeps its own, from `claude auth login`.
 
 ### `aludra doctor`
 

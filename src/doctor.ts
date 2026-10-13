@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import { APP_DIR } from "./api.ts";
 import { listBackups } from "./backup.ts";
 import { claudeExecutable, loadBridge, PROVIDER } from "./bridge.ts";
-import type { Config, Loaded } from "./config.ts";
+import type { Config, Loaded, ProviderId } from "./config.ts";
+import { accountModels, signInModels } from "./login.ts";
 import { expandRoot } from "./projects.ts";
 import { isListening, socketPathFor } from "./server.ts";
 import { currentSpec, installedUnit, launchdPlist, lingers, platformOf, serviceState, systemdUnit, withoutPath } from "./service.ts";
@@ -24,7 +25,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), app(config), push(), service(config), backups(config)];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), app(config), push(), service(config), backups(config)];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -71,8 +72,12 @@ async function versions(): Promise<Check[]> {
 	});
 }
 
+/** Whether the settings offer any model of `provider`. */
+const uses = (config: Config, provider: ProviderId) => config.model.choices.some((c) => c.provider === provider);
+
 async function claude(config: Config): Promise<Check[]> {
 	if (config.model.provider === "faux") return [{ status: "skip", area: "claude", detail: "not needed for the faux model" }];
+	if (!uses(config, PROVIDER)) return [{ status: "skip", area: "claude", detail: "no Claude models in model.choices" }];
 	let path: string;
 	try {
 		path = claudeExecutable(config.claude.path);
@@ -95,15 +100,39 @@ async function claude(config: Config): Promise<Check[]> {
 	}
 }
 
+/** The default model is one its provider has (or the host won't start); a choice that isn't is left out of the picker. */
 async function model(config: Config): Promise<Check[]> {
 	if (config.model.provider === "faux") return [{ status: "warn", area: "model", detail: "the faux model: scripted answers, no network" }];
-	const bridge = await loadBridge({ claudePath: config.claude.path, dir: join(config.dataDir, "bridge") }, () => {});
-	const found = bridge.models.some((m) => m.id === config.model.id);
-	return [{
-		status: found ? "ok" : "fail",
-		area: "model",
-		detail: found ? `${PROVIDER}/${config.model.id}, thinking ${config.model.thinking}` : `the bridge has no ${config.model.id}; it has ${bridge.models.map((m) => m.id).join(", ")}`,
-	}];
+	const known: Partial<Record<ProviderId, string[]>> = { openai: signInModels(config).getModels("openai").map((m) => m.id) };
+	if (uses(config, PROVIDER)) known[PROVIDER] = (await loadBridge({ claudePath: config.claude.path, dir: join(config.dataDir, "bridge") }, () => {})).models.map((m) => m.id);
+	const has = (provider: ProviderId, id: string) => known[provider]?.includes(id) === true;
+	const { provider, id } = config.model;
+	const checks: Check[] = [has(provider, id)
+		? { status: "ok", area: "model", detail: `${provider}/${id}, thinking ${config.model.thinking}` }
+		: { status: "fail", area: "model", detail: `${provider} has no ${id}; it has ${known[provider]?.join(", ") || "none"}` }];
+	for (const choice of config.model.choices) {
+		if (!has(choice.provider, choice.id)) checks.push({ status: "warn", area: "model", detail: `${choice.provider} has no ${choice.id}, so the apps leave it out` });
+	}
+	return checks;
+}
+
+/** OpenAI, when the settings offer its models: signed in with ChatGPT, and each one in the account's catalog. */
+async function openai(config: Config): Promise<Check[]> {
+	if (config.model.provider === "faux" || !uses(config, "openai")) return [];
+	const models = signInModels(config);
+	const auth = await models.checkAuth("openai");
+	if (auth === undefined) return [{ status: "fail", area: "openai", detail: "not signed in, so OpenAI's models fail; run: aludra login openai" }];
+	if (auth.type === "api_key") return [{ status: "warn", area: "openai", detail: `no ChatGPT sign-in, so requests use ${auth.source ?? "an API key"} and are billed per token; to use your plan, run: aludra login openai` }];
+	const checks: Check[] = [{ status: "ok", area: "openai", detail: "signed in with ChatGPT; requests use your plan" }];
+	try {
+		const offered = new Set((await accountModels(models)).runnable.map((m) => m.id));
+		for (const choice of config.model.choices.filter((c) => c.provider === "openai" && !offered.has(c.id))) {
+			checks.push({ status: "warn", area: "openai", detail: `your ChatGPT account doesn't offer ${choice.id}; aludra login openai lists what it does` });
+		}
+	} catch (error) {
+		checks.push({ status: "warn", area: "openai", detail: `couldn't list the account's models: ${message(error)}` });
+	}
+	return checks;
 }
 
 /** The app: its API needs a login to let in, the build to serve, and tailscale serve in front. */
