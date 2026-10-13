@@ -58,7 +58,7 @@ Later, maybe: Slack (a channel per project, a thread per session), voice, a nati
 
 ## Release: aludra on any machine (2026-10-13)
 
-Brad decided to release aludra and the amyrlin Mac app publicly: anyone installs aludra on each machine whose projects they want to reach (Linux or macOS), and adds each machine to the Mac app. Phases: (1) a general host, (2) setup (`aludra init`, `aludra service install` for systemd and launchd, doctor fixes), (3) the Mac app's release (signing, notarization, first-run help), (4) docs, a license and public repositories. Egwene moves to the published package last.
+Brad decided to make aludra installable on any of his machines (Linux or macOS), each added to the amyrlin Mac app. First framed as a public release; on 2026-10-13 he chose to keep both repositories private and install locally, with no npm, no Apple signing and no license for now. Nothing technical stops a private setup: a machine with access to the repository builds and installs from a checkout. The amyrlin name and the Flame of Tar Valon stay while it's private; before any public release the flame (a Wheel of Time symbol) should be replaced with an original mark. Phases: (1) a general host, (2) setup, (3) the Mac app's first-run help and Gatekeeper note.
 
 Decisions:
 
@@ -70,8 +70,14 @@ Decisions:
   - A package: the host builds to `dist/host` (Node won't strip types inside `node_modules`) and finds `dist/client` from its package root. React, TanStack and the fonts are dev dependencies. Pi's lockstep packages (chord, pi-agent-core, pi-ai, pi-codemode, pi-coding-agent, pi-durable, pi-mcp, pi-telemetry, pi-tui) are all pinned at 1.1.0: an npm install without the lockfile took pi-codemode 1.2.0, which satisfies 1.1's `^1.1.0` and breaks it. `npm install -g` of the packed tarball, then `doctor`, `serve` and `ask`, work on macOS and on egwene.
   - macOS: a project reached through a symlink (`/var` is `/private/var`) lost its changes view; fixed, with a test. Doctor skips the systemd check where there's none.
   - The model, the app and the tests speak of the user and listed hosts.
-- **Egwene's move**, when it comes: its `aludra.json` beside package.json is no longer read. It needs `~/.config/aludra/config.json` with the old defaults written out: workspace `egwene` with `~/westwood/Projects/*/*` and `~/westwood/Personal/*`, `api.users` with Brad's login, and `approvals.hosts` think-1, think-2 and monitor-01. The data directory stays `~/.local/share/aludra`.
-- **CI** waits for public repositories, where GitHub Actions is free; macOS runners on a private repository cost ten times the minutes.
+- **Phase 2, setup, done and merged:**
+  - `aludra init` writes the settings file. It guesses project roots from where git repositories are under the home directory (each repository's parent with `/*`; sibling parents folded into `/*/*`; a root only if at least two repositories and at least half its matches are repositories, and none holds a repository below it), and the login from `tailscale status`. `--root`, `--user`, `--name` and `--yes` answer without asking. On the Mac it guessed `~/1-code/*`; on egwene `~/westwood/Projects/*/*`.
+  - `aludra service install | uninstall | status`: a launchd agent (`io.bradjohnson.aludra`, log in `~/Library/Logs/aludra/`) or a systemd user unit (`aludra.service`), running this Node and this aludra with the installing shell's PATH (sessions run commands with it), plus Node's and Claude Code's directories. Installing again rewrites and restarts it. It refuses while an `aludra serve` runs outside it. A unit linked from a checkout is replaced rather than written through, even dangling (Node's `rmSync` leaves a dangling link in place, so `unlinkSync`).
+  - Doctor reads service state on both, warns when the unit names another aludra, Node or settings file (its PATH aside), when systemd won't outlive logout, and prints the tailscale command and the app's addresses. `src/tailscale.ts` uses aludra's own node (egwene's `deploy/aludra-tailscale.service`) when its socket is in the data directory.
+  - `scripts/install.sh` builds, packs and installs globally with npm, then reinstalls the service if there is one. A README.
+  - The launchd agent and the systemd unit were each installed under a test name, served the API, and uninstalled cleanly.
+- **Egwene moved, 2026-10-13:** `~/.config/aludra/config.json` with the old defaults written out (workspace `egwene` with both roots, Brad's login, approval hosts think-1, think-2 and monitor-01); `scripts/install.sh` run with the user manager's PATH (`systemctl --user show-environment`), which has more than an SSH shell's (rustup, perl); the unit linked from `deploy/` replaced by the written one, with all sessions idle. The checkout stays for development; the host runs the installed package. Data directory unchanged.
+- **CI** isn't set up: private repositories get 2,000 Actions minutes a month and macOS minutes count ten times, so if it comes, Linux only.
 
 ## Spike findings (2026-10-11)
 

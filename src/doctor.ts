@@ -10,7 +10,7 @@ import { claudeExecutable, loadBridge, PROVIDER } from "./bridge.ts";
 import type { Config, Loaded } from "./config.ts";
 import { expandRoot } from "./projects.ts";
 import { isListening, socketPathFor } from "./server.ts";
-import { currentSpec, installedUnit, launchdPlist, lingers, platformOf, serviceState, systemdUnit } from "./service.ts";
+import { currentSpec, installedUnit, launchdPlist, lingers, platformOf, serviceState, systemdUnit, withoutPath } from "./service.ts";
 import { servesPort, tailnetSelf, tailscaleFor } from "./tailscale.ts";
 
 export type Check = { status: "ok" | "warn" | "fail" | "skip"; area: string; detail: string };
@@ -139,9 +139,10 @@ async function service(config: Config): Promise<Check[]> {
 	const state = serviceState(platform);
 	if (!state.installed) return [{ status: "warn", area: "service", detail: "not installed, so the host runs only while aludra serve does; run: aludra service install" }];
 	const checks: Check[] = [{ status: state.running ? "ok" : "warn", area: "service", detail: state.running ? state.detail : `${state.detail}; run: aludra service install` }];
-	// After an upgrade or a switch of Node, the unit may still name the old paths.
+	// After an upgrade or a switch of Node, the unit may still name the old paths. Its PATH is the installing shell's.
 	const current = platform === "launchd" ? launchdPlist(currentSpec(config)) : systemdUnit(currentSpec(config));
-	if (installedUnit(platform) !== current) checks.push({ status: "warn", area: "service", detail: "the service runs a different aludra, Node, PATH or settings file than this one; run: aludra service install" });
+	const installed = installedUnit(platform);
+	if (installed === undefined || withoutPath(installed) !== withoutPath(current)) checks.push({ status: "warn", area: "service", detail: "the service runs a different aludra, Node or settings file than this one; run: aludra service install" });
 	if (platform === "systemd" && !lingers()) checks.push({ status: "warn", area: "service", detail: `the host stops when you log out; run: loginctl enable-linger ${userInfo().username}` });
 	return checks;
 }

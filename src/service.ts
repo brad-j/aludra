@@ -177,6 +177,11 @@ export function lingers(): boolean {
 	return run("loginctl", ["show-user", userInfo().username, "--property=Linger", "--value"]).stdout.trim() === "yes";
 }
 
+/** A unit's text without its PATH, which differs from shell to shell without the unit being out of date. */
+export function withoutPath(unit: string): string {
+	return unit.replace(/(<key>PATH<\/key>\s*<string>)[^<]*(<\/string>)/, "$1$2").replace(/^Environment=.*PATH=.*$/m, "");
+}
+
 /** The unit's file as installed, for comparing with what would be written now. */
 export function installedUnit(platform: Platform, name = "aludra"): string | undefined {
 	const file = unitFile(platform, name);

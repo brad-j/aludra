@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, wr
 import { join } from "node:path";
 import test from "node:test";
 import { configFor } from "../src/config.ts";
-import { launchdPlist, type ServiceSpec, systemdUnit, writeUnit } from "../src/service.ts";
+import { launchdPlist, type ServiceSpec, systemdUnit, withoutPath, writeUnit } from "../src/service.ts";
 import { findRepositories, settingsText, suggestRoots } from "../src/setup.ts";
 import { parseStatus, servesPort } from "../src/tailscale.ts";
 import { tempDir } from "./helpers.ts";
@@ -79,4 +79,11 @@ test("a unit linked from a checkout is replaced, not written through, even when 
 	writeUnit(unit, "again\n");
 	assert.equal(existsSync(checkout), false, "a dangling link doesn't bring the checkout's file back");
 	assert.equal(readFileSync(unit, "utf8"), "again\n");
+});
+
+test("a unit installed from another shell's PATH still counts as current; another Node doesn't", () => {
+	for (const render of [launchdPlist, systemdUnit]) {
+		assert.equal(withoutPath(render({ ...spec, path: "/a" })), withoutPath(render({ ...spec, path: "/b:/c" })));
+		assert.notEqual(withoutPath(render(spec)), withoutPath(render({ ...spec, node: "/other/node" })));
+	}
 });
