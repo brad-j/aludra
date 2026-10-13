@@ -11,6 +11,6 @@
 	],
 	"api": {
 		"port": 8726,
-		"user": "brad@example.com"
+		"users": ["you@example.com"]
 	}
 }

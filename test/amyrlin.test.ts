@@ -11,7 +11,7 @@ import { createApi } from "../src/api.ts";
 import { type Json, translateFixture } from "../src/amyrlin/translate.ts";
 import { makeProject, testHost } from "./helpers.ts";
 
-const USER = "brad@example.com";
+const USER = "you@example.com";
 const FIXTURES = join(import.meta.dirname, "fixtures", "amyrlin");
 
 test("the translation matches amyrlin's expected frames for every recorded scenario", () => {
@@ -43,7 +43,7 @@ async function api(t: TestContext) {
 	models.setProvider(faux.provider);
 	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" } });
 	const project = makeProject(dir, "one");
-	const server = createApi(host, { user: USER, appDir: join(dir, "no-app"), name: "test-host" });
+	const server = createApi(host, { users: [USER], appDir: join(dir, "no-app"), name: "test-host" });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
 	return { host, project, prompts, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin` };
@@ -104,7 +104,7 @@ async function client(t: TestContext, url: string) {
 
 const type = (name: string) => (e: Json) => e.type === name;
 
-test("the endpoint refuses connections without Brad's login, and any from a web page", async (t) => {
+test("the endpoint refuses connections without a listed login, and any from a web page", async (t) => {
 	const { url } = await api(t);
 	for (const headers of [{}, { "tailscale-user-login": "someone@else.com" }, { "tailscale-user-login": USER, origin: "https://evil.example" }]) {
 		const ws = new WebSocket(url, { headers });

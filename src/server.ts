@@ -161,10 +161,11 @@ export async function serve(config: Config) {
 	const server = listen(host, socketPath, watchers);
 	console.error(`aludra listening on ${socketPath}, model ${host.model.provider}/${host.model.modelId}`);
 	const push = createPush({ harness: host.harness, keys: loadPushKeys(config.dataDir) });
-	const api = config.api.user === undefined ? undefined : createApi(host, { user: config.api.user, push });
-	if (api === undefined) console.error("no api.user in the settings, so the app's API is off");
+	const { users } = config.api;
+	const api = users.length === 0 ? undefined : createApi(host, { users, push });
+	if (api === undefined) console.error("no api.users in the settings, so the app's API is off");
 	// Loopback only: tailscale serve is the way in, and it vouches for who's asking.
-	else api.listen(config.api.port, () => console.error(`aludra app and API on 127.0.0.1:${config.api.port}, for ${config.api.user}`));
+	else api.listen(config.api.port, () => console.error(`aludra app and API on 127.0.0.1:${config.api.port}, for ${users.join(", ")}`));
 
 	async function shutdown() {
 		await api?.close();

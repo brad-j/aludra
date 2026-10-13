@@ -98,10 +98,10 @@ async function model(config: Config): Promise<Check[]> {
 
 /** The app: its API needs a login to let in, the build to serve, and tailscale serve in front. */
 async function app(config: Config): Promise<Check[]> {
-	if (config.api.user === undefined) return [{ status: "warn", area: "app", detail: 'no api.user in the settings, so the app and its API are off; set it to your Tailscale login' }];
+	if (config.api.users.length === 0) return [{ status: "warn", area: "app", detail: 'no api.users in the settings, so the app and its API are off; list your Tailscale login: "users": ["you@example.com"]' }];
 	const built = existsSync(join(APP_DIR, "_shell.html"));
 	const checks: Check[] = [
-		{ status: "ok", area: "app", detail: `API on 127.0.0.1:${config.api.port} for ${config.api.user}` },
+		{ status: "ok", area: "app", detail: `API on 127.0.0.1:${config.api.port} for ${config.api.users.join(", ")}` },
 		{ status: built ? "ok" : "fail", area: "app", detail: built ? "built" : "not built; run pnpm build" },
 	];
 	// aludra's own node (deploy/aludra-tailscale.service) if it's set up, else the machine's.

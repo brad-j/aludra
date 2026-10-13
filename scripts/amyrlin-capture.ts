@@ -15,7 +15,7 @@ import { configFor } from "../src/config.ts";
 import { openHost } from "../src/host.ts";
 
 const out = resolve(process.argv[2] ?? "session.jsonl");
-const USER = "brad@example.com";
+const USER = "you@example.com";
 const dir = mkdtempSync(join(tmpdir(), "aludra-capture-"));
 const projectDir = join(dir, "Projects", "Software", "demo");
 mkdirSync(projectDir, { recursive: true });
@@ -34,7 +34,7 @@ models.setProvider(faux.provider);
 const { config } = configFor(JSON.stringify({ dataDir: join(dir, "data"), workspaces: [{ name: "capture", roots: [join(dir, "Projects", "*", "*")] }] }), {});
 const host = await openHost({ config, models, model: { provider: "faux", modelId: "faux-1" }, agentDir: join(dir, "agent"), onNotice: () => {} });
 host.resume();
-const api = createApi(host, { user: USER, appDir: join(dir, "no-app"), name: "capture" });
+const api = createApi(host, { users: [USER], appDir: join(dir, "no-app"), name: "capture" });
 await new Promise<void>((done) => api.listen(0, done));
 const url = `ws://127.0.0.1:${(api.server.address() as AddressInfo).port}/amyrlin`;
 

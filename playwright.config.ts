@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 // The host with the faux model and fresh data, serving the built app (pnpm e2e builds it first). WebKit needs system
 // libraries this machine doesn't have, so phones are Chromium at an iPhone's size, with touch.
 const { defaultBrowserType: _, ...iphone } = devices["iPhone 15"];
-const identity = { "tailscale-user-login": "brad@example.com" };
+const identity = { "tailscale-user-login": "you@example.com" };
 
 export default defineConfig({
 	testDir: "e2e",

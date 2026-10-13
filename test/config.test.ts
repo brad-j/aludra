@@ -3,22 +3,38 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { configFor, loadConfig } from "../src/config.ts";
+import { configFor, defaultConfigFile, defaultDataDir, loadConfig } from "../src/config.ts";
 import { expandRoot, findProject, findProjects } from "../src/projects.ts";
 import { tempDir } from "./helpers.ts";
 
-test("without a file, the settings are the plan's defaults", () => {
-	const { config, errors } = configFor(undefined, {});
-	assert.deepEqual(errors, []);
-	assert.deepEqual(config.workspaces, [{ name: "egwene", roots: ["~/westwood/Projects/*/*", "~/westwood/Personal/*"] }]);
+test("without a file, the settings are the defaults, and say a workspace is needed", () => {
+	const { config, errors } = configFor(undefined, {}, "linux");
+	assert.equal(errors.length, 1);
+	assert.match(errors[0]!, /no workspaces/);
+	assert.deepEqual(config.workspaces, []);
 	assert.deepEqual(config.model, { provider: "claude-bridge", id: "claude-opus-5-5", thinking: "high", choices: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"] });
-	assert.deepEqual(config.api, { port: 8724 });
+	assert.deepEqual(config.claude, { path: "claude" });
+	assert.deepEqual(config.api, { port: 8724, users: [] });
+	assert.deepEqual(config.approvals, { hosts: [], waitHours: 24 });
 	assert.equal(config.dataDir, join(homedir(), ".local/share/aludra"));
 });
 
+test("the data and settings directories follow the platform and XDG", () => {
+	assert.equal(defaultDataDir({}, "darwin"), join(homedir(), "Library/Application Support/aludra"));
+	assert.equal(defaultDataDir({ XDG_DATA_HOME: "/data" }, "linux"), "/data/aludra");
+	assert.equal(defaultConfigFile({}), join(homedir(), ".config/aludra/config.json"));
+	assert.equal(defaultConfigFile({ XDG_CONFIG_HOME: "/conf" }), "/conf/aludra/config.json");
+	assert.match(loadConfig(undefined, { XDG_CONFIG_HOME: "/nonexistent" }).errors[0]!, /no settings file at \/nonexistent\/aludra\/config.json/);
+});
+
 test("a file's settings go over the defaults, and the environment over both", () => {
-	const { config } = configFor(JSON.stringify({ model: { thinking: "xhigh" }, dataDir: "~/aludra" }), { ALUDRA_MODEL: "faux" });
+	const workspaces = [{ name: "code", roots: ["~/code/*"] }];
+	const { config, errors } = configFor(JSON.stringify({ workspaces, model: { thinking: "xhigh" }, claude: { path: "~/bin/claude" }, api: { users: ["a@x", "b@x"] }, dataDir: "~/aludra" }), { ALUDRA_MODEL: "faux" });
+	assert.deepEqual(errors, []);
+	assert.deepEqual(config.workspaces, workspaces);
 	assert.deepEqual(config.model, { provider: "faux", id: "faux-1", thinking: "xhigh", choices: ["faux-1"] });
+	assert.equal(config.claude.path, join(homedir(), "bin/claude"));
+	assert.deepEqual(config.api.users, ["a@x", "b@x"]);
 	assert.equal(config.dataDir, join(homedir(), "aludra"));
 	assert.equal(configFor(undefined, { ALUDRA_DATA_DIR: "/tmp/x" }).config.dataDir, "/tmp/x");
 });
@@ -27,6 +43,7 @@ test("settings that don't read right are errors, not defaults", () => {
 	assert.match(configFor(JSON.stringify({ model: { thinking: "lots" } }), {}).errors[0]!, /thinking/);
 	assert.match(configFor("{", {}).errors[0]!, /isn't JSON/);
 	assert.match(configFor(JSON.stringify({ workspaces: [{ name: "a", roots: [] }, { name: "a", roots: [] }] }), {}).errors[0]!, /share a name/);
+	assert.match(configFor(JSON.stringify({ workspaces: [{ name: "a", roots: [] }], api: { user: "a@x" } }), {}).errors[0]!, /api.users, a list/);
 	assert.match(loadConfig("/nonexistent/aludra.json", {}).errors[0]!, /no settings file/);
 });
 

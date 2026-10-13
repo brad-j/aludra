@@ -1,5 +1,5 @@
 // The app's API: loopback HTTP for actions, a WebSocket for everything live, and the built app itself. tailscale serve
-// puts HTTPS in front and adds Tailscale-User-Login; only `user` gets in (after gaidin's web view, src/web.ts there).
+// puts HTTPS in front and adds Tailscale-User-Login; only the logins in `users` get in (after gaidin's web view).
 //
 //   GET  /api/bootstrap                   projects, models, thinking levels, defaults
 //   POST /api/sessions                    { project, text, model?, thinking? }        → { id }
@@ -122,8 +122,8 @@ const subscription = object({ endpoint: string, keys: object({ p256dh: string, a
 const endpointBody = object({ endpoint: string });
 
 export type ApiOptions = {
-	/** The Tailscale login let in. */
-	user: string;
+	/** The Tailscale logins let in. */
+	users: readonly string[];
 	/** Where the built app is; without one, only the API is served. */
 	appDir?: string;
 	/** Notifications to devices; without it, none are sent. */
@@ -182,11 +182,11 @@ export function createApi(host: Host, options: ApiOptions) {
 	}
 	const json = (response: ServerResponse, value: unknown) => reply(response, 200, JSON.stringify(value), "application/json");
 
-	function bootstrap(): Bootstrap {
+	function bootstrap(login: string): Bootstrap {
 		const choices = host.choices();
 		const model = choices.find((c) => c.id === host.model.modelId) ?? { provider: host.model.provider, id: host.model.modelId, name: host.model.modelId };
 		return {
-			user: options.user,
+			user: login,
 			machine: hostname(),
 			projects: host.projects().map(({ workspace, name, path, dir }) => ({ workspace, name, path, dir })),
 			models: choices,
@@ -304,11 +304,18 @@ export function createApi(host: Host, options: ApiOptions) {
 		return { path: file, patch: await fileDiff(record.base, file) };
 	}
 
-	async function route(request: IncomingMessage, response: ServerResponse) {
+	/** The Tailscale login of whoever asks, if it's one let in. tailscale serve sets it for a person's device; tagged
+	 * devices and anything else get no header. */
+	function loginOf(request: IncomingMessage): string | undefined {
+		const login = request.headers["tailscale-user-login"];
+		return typeof login === "string" && options.users.includes(login) ? login : undefined;
+	}
+
+	async function route(request: IncomingMessage, response: ServerResponse, login: string) {
 		const url = new URL(request.url ?? "/", "http://host");
 		const path = url.pathname;
 		if (request.method === "GET" || request.method === "HEAD") {
-			if (path === "/api/bootstrap") return json(response, bootstrap());
+			if (path === "/api/bootstrap") return json(response, bootstrap(login));
 			const changed = /^\/api\/sessions\/(\d+)\/changes(\/diff)?$/.exec(path);
 			if (changed !== null) return json(response, await changes(Number(changed[1]), changed[2] === undefined ? null : url.searchParams.get("path") ?? ""));
 			if (path === "/api/push") return json(response, await pushState());
@@ -322,10 +329,10 @@ export function createApi(host: Host, options: ApiOptions) {
 	}
 
 	const server = createServer((request, response) => {
-		// tailscale serve sets this for a person's device; tagged devices and anything else get no header.
-		if (request.headers["tailscale-user-login"] !== options.user) return reply(response, 403, "Forbidden", "text/plain");
+		const login = loginOf(request);
+		if (login === undefined) return reply(response, 403, "Forbidden", "text/plain");
 		if (request.method === "POST" && !sameOrigin(request, true)) return reply(response, 403, "Cross-site request", "text/plain");
-		route(request, response).catch((error) => {
+		route(request, response, login).catch((error) => {
 			const status = error instanceof HttpError ? error.status : error instanceof ParseError ? 400 : /^no (session|project|model|idea)|could be/.test(String(error?.message)) ? 404 : 500;
 			if (status === 500) console.error("[api]", error);
 			if (!response.headersSent) reply(response, status, error instanceof Error ? error.message : String(error), "text/plain");
@@ -335,21 +342,22 @@ export function createApi(host: Host, options: ApiOptions) {
 
 	const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 	// The amyrlin Mac app (src/amyrlin/endpoint.ts). A native app sends no Origin, and a browser always does, so a web
-	// page can't open this socket with Brad's Tailscale identity.
+	// page can't open this socket with the user's Tailscale identity.
 	const amyrlin = createAmyrlinEndpoint(host, { name: options.name ?? hostname().split(".")[0]! });
 	const amyrlinSockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 	server.on("upgrade", (request, socket, head) => {
 		const path = new URL(request.url ?? "/", "http://host").pathname;
 		if (path === "/amyrlin") {
-			if (request.headers["tailscale-user-login"] !== options.user || request.headers.origin !== undefined) {
+			const login = loginOf(request);
+			if (login === undefined || request.headers.origin !== undefined) {
 				socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
 				return;
 			}
 			const name = request.headers["tailscale-user-name"];
-			amyrlinSockets.handleUpgrade(request, socket, head, (ws) => amyrlin.connect(ws, { login: options.user, name: typeof name === "string" ? name : options.user }));
+			amyrlinSockets.handleUpgrade(request, socket, head, (ws) => amyrlin.connect(ws, { login, name: typeof name === "string" ? name : login }));
 			return;
 		}
-		if (path !== "/api/live" || request.headers["tailscale-user-login"] !== options.user || !sameOrigin(request, false)) {
+		if (path !== "/api/live" || loginOf(request) === undefined || !sameOrigin(request, false)) {
 			socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
 			return;
 		}

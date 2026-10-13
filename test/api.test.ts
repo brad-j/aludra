@@ -13,7 +13,8 @@ import type { Idea, Item, ServerEvent, SessionMeta, SessionSummary } from "../sr
 import { createPush, loadPushKeys } from "../src/push.ts";
 import { decrypt, device, makeProject, tempDir, testHost } from "./helpers.ts";
 
-const USER = "brad@example.com";
+const USER = "you@example.com";
+const PARTNER = "partner@example.com";
 
 /** A pushed notification, as the device that got it reads it. */
 type Pushed = { title: string; body: string; tag?: string; url?: string; urgency?: string };
@@ -36,7 +37,7 @@ async function api(t: TestContext, responses: FauxResponseStep[], appDir?: strin
 		return new Response(null, { status: 201 });
 	}) as typeof fetch;
 	const push = createPush({ harness: host.harness, keys: loadPushKeys(join(dir, "data")), fetch: pushFetch });
-	const server = createApi(host, { user: USER, appDir: appDir ?? join(dir, "no-app"), push });
+	const server = createApi(host, { users: [USER, PARTNER], appDir: appDir ?? join(dir, "no-app"), push });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
 	const base = `http://127.0.0.1:${(server.server.address() as AddressInfo).port}`;
@@ -95,9 +96,10 @@ const toolThenAnswer = (command: string, answer: string): FauxResponseStep[] => 
 	(ctx: TranscriptContext) => fauxAssistantMessage(`${answer} ${JSON.stringify(ctx.messages.at(-1)!.content)}`),
 ];
 
-test("only Brad's Tailscale login gets in, and posts must be same-origin JSON", async (t) => {
+test("only the listed Tailscale logins get in, and posts must be same-origin JSON", async (t) => {
 	const { base, call } = await api(t, []);
 	assert.equal((await fetch(`${base}/api/bootstrap`)).status, 403);
+	assert.equal((await (await call("/api/bootstrap", undefined, { "tailscale-user-login": PARTNER })).json()).user, PARTNER, "each listed login is itself");
 	assert.equal((await call("/api/bootstrap", undefined, { "tailscale-user-login": "someone@example.com" })).status, 403);
 	assert.equal((await call("/api/sessions", { project: "one", text: "hi" }, { origin: "https://evil.example" })).status, 403);
 	const form = await fetch(`${base}/api/sessions`, { method: "POST", headers: { "tailscale-user-login": USER, "content-type": "text/plain" }, body: "{}" });
