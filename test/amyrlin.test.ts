@@ -16,7 +16,7 @@ const FIXTURES = join(import.meta.dirname, "fixtures", "amyrlin");
 
 test("the translation matches amyrlin's expected frames for every recorded scenario", () => {
 	const names = readdirSync(join(FIXTURES, "durable-1.1.0")).filter((f) => f.endsWith(".jsonl"));
-	assert.equal(names.length, 18);
+	assert.equal(names.length, 23);
 	for (const name of names) {
 		const frames = translateFixture(readFileSync(join(FIXTURES, "durable-1.1.0", name), "utf8")).map((f) => f.events);
 		const expected = readFileSync(join(FIXTURES, "wire-v1", name), "utf8").trim().split("\n").map((line) => JSON.parse(line));
