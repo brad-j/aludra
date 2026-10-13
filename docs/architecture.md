@@ -5,7 +5,7 @@ How aludra works today. [plan.md](plan.md) has the history: what was decided, wh
 ## The pieces
 
 ```
- phone / desk browser          amyrlin (Mac)               terminal
+ browser (phone or computer)   amyrlin (macOS)             terminal
         │ HTTPS + WS /api/live        │ WSS /amyrlin             │
         └──────────────┬──────────────┘                          │
                tailscale serve  (adds Tailscale-User-Login)      │
@@ -40,17 +40,17 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
   | `aludra.approvals` | Approval requests and decisions; decided ones are dropped after a week. |
   | `aludra.colors` | Picked project colours: name to hue index. |
   | `aludra.push` | Devices signed up for notifications. |
-  | `aludra.amyrlin` | The host's ID for the Mac app, and `conversations.create` request IDs already handled. |
+  | `aludra.amyrlin` | The host's ID for amyrlin, and `conversations.create` request IDs already handled. |
 
 - **Extensions**, installed in this order:
   1. Pi Durable's `CodingTools`: `read`, `write`, `edit` and `bash`, each run in a `NodeExecutionEnv` from the conversation's `cwd`.
-  2. Project context (`src/context.ts`): `AGENTS.md` or `CLAUDE.md` and skills, found with pi-coding-agent's own loaders the way terminal pi finds them, and read again before every request. A no-project session gets a `no_project` section instead, saying where things are on the machine.
+  2. Project context (`src/context.ts`): `AGENTS.md` or `CLAUDE.md` and skills, found with pi-coding-agent's own loaders the way the pi coding agent finds them, and read again before every request. A no-project session gets a `no_project` section instead, saying where things are on the machine.
   3. The bridge's extension (`src/bridge.ts`), which records each conversation's `cwd` and system prompt for the provider.
   4. Permissions (`src/permissions.ts`), last, so it wraps every tool the others bring.
 
 ## The model provider
 
-`src/bridge.ts` loads [pi-claude-bridge](https://www.npmjs.com/package/pi-claude-bridge) 0.9.2, a pi extension that drives Claude Code through the Agent SDK. The bridge was written for terminal pi's agent loop, so it loads through jiti with a stand-in for pi's `ExtensionAPI` that keeps its provider and event handlers. Its `streamSimple` is wrapped with five fixes Pi Durable needs:
+`src/bridge.ts` loads [pi-claude-bridge](https://www.npmjs.com/package/pi-claude-bridge) 0.9.2, a pi extension that drives Claude Code through the Agent SDK. The bridge was written for the pi coding agent's loop, so it loads through jiti with a stand-in for pi's `ExtensionAPI` that keeps its provider and event handlers. Its `streamSimple` is wrapped with five fixes Pi Durable needs:
 
 - **Signals.** Pi Durable aborts each request's signal when that request is done; the bridge ties one long-lived Claude Code query to the first. The wrapper keeps one controller per session and forwards an abort only while a stream runs.
 - **Restarts.** After a restart the bridge has no live query, and a transcript ending in a tool result would end the turn empty. The wrapper adds a short note to that one request, which sends the bridge down its rebuild path.
@@ -71,7 +71,7 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 - **The CLI** (`src/cli.ts`, `src/server.ts`) sends one JSON request per connection over `aludra.sock` and prints the lines that come back. Live output comes from Pi Durable's `watchEvents()`.
 - **The web app's API** (`src/api.ts`) serves HTTP for actions and one WebSocket, `/api/live`, for everything live. A followed session's transcript is built from Pi Durable's conversation view (`src/transcript.ts`) as a list of items, and only the items from the first change on are resent. Updates go out at most every 50 ms.
 - **The sessions feed** in `src/api.ts` keeps every session's summary current by watching the task graph: a session is running while it has a generation or tool task, and when those end, its summary is read again. A run that ends done or failed triggers a notification once.
-- **The Mac endpoint** (`src/amyrlin/`) speaks amyrlin's protocol v1. `translate.ts` turns `watchEvents()` into v1 frames; `endpoint.ts` handles commands, the session list and approvals.
+- **amyrlin's endpoint** (`src/amyrlin/`) speaks amyrlin's protocol v1. `translate.ts` turns `watchEvents()` into v1 frames; `endpoint.ts` handles commands, the session list and approvals.
 
 [api.md](api.md) documents all three.
 
@@ -84,7 +84,7 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 | `app/routes/` | `/` (new session), `/s/:id` (a session), `/s/:id/changes`. |
 | `app/components/` | The shell and drawer, the session screen, the composer, pickers, ideas, the changes view. |
 | `app/lib/live.ts` | The WebSocket and the app's state. |
-| `app/lib/projects.ts` | Project colours (FNV hash into eleven OKLCH hues, shared with the Mac app) and the project picker's ordering. |
+| `app/lib/projects.ts` | Project colours (FNV hash into eleven OKLCH hues, shared with amyrlin) and the project picker's ordering. |
 | `app/lib/images.ts` | Scaling and re-encoding attached images. |
 | `app/lib/markdown.ts` | A DOM-building Markdown renderer, so no model text goes through `innerHTML`. |
 | `app/styles/app.css` | All styles. The "Console" layer at the end is the current look. |

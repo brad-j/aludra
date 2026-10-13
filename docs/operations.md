@@ -83,15 +83,15 @@ aludra's glue around pi-claude-bridge depends on the bridge's internals, and on 
 
 ## Troubleshooting
 
-**The Mac app says 403.** Your Tailscale login isn't in `api.users` on that machine, or the request didn't come through `tailscale serve`. Add the login (exactly as `tailscale status` shows it) and restart the host.
+**amyrlin says 403.** Your Tailscale login isn't in `api.users` on that machine, or the request didn't come through `tailscale serve`. Add the login (exactly as `tailscale status` shows it) and restart the host.
 
-**The Mac app says 502.** `tailscale serve` has nothing behind it: the host isn't running, or `tailscale serve` points at another port. `aludra doctor` says which.
+**amyrlin says 502.** `tailscale serve` has nothing behind it: the host isn't running, or `tailscale serve` points at another port. `aludra doctor` says which.
 
 **The browser shows "Forbidden".** As for 403. If you're on the right login, check you're using the `https://…ts.net/` address and not `127.0.0.1` directly, which has no Tailscale header.
 
 **"The app isn't built; run pnpm build".** The host found no `dist/client`. Reinstall with `sh scripts/install.sh`, which builds it.
 
-**The app shows an old version after an update.** The host reads the built app at start; restart it. On a phone, close the app fully and reopen it.
+**The app shows an old version after an update.** The host reads the built app at start; restart it. In a home screen app, close it fully and reopen it.
 
 **The host stopped after I logged out (Linux).** `loginctl enable-linger "$USER"`.
 
@@ -103,8 +103,8 @@ aludra's glue around pi-claude-bridge depends on the bridge's internals, and on 
 
 **A session can't find `pnpm`, `cargo` or similar.** The service's PATH doesn't have it. Install the service again from a shell where `command -v` finds the tool.
 
-**Notifications don't arrive on the iPhone.** They only work in the app added to the Home Screen, and must be turned on there. Use Test, then lock the phone within five seconds: iOS shows nothing for the web app while it's on screen. Check Focus and Do Not Disturb. `aludra doctor` checks the push services are reachable.
+**Notifications don't arrive.** Each device has to turn them on. Use Test, then lock the device or switch away within five seconds: iOS, at least, shows no banner for the web app while it's on screen. Check Focus and Do Not Disturb. `aludra doctor` checks the push services are reachable. On iOS, notifications only work in the app added to the Home Screen, and must be turned on there.
 
-**The phone shows the old icon.** iOS keeps a Home Screen app's icon until you remove it and add it again.
+**The home screen app shows an old icon.** iOS keeps a Home Screen app's icon until you remove it and add it again.
 
 **An old session's changes view shows a git error.** Git keeps the starting snapshot for two weeks at least; after a `git gc` an older session can lose it.

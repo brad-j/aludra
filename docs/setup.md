@@ -1,6 +1,6 @@
 # Setting up a machine
 
-Install aludra on each computer whose projects you want to reach. Each one runs its own host, with its own sessions, and shows up as a separate machine in the Mac app. The phone app talks to one machine at a time, at that machine's address.
+Install aludra on each macOS or Linux computer whose projects you want to reach. Each one runs its own host, with its own sessions, at its own address on your tailnet. The web app talks to one machine at a time, at that machine's address. amyrlin, the optional macOS client, can show several machines at once.
 
 ## Requirements
 
@@ -38,7 +38,7 @@ aludra init
 To run it without questions, pass the answers and `--yes`:
 
 ```sh
-aludra init --root '~/code/*' --root '~/work/*/*' --user you@example.com --name studio --yes
+aludra init --root '~/code/*' --root '~/work/*/*' --user you@example.com --name devbox --yes
 ```
 
 `aludra init` refuses to overwrite an existing settings file unless you pass `--force`. Everything else in the file has a default; [configuration.md](configuration.md) lists every setting.
@@ -77,11 +77,11 @@ The host listens on `127.0.0.1:8724` only. `tailscale serve` gives it an HTTPS a
 
 ## Connect the apps
 
-**Phone.** Open `https://<machine>.<tailnet>.ts.net/` in Safari and add it to the Home Screen (Share, then Add to Home Screen). It runs as an app from there. Notifications on an iPhone only work in the Home Screen app; turn them on from the foot of the sessions drawer. See [using.md](using.md#notifications).
+**The web app.** Open `https://<machine>.<tailnet>.ts.net/` in a browser on any device on your tailnet. It's a PWA: on a phone, add it to the home screen to run it as an app (on iOS, Safari's Share, then Add to Home Screen). On iOS, notifications only work in the home screen app. Turn notifications on from the foot of the sessions drawer on each device; see [using.md](using.md#notifications). From 60rem wide the app uses a wider layout with the sessions in a column.
 
-**Mac.** In the [amyrlin](https://github.com/brad-j/amyrlin) app, add the machine as `wss://<machine>.<tailnet>.ts.net/amyrlin`, or just its tailnet name. A machine that can't connect says why under its name in the sidebar: 403 means your login isn't in `api.users`, 502 means nothing is behind `tailscale serve`.
+**amyrlin (macOS, optional).** In [amyrlin](https://github.com/brad-j/amyrlin), add the machine as `wss://<machine>.<tailnet>.ts.net/amyrlin`, or just its tailnet name. A machine that can't connect says why under its name in the sidebar: 403 means your login isn't in `api.users`, 502 means nothing is behind `tailscale serve`.
 
-**Desk browser.** The same address as the phone works in any browser on a device on your tailnet. From 60rem wide the app uses its desk layout.
+**The CLI.** On the machine itself, `aludra` talks to the running host directly; see [cli.md](cli.md).
 
 ## Update
 

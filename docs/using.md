@@ -1,6 +1,6 @@
 # Using aludra
 
-Each machine's host keeps its sessions. The phone app, a desk browser, the Mac app and the CLI are all windows onto the same sessions, so one started on the phone can be steered from the Mac and stopped from a terminal. A session keeps running when every app is closed, and picks up where it left off after the host restarts.
+Each machine's host keeps its sessions. The web app (in any browser, on a phone or a computer), amyrlin (the optional macOS client) and the CLI are all windows onto the same sessions, so one started from a phone can be steered from a laptop and stopped from a terminal. A session keeps running when every app is closed, and picks up where it left off after the host restarts.
 
 ## Sessions
 
@@ -29,7 +29,7 @@ From a terminal:
 aludra ask --project site "Why does the build fail on main?"
 ```
 
-The session's title is the first line of its first message. Rename it from the session menu (the `⋯` in its header) in the app, or from the Mac app's session menu or by double-clicking its header there.
+The session's title is the first line of its first message. Rename it from the session menu (the `⋯` in its header) in the web app, or from amyrlin's session menu or by double-clicking its header there.
 
 ### The transcript
 
@@ -74,8 +74,8 @@ Two kinds of shell command wait for you: `git push`, and `ssh`, `scp`, `rsync`, 
 
 You can answer from:
 
-- the app, one tap from the notification;
-- the Mac app;
+- the web app, one tap from the notification;
+- amyrlin;
 - a terminal: `aludra approvals` lists them with their IDs, then `aludra approve ID` or `aludra deny ID`.
 
 A request expires after `approvals.waitHours` (default 24), and the call is refused. Stopping the run or sending a new message cancels it. A restart doesn't: the call waits on the same request when the host comes back.
@@ -90,21 +90,21 @@ The changes are the project's files now against a snapshot taken when the sessio
 
 Sessions grouped by machine and project, the project that most needs you first. Each row has its state, title, latest activity and age. Tap a project's name to fold its sessions away; a folded project still says when one of its sessions needs you or is working. Folding is remembered per browser.
 
-Each project has a colour hashed from its name. When two clash, pick another in the Mac app (a Colour menu on the project's row); the web app shows picked colours but has no picker yet.
+Each project has a colour hashed from its name. When two clash, pick another in amyrlin (a Colour menu on the project's row); the web app shows picked colours but has no picker yet.
 
-On a phone the app opens on the drawer. From 60rem wide it's a column beside the session.
+On a narrow screen the app opens on the drawer. From 60rem wide it's a column beside the session.
 
 ## Notifications
 
 The host notifies your devices when a call waits for approval (after 2 seconds, if it still waits), and when a run ends done or failed. Nothing is sent about a session an app has on screen. Tapping a notification opens the session, with any approval above the composer.
 
-Turn them on at the foot of the drawer, on each device: Turn on, Test, Turn off. On an iPhone, only the app added to the Home Screen can get them. Test sends five seconds after the tap, so you can lock the phone first: iOS shows no banner for the web app while it's on screen, and Focus or Do Not Disturb holds notifications too.
+Turn them on at the foot of the drawer, on each device: Turn on, Test, Turn off. Test sends five seconds after the tap, so you can lock a phone first. On iOS, only the app added to the Home Screen can get notifications, and iOS shows no banner for the web app while it's on screen. Focus or Do Not Disturb holds notifications on any device.
 
-The host sends notifications through Apple's, Google's or Mozilla's push service, encrypted to your device. The Mac app gets its updates over its own connection instead.
+The host sends notifications through the browser maker's push service (Apple's, Google's or Mozilla's), encrypted to your device. amyrlin gets its updates over its own connection instead.
 
-## The Mac app
+## amyrlin
 
-[amyrlin](https://github.com/brad-j/amyrlin) connects to every machine you add and shows all their sessions together. Everything above works there too, plus project colours. Its README covers installing it. Forking and archiving sessions aren't aludra features; the Mac app gets "unsupported" for those.
+[amyrlin](https://github.com/brad-j/amyrlin) is an optional native macOS client. It connects to every machine you add and shows all their sessions together. Everything above works there too, plus picking project colours. Its README covers installing it. Forking and archiving sessions aren't aludra features; amyrlin gets "unsupported" for those.
 
 ## The CLI
 

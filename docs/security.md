@@ -5,7 +5,7 @@ aludra gives whoever reaches it an agent that runs commands as you, on a machine
 ## Who gets in
 
 - **Loopback only.** The host listens on `127.0.0.1`. Nothing on the network reaches it directly. `tailscale serve` is the way in.
-- **Tailscale identity.** `tailscale serve` adds a `Tailscale-User-Login` header to each request from a person's device. aludra lets in only the logins in `api.users`; anything else, including tagged devices and requests with no header, gets 403. There are no passwords or tokens. Without `api.users`, the app, its API and the Mac endpoint don't start.
+- **Tailscale identity.** `tailscale serve` adds a `Tailscale-User-Login` header to each request from a person's device. aludra lets in only the logins in `api.users`; anything else, including tagged devices and requests with no header, gets 403. There are no passwords or tokens. Without `api.users`, the app, its API and amyrlin's endpoint don't start.
 - **Everyone listed is equal.** Every listed login sees and runs every session on the machine. There are no per-user permissions.
 - **The CLI socket** is `aludra.sock` in the data directory, readable and writable by you only. Anyone who can use it is already you.
 
@@ -20,13 +20,13 @@ A page from another site, open in your browser on a tailnet device, would carry 
 - The Content-Security-Policy runs only the app's own scripts. The shell's inline scripts are allowed by hash, computed at start, so nothing a model writes into a transcript can run.
 - The app can't be framed (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), and sends no referrer.
 
-## The Mac endpoint
+## amyrlin's endpoint
 
 `/amyrlin` takes the same identity check, and also refuses any upgrade that carries an `Origin` header. A native app sends none and a browser always does, so a web page can't open it with your identity.
 
 ## Claude credentials
 
-aludra never signs anyone in, and never reads or stores Claude credentials. It runs the Claude Code binary you installed (`claude.path`), which uses the login you made with `claude auth login`. The bridge's own settings live in `bridge/` in aludra's data directory, so terminal pi's bridge settings are left alone.
+aludra never signs anyone in, and never reads or stores Claude credentials. It runs the Claude Code binary you installed (`claude.path`), which uses the login you made with `claude auth login`. The bridge's own settings live in `bridge/` in aludra's data directory, so pi's own bridge settings, if you also use pi, are left alone.
 
 ## Permissions
 
@@ -53,7 +53,7 @@ Credentials, keys and agent logins are off limits. `read`, `write` and `edit` of
 
 Paths are checked as written and through symlinks. Web URLs in a command are ignored, so downloading a public `.key` file isn't blocked. The first block in a run tells the agent not to try another way and lets it carry on; a second block in the same run ends the run.
 
-These rules are a copy of terminal pi's protected-path gate (`~/.pi/agent/lib/protected-paths.ts`), kept in step by hand in `src/protected-paths.ts`.
+The rules are in `src/protected-paths.ts`.
 
 ### What they can't do
 

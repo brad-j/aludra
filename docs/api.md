@@ -1,6 +1,6 @@
 # API
 
-The host has three ways in: the web app's HTTP and WebSocket API, the Mac app's protocol at `/amyrlin`, and the CLI's Unix socket. All three reach the same sessions. The types below are in `src/api-types.ts`, which the app imports.
+The host has three ways in: the web app's HTTP and WebSocket API, amyrlin's protocol at `/amyrlin`, and the CLI's Unix socket. All three reach the same sessions. The types below are in `src/api-types.ts`, which the app imports.
 
 ## The web API
 
@@ -66,7 +66,7 @@ The client sends:
 
 Transcript items are `user`, `answer`, `call`, `failure` and `compacted` (see `Item` in `src/api-types.ts`). Long call arguments and outputs are cut to 6,000 characters: arguments keep their start, outputs their end.
 
-## The Mac app's endpoint: `WS /amyrlin`
+## amyrlin's endpoint: `WS /amyrlin`
 
 amyrlin's protocol v1, documented in amyrlin's `docs/protocol.md`. aludra takes the same `Tailscale-User-Login` check as the web API, and refuses any upgrade with an `Origin` header, so browsers can't open it.
 

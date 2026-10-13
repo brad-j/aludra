@@ -5,7 +5,7 @@
 | Path | What |
 | --- | --- |
 | `src/` | The host and CLI. `main.ts` is the command; [architecture.md](architecture.md) maps the rest. |
-| `src/amyrlin/` | The Mac app's endpoint and its translation to protocol v1. |
+| `src/amyrlin/` | amyrlin's endpoint and its translation to protocol v1. |
 | `app/` | The web app (TanStack Start, SPA mode). |
 | `test/` | Node's test runner, against a faux model and real temporary git repositories. |
 | `test/fixtures/amyrlin/` | amyrlin's recorded Pi Durable streams and their expected protocol v1 frames. |
@@ -44,19 +44,17 @@ ALUDRA_MODEL=faux ALUDRA_DATA_DIR=/tmp/aludra-dev pnpm serve
 
 The faux model runs a script: any message runs `sleep 4 && pwd`; a message mentioning "markdown" gets a Markdown sample; "write a file for NAME" writes `notes-NAME.md` and edits `NAME.txt`; "push" runs `git push --dry-run`, which waits for approval. It's in `fauxModels()` in `src/host.ts`.
 
-The app follows the approved design in `design/prototype.html` and `design/tokens.css`, with the later changes [plan.md](plan.md) records (the Console layer, the desk layout, the Mac app's look). Check new UI at phone size and on the desk; the e2e overflow check covers 320 to 1280 px.
+The app follows the approved design in `design/prototype.html` and `design/tokens.css`, with the later changes [plan.md](plan.md) records (the Console layer, the wide layout, amyrlin's look). Check new UI at phone size and at desktop width; the e2e overflow check covers 320 to 1280 px.
 
 ## Tests
 
-- **Unit and integration** (`test/*.test.ts`): config, projects, setup's guesses, permissions and the protected-path rules, the bridge fixes (each test fails without its fix), the API over HTTP and WebSocket, the Mac endpoint and translation, changes against real git repositories, images, push encryption and signing, backups, and the CLI. They use the faux model or a fake bridge and never reach the network.
-- **End to end** (`pnpm e2e`): `e2e/setup.ts` makes a scratch git project and a project outside git, then Playwright starts a faux host from `e2e/aludra.json` on port 8726 with fresh data in `e2e/results/`, and runs `e2e/app.spec.ts` at iPhone size (Chromium with touch) and at 1280 × 800. WebKit isn't used, since it needs system libraries some machines lack; a real phone is the Safari check.
+- **Unit and integration** (`test/*.test.ts`): config, projects, setup's guesses, permissions and the protected-path rules, the bridge fixes (each test fails without its fix), the API over HTTP and WebSocket, amyrlin's endpoint and translation, changes against real git repositories, images, push encryption and signing, backups, and the CLI. They use the faux model or a fake bridge and never reach the network.
+- **End to end** (`pnpm e2e`): `e2e/setup.ts` makes a scratch git project and a project outside git, then Playwright starts a faux host from `e2e/aludra.json` on port 8726 with fresh data in `e2e/results/`, and runs `e2e/app.spec.ts` at iPhone size (Chromium with touch) and at 1280 × 800. WebKit isn't used, since it needs system libraries some machines lack; a real iOS device is the Safari check.
 - **Live** (`scripts/live-check.ts`, by hand): the real bridge and your Claude Code login. Two sessions at once, a compaction, and `kill -9` mid tool call with recovery. Run it after upgrading Pi Durable or the bridge. It spends a little of the subscription.
-
-There's no CI. If it comes, Linux runners only: private repositories get 2,000 Actions minutes a month, and macOS minutes count ten times.
 
 ## The amyrlin fixtures
 
-amyrlin records Pi Durable event streams and keeps them in its `fixtures/`. aludra keeps a copy and checks that `src/amyrlin/translate.ts` turns each into exactly the expected frames. After amyrlin re-records:
+amyrlin records Pi Durable event streams and keeps them in its `fixtures/`. aludra keeps a copy and checks that `src/amyrlin/translate.ts` turns each into exactly the expected frames. After amyrlin re-records, from an aludra checkout with amyrlin's beside it:
 
 ```sh
 cp -R ../amyrlin/fixtures/durable-1.1.0 test/fixtures/amyrlin/
@@ -76,8 +74,6 @@ pnpm test
 
 ## Conventions
 
-- Read [plan.md](plan.md) before starting work, and record decisions and finished milestones there.
 - Update these docs when behaviour they describe changes: a setting, a command, an endpoint, a permission rule.
+- Record decisions, and the reasons for them, in [plan.md](plan.md).
 - Comments say what code is for and why, in plain sentences. Match the surrounding code.
-- Commit messages describe the change in a sentence or two of prose, as the history does.
-- gaidin (a sibling checkout, `../gaidin`) is the other project on Pi Durable. Borrow from it (push, the service worker, Tailscale identity, faux model tests) rather than reinventing.

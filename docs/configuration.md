@@ -17,7 +17,7 @@ The first of these that's set:
 ```json
 {
 	"workspaces": [
-		{ "name": "studio", "roots": ["~/code/*", "~/work/*/*"] }
+		{ "name": "devbox", "roots": ["~/code/*", "~/work/*/*"] }
 	],
 	"api": { "users": ["you@example.com"], "port": 8724 },
 	"model": {
@@ -27,8 +27,8 @@ The first of these that's set:
 	},
 	"claude": { "path": "claude" },
 	"approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
-	"backup": { "dir": "/Volumes/nas/aludra", "everyHours": 24, "keep": 7 },
-	"dataDir": "~/Library/Application Support/aludra"
+	"backup": { "dir": "/mnt/backup/aludra", "everyHours": 24, "keep": 7 },
+	"dataDir": "~/aludra-data"
 }
 ```
 
@@ -49,7 +49,7 @@ Projects are read from disk each time they're listed, so a new folder under a ro
 
 ### `api`
 
-- `users`: the Tailscale logins let in, such as `["you@example.com"]`. Default: none, and with none the web app, its API and the Mac app's endpoint stay off. Everyone listed sees and runs every session on this machine.
+- `users`: the Tailscale logins let in, such as `["you@example.com"]`. Default: none, and with none the web app, its API and amyrlin's endpoint stay off. Everyone listed sees and runs every session on this machine.
 - `port`: the loopback port the app and API listen on. Default `8724`. Point `tailscale serve` at the same port.
 
 An old single `api.user` is an error rather than being ignored, since ignoring it would quietly turn the API off.
@@ -105,7 +105,7 @@ Where the database, keys and scratch directories go. Default `~/Library/Applicat
 | `aludra.sqlite` | Every session, idea, approval and setting the apps change: one Pi Durable database. `-wal` and `-shm` sit beside it while the host runs. |
 | `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |
 | `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
-| `bridge/` | The bridge's own settings (`claude-bridge.json`, with `claude.path`) and a small module that points the bridge there instead of at terminal pi's settings. |
+| `bridge/` | The bridge's own settings (`claude-bridge.json`, with `claude.path`) and a small module that points the bridge there instead of at pi's own settings. |
 | `scratch/<id>/` | The working directory of each no-project session. |
 | `backups/` | Copies of the database, unless `backup.dir` says otherwise. |
 | `tailscale/` | Only with aludra's own Tailscale node ([setup.md](setup.md#optional-a-tailscale-node-of-aludras-own-linux)). |
@@ -114,4 +114,4 @@ The directory is created owner-only (`0700`), and the service runs with a `0077`
 
 ## Project context and skills
 
-Sessions get the same instructions terminal pi would: `~/.pi/agent/AGENTS.md`, then `AGENTS.md` or `CLAUDE.md` in each directory from `/` down to the project, and skills from `~/.pi/agent/skills` and the project's `.pi/skills`. They're read again before every request, so an edit reaches the session's next request without a restart.
+Sessions get the same instructions the pi coding agent would, found with its own loaders: `~/.pi/agent/AGENTS.md`, then `AGENTS.md` or `CLAUDE.md` in each directory from `/` down to the project, and skills from `~/.pi/agent/skills` and the project's `.pi/skills`. They're read again before every request, so an edit reaches the session's next request without a restart.
