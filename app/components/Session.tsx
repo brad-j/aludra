@@ -2,7 +2,8 @@
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useChanges } from "../lib/changes.ts";
-import type { Item, SessionMeta } from "../../src/api-types.ts";
+import type { ImageAt, Item, SessionMeta } from "../../src/api-types.ts";
+import { imageSrc } from "../lib/images.ts";
 import { type Call, callLabel, duration, shortPath, STATE_LABEL, summarize, tokens } from "../lib/format.ts";
 import { actions, follow, useLive } from "../lib/live.ts";
 import { Composer } from "./Composer.tsx";
@@ -128,7 +129,7 @@ export function SessionView({ id }: { id: number }) {
 						{meta === undefined && items.length === 0 && <p className="empty">Loading…</p>}
 						{blocks.map((block, index) => {
 							const last = index === blocks.length - 1;
-							if (block.kind === "round") return <Round key={block.key} calls={block.calls} open={last && running} />;
+							if (block.kind === "round") return <Round key={block.key} calls={block.calls} open={last && running} session={id} />;
 							return <ItemView key={block.item.id} item={block.item} session={id} />;
 						})}
 						{running && meta?.retry !== undefined && <p className="note">Retrying: {meta.retry.error}</p>}
@@ -166,7 +167,7 @@ function SessionComposer({ id, meta, running, onMore, onModel }: { id: number; m
 			placeholder={running ? (mode === "steer" ? "Steer the current run…" : "Queue for when it's done…") : "Follow up…"}
 			sendLabel="Send"
 			sendOnlyWithText={running}
-			onSend={(text) => actions.send(id, text, running ? mode : "followUp")}
+			onSend={(text, images) => actions.send(id, text, running ? mode : "followUp", images)}
 		>
 			<button className="icon-btn" type="button" aria-label="Session menu" onClick={onMore}><Icon.plus /></button>
 			{running && (
@@ -188,7 +189,12 @@ function SessionComposer({ id, meta, running, onMore, onModel }: { id: number; m
 function ItemView({ item, session }: { item: Item; session: number }) {
 	switch (item.kind) {
 		case "user":
-			return <div className="user">{item.text}</div>;
+			return (
+				<div className="user">
+					{item.images !== undefined && <Images session={session} images={item.images} />}
+					{item.text}
+				</div>
+			);
 		case "answer":
 			return (
 				<>
@@ -252,10 +258,10 @@ function Failure({ item, session }: { item: Extract<Item, { kind: "failure" }>; 
 }
 
 /** A round of calls: rows while it runs, one summary line once it's done, opened by a tap. */
-function Round({ calls, open: live }: { calls: Call[]; open: boolean }) {
+function Round({ calls, open: live, session }: { calls: Call[]; open: boolean; session: number }) {
 	const done = calls.every((c) => c.status === "done" || c.status === "error");
 	const [open, setOpen] = useState(false);
-	if (!done || live) return <div className="calls">{calls.map((call) => <CallView key={call.id} call={call} />)}</div>;
+	if (!done || live) return <div className="calls">{calls.map((call) => <CallView key={call.id} call={call} session={session} />)}</div>;
 	const failed = calls.some((c) => c.status === "error");
 	return (
 		<div className="calls">
@@ -266,7 +272,7 @@ function Round({ calls, open: live }: { calls: Call[]; open: boolean }) {
 				<Icon.chevron />
 			</button>
 			<div className="fold" data-open={open}>
-				<div>{open && calls.map((call) => <CallView key={call.id} call={call} />)}</div>
+				<div>{open && calls.map((call) => <CallView key={call.id} call={call} session={session} />)}</div>
 			</div>
 		</div>
 	);
@@ -274,10 +280,10 @@ function Round({ calls, open: live }: { calls: Call[]; open: boolean }) {
 
 const seen = new Map<string, number>();
 
-function CallView({ call }: { call: Call }) {
+function CallView({ call, session }: { call: Call; session: number }) {
 	const [open, setOpen] = useState(false);
 	if (call.status === "running" || call.status === "pending") return <LiveCall call={call} />;
-	const detail = detailOf(call);
+	const detail = detailOf(call, session);
 	return (
 		<>
 			<div className="call-row">
@@ -299,13 +305,33 @@ function CallView({ call }: { call: Call }) {
 	);
 }
 
-/** What opening a call shows: an edit's diff, a write's content, or the output. */
-function detailOf(call: Call) {
+/** What opening a call shows: an edit's diff, a write's content, or the output and any images it returned. */
+function detailOf(call: Call, session: number) {
 	const { edits, content } = call.args;
 	if (call.tool === "edit" && Array.isArray(edits) && call.status !== "error") return <Diff edits={edits as { oldText: string; newText: string }[]} />;
 	if (call.tool === "write" && typeof content === "string" && call.status !== "error") return <Code text={content} />;
-	if (call.output !== undefined && call.output !== "") return <pre>{call.output}</pre>;
-	return null;
+	const output = call.output !== undefined && call.output !== "" ? <pre>{call.output}</pre> : null;
+	if (call.images === undefined) return output;
+	return (
+		<>
+			{output}
+			<Images session={session} images={call.images} />
+		</>
+	);
+}
+
+/** A message's or a result's images, small; one opens full size in a sheet. */
+function Images({ session, images }: { session: number; images: readonly ImageAt[] }) {
+	const ui = useUi();
+	return (
+		<div className="images">
+			{images.map((at, index) => (
+				<button key={`${at.entry}:${at.message}:${at.block}`} type="button" className="thumb" aria-label={`Open image ${index + 1}`} onClick={() => ui.sheet("Image", () => <img className="full" src={imageSrc(session, at)} alt="" />)}>
+					<img src={imageSrc(session, at)} alt="" loading="lazy" />
+				</button>
+			))}
+		</div>
+	);
 }
 
 /** A running call: its command and the tail of its output, at a fixed height so the page doesn't move. */

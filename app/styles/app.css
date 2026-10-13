@@ -632,3 +632,14 @@ a.path { display: block; text-decoration: underline dotted var(--color-rule-2); 
 
 /* Chips square, like everything else; bars stay round. */
 .chip { border-radius: 0; }
+
+/* Images: attached ones above the composer's text, and a message's or a result's in the transcript. */
+.attachments { display: flex; flex-wrap: wrap; gap: var(--space-xs); list-style: none; margin: 0; padding: var(--space-xs) var(--space-xs) 0; }
+.attachments li { position: relative; }
+.attachments img { display: block; width: 56px; height: 56px; object-fit: cover; border: var(--rule-hair) solid var(--color-rule-2); }
+.attachments .remove { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: var(--rule-hair) solid var(--color-rule-2); border-radius: 50%; background: var(--color-paper); color: var(--color-ink-2); }
+.attachments .remove svg { width: 12px; height: 12px; }
+.images { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin: 0 0 var(--space-xs); }
+.images .thumb { display: block; padding: 0; border: var(--rule-hair) solid var(--color-rule-2); background: var(--color-paper); cursor: zoom-in; }
+.images .thumb img { display: block; max-width: min(100%, 320px); max-height: 200px; }
+.sheet img.full { display: block; max-width: 100%; height: auto; margin: 0 auto; }

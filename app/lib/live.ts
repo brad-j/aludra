@@ -2,6 +2,7 @@
 // (src/api.ts), plus the bootstrap and the actions, which are plain POSTs. Components read it with useLive().
 import { useSyncExternalStore } from "react";
 import type { Bootstrap, Idea, Item, ServerEvent, SessionMeta, SessionSummary, Thinking } from "../../src/api-types.ts";
+import type { Attached } from "./images.ts";
 
 export type Connection = "connecting" | "open" | "closed";
 
@@ -118,6 +119,11 @@ export function follow(id: number | null) {
 	if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "follow", session: id }));
 }
 
+/** Shows `message` above the composer until the next action. */
+export function setError(message: string) {
+	set({ error: message });
+}
+
 export function clearError() {
 	if (state.error !== undefined) set({ error: undefined });
 }
@@ -136,8 +142,10 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
 const requestId = () => crypto.randomUUID();
 
 export const actions = {
-	start: (project: string, text: string, model: string, thinking: Thinking) => post<{ id: number }>("/api/sessions", { project, text, model, thinking, requestId: requestId() }),
-	send: (session: number, text: string, mode: "steer" | "followUp") => post(`/api/sessions/${session}/messages`, { text, mode, requestId: requestId() }),
+	start: (project: string, text: string, model: string, thinking: Thinking, images: readonly Attached[] = []) =>
+		post<{ id: number }>("/api/sessions", { project, text, images: images.map(({ mimeType, data }) => ({ mimeType, data })), model, thinking, requestId: requestId() }),
+	send: (session: number, text: string, mode: "steer" | "followUp", images: readonly Attached[] = []) =>
+		post(`/api/sessions/${session}/messages`, { text, images: images.map(({ mimeType, data }) => ({ mimeType, data })), mode, requestId: requestId() }),
 	stop: (session: number) => post(`/api/sessions/${session}/stop`, {}),
 	rename: (session: number, title: string) => post<{ title: string }>(`/api/sessions/${session}/title`, { title }),
 	configure: (session: number, change: { model?: string; thinking?: Thinking }) => post(`/api/sessions/${session}/agent`, change),

@@ -95,6 +95,22 @@ test("a session is renamed from its menu, and the header and the drawer show the
 	await expect(page.locator(".session-row").filter({ hasText: name })).toHaveCount(1);
 });
 
+test("an image is attached, shown before sending, and in the transcript after, opening full size", async ({ page }) => {
+	await start(page, "alpha", "Say something short");
+	// 2×2 red PNG.
+	const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP4z8AARAwQCgAf7gP9i18U1AAAAABJRU5ErkJggg==", "base64");
+	await page.locator(".dock input[type=file]").setInputFiles({ name: "red.png", mimeType: "image/png", buffer: png });
+	await expect(page.locator(".attachments img")).toHaveCount(1);
+	await page.getByLabel("Follow up").fill("What colour is this?");
+	await page.getByRole("button", { name: "Send" }).click();
+	await expect(page.locator(".attachments")).toHaveCount(0);
+	const thumb = page.locator(".user .images img").last();
+	await expect(thumb).toBeVisible();
+	await expect.poll(() => thumb.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
+	await page.locator(".user .images .thumb").last().click();
+	await expect(page.locator(".sheet img.full")).toBeVisible();
+});
+
 test("a git push waits for approval above the composer, and Deny blocks it", async ({ page }) => {
 	await start(page, "alpha", "Commit and push");
 	const approval = page.locator(".approval");

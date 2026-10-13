@@ -85,9 +85,9 @@ export function NewSession() {
 							await actions.saveIdea(chosen.path, text);
 						},
 					}}
-					onSend={async (text) => {
+					onSend={async (text, images) => {
 						if (!noProject && chosen === undefined) throw new Error("no project");
-						const { id } = await actions.start(noProject ? NO_PROJECT_PATH : chosen!.path, text, model, thinking);
+						const { id } = await actions.start(noProject ? NO_PROJECT_PATH : chosen!.path, text, model, thinking, images);
 						await navigate({ to: "/s/$id", params: { id: String(id) } });
 					}}
 				>
