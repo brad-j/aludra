@@ -72,6 +72,10 @@ Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gai
 - **Classifier false positive.** One recovery request was refused by Opus 5.5's safeguards as `[cyber]`. The test read a file named `secret.txt` and the note said "The agent process restarted". With `notes.txt` and "(Continuing where we left off.)" it passed. These refusals can happen in real use; the app must show them plainly as their own failure, with the request ID.
 - `CLAUDE_BRIDGE_DEBUG=1` with `CLAUDE_BRIDGE_DEBUG_PATH` gives a detailed log of the bridge's session handling.
 
+## Console redesign (2026-10-12)
+
+With the amyrlin Mac app: chrome in Fira Code (header, drawer, sheets, composer, buttons), the transcript still in Fira Sans, square corners, a tree drawer (▾ project, a guide line down its sessions), your messages as framed blocks with a ❯ and a violet edge, tool calls and folded rounds in boxes, the composer as a box. It's one layer at the end of `app/styles/app.css` ("Console"), so it reads and reverts in one place; the radius tokens are 0. The Mac app also has a tmux-style status line; here the composer's model line carries the same facts. The overflow e2e check passes at every width.
+
 ## The Mac app's look (2026-10-12)
 
 Brought over from the amyrlin Mac app's design pass, so the two read as one product:
