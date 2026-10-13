@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import test from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { DatabaseSync } from "node:sqlite";
@@ -28,6 +28,7 @@ test("a backup taken while the host runs holds what the database does, and only 
 	assert.equal(backupDue(backup), true, "due with none");
 	const first = await backupNow(backup, new Date("2026-10-13T10:00:00Z"));
 	assert.match(first, /aludra-20261013T100000Z\.sqlite$/);
+	assert.equal(statSync(first).mode & 0o777, 0o600, "only the owner can read it");
 	const counts = tables(first);
 	assert.ok(Object.keys(counts).length > 0, "the copy has the tables");
 	assert.deepEqual(counts, tables(`${config.dataDir}/aludra.sqlite`), "and the same rows");

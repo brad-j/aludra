@@ -4,7 +4,7 @@
 //
 // To restore: stop the host (aludra service uninstall, or Ctrl+C), copy a backup over aludra.sqlite in the data
 // directory, delete aludra.sqlite-wal and aludra.sqlite-shm beside it, and start the host again.
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { backup as sqliteBackup, DatabaseSync } from "node:sqlite";
 import type { Config } from "./config.ts";
@@ -45,6 +45,8 @@ export async function backupNow(config: Config, now = new Date()): Promise<strin
 	} finally {
 		db.close();
 	}
+	// The sessions are private whoever can read the backup directory, which may be a shared disk.
+	chmodSync(partial, 0o600);
 	renameSync(partial, file);
 	for (const old of listBackups(dir).slice(keep)) rmSync(old.file, { force: true });
 	return file;
