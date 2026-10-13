@@ -72,6 +72,16 @@ Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gai
 - **Classifier false positive.** One recovery request was refused by Opus 5.5's safeguards as `[cyber]`. The test read a file named `secret.txt` and the note said "The agent process restarted". With `notes.txt` and "(Continuing where we left off.)" it passed. These refusals can happen in real use; the app must show them plainly as their own failure, with the request ID.
 - `CLAUDE_BRIDGE_DEBUG=1` with `CLAUDE_BRIDGE_DEBUG_PATH` gives a detailed log of the bridge's session handling.
 
+## The Mac app's look (2026-10-12)
+
+Brought over from the amyrlin Mac app's design pass, so the two read as one product:
+
+- **Project colours:** each project has its own colour from its name (`app/lib/projects.ts`, the same FNV hash and eleven OKLCH hues as the Mac app, red and amber left out for failed and waiting). Project names in the drawer, the open session's wash and the picker's swatches use it. `test/projects.test.ts` pins two indexes the Mac app's tests also pin.
+- **Accent:** violet, `oklch(80% 0.13 300)`, replacing the blue of milestone 2. The sessions column is `#0a0a0a`, a step darker than the transcript.
+- **Drawer:** a project's label folds its sessions away, remembered per browser; folded, it shows a count, or that a session needs Brad or is working. The open session is highlighted again: the drawer sets `aria-current="page"` and the CSS had looked for `true`.
+- **Project picker:** Recent (projects with sessions, newest first), then each folder largest first, picked from a row of chips; a search ranks name prefixes first and keeps folders. It replaces a ranking that compared names against paths, so recent projects never came first.
+- **Desk:** text 15% larger from 60rem; the phone keeps its sizes. The overflow e2e check passes at every width.
+
 ## The amyrlin Mac app (2026-10-12)
 
 [amyrlin](https://github.com/brad-j/amyrlin), a native Mac app, is a second client of this host: the same sessions show on the phone and the Mac, so one started on either continues on the other. It speaks amyrlin's protocol v1 (its `docs/protocol.md`) over one WebSocket at `/amyrlin`, beside `/api/live`.
