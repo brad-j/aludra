@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_DIR } from "./api.ts";
-import { loadBridge, PROVIDER } from "./bridge.ts";
+import { claudeExecutable, loadBridge, PROVIDER } from "./bridge.ts";
 import type { Config, Loaded } from "./config.ts";
 import { expandRoot } from "./projects.ts";
 import { isListening, socketPathFor } from "./server.ts";
@@ -21,7 +21,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(), model(config), app(config), push(), service()];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), app(config), push(), service()];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -68,17 +68,24 @@ async function versions(): Promise<Check[]> {
 	});
 }
 
-async function claude(): Promise<Check[]> {
-	const result = spawnSync("claude", ["auth", "status", "--json"], { encoding: "utf8", timeout: 20_000 });
-	if (result.error !== undefined) return [{ status: "fail", area: "claude", detail: `can't run claude: ${result.error.message}` }];
+async function claude(config: Config): Promise<Check[]> {
+	if (config.model.provider === "faux") return [{ status: "skip", area: "claude", detail: "not needed for the faux model" }];
+	let path: string;
+	try {
+		path = claudeExecutable(config.claude.path);
+	} catch (error) {
+		return [{ status: "fail", area: "claude", detail: message(error) }];
+	}
+	const result = spawnSync(path, ["auth", "status", "--json"], { encoding: "utf8", timeout: 20_000 });
+	if (result.error !== undefined) return [{ status: "fail", area: "claude", detail: `can't run ${path}: ${result.error.message}` }];
 	try {
 		const status = JSON.parse(result.stdout) as { loggedIn?: boolean; authMethod?: string; subscriptionType?: string };
-		if (status.loggedIn !== true) return [{ status: "fail", area: "claude", detail: "Claude Code isn't logged in; run claude and /login" }];
+		if (status.loggedIn !== true) return [{ status: "fail", area: "claude", detail: "Claude Code isn't logged in; run claude auth login" }];
 		const subscription = status.authMethod === "claude.ai";
 		return [{
 			status: subscription ? "ok" : "warn",
 			area: "claude",
-			detail: subscription ? `logged in to a ${status.subscriptionType ?? "Claude"} subscription` : `logged in with ${status.authMethod}, not a subscription: runs would be billed`,
+			detail: subscription ? `${path}, logged in to a ${status.subscriptionType ?? "Claude"} subscription` : `logged in with ${status.authMethod}, not a subscription: runs would be billed`,
 		}];
 	} catch {
 		return [{ status: "fail", area: "claude", detail: `claude auth status answered something else: ${(result.stdout || result.stderr).slice(0, 200)}` }];
@@ -87,7 +94,7 @@ async function claude(): Promise<Check[]> {
 
 async function model(config: Config): Promise<Check[]> {
 	if (config.model.provider === "faux") return [{ status: "warn", area: "model", detail: "the faux model: scripted answers, no network" }];
-	const bridge = await loadBridge(() => {});
+	const bridge = await loadBridge({ claudePath: config.claude.path, dir: join(config.dataDir, "bridge") }, () => {});
 	const found = bridge.models.some((m) => m.id === config.model.id);
 	return [{
 		status: found ? "ok" : "fail",

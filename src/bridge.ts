@@ -1,4 +1,4 @@
-// The model provider: pi-claude-bridge, which drives Claude Code through the Agent SDK on Brad's subscription.
+// The model provider: pi-claude-bridge, which drives Claude Code through the Agent SDK on the user's own login.
 //
 // The bridge is a pi extension, written for pi's agent loop, not Pi Durable's. It loads through jiti with a stand-in
 // for pi's ExtensionAPI that keeps its provider and its event handlers. bridgeProvider wraps the provider's
@@ -20,8 +20,15 @@
 //
 // These depend on bridge internals (src/transcript.ts, src/prompt-capture.ts and its event handlers), so the bridge is
 // pinned; upgrade it deliberately and rerun scripts/live-check.ts.
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+//
+// The bridge runs the user's own Claude Code (`claude.path` in the settings), not the copy the Agent SDK carries: the
+// one they installed and logged in to themselves. The bridge reads that path only from its settings file in pi's agent
+// directory, so it gets a directory of its own in aludra's data directory (`bridge/`): its import of pi-coding-agent goes
+// to a small module that answers getAgentDir() with that directory, and aludra writes the path into the file there. The
+// bridge's logs go there too, and terminal pi's own bridge settings are left alone.
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Api, AssistantMessageEventStream, Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
 import type { Provider } from "@earendil-works/pi-ai/models";
 import { AgentDoc, defineExtension, GenerationTask, hook, ProviderDoc } from "@earendil-works/pi-durable";
@@ -55,21 +62,61 @@ const resolveFile = (specifier: string) => fileURLToPath(import.meta.resolve(spe
 let loading: Promise<Bridge> | undefined;
 const listeners = new Set<(notice: Notice) => void>();
 
-/** The bridge, loaded as pi would load it, keeping its provider and handlers. `notify` gets what it would show in pi's UI. */
-export function loadBridge(notify: (notice: Notice) => void): Promise<Bridge> {
+/** Where the bridge runs Claude Code from and keeps its settings and logs. */
+export type BridgeOptions = { claudePath: string; dir: string };
+
+/** `path` as an executable file: as it is if it has a slash, else the first match on PATH. */
+export function findExecutable(path: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+	const candidates = path.includes("/") ? [resolve(path)] : (env.PATH ?? "").split(delimiter).filter((d) => isAbsolute(d)).map((d) => join(d, path));
+	return candidates.find((file) => {
+		try {
+			accessSync(file, constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	});
+}
+
+/** The Claude Code binary `claudePath` names, or an error that says how to get one. */
+export function claudeExecutable(claudePath: string): string {
+	const found = findExecutable(claudePath);
+	if (found !== undefined) return found;
+	throw new Error(claudePath.includes("/")
+		? `no Claude Code at ${claudePath} (claude.path in the settings)`
+		: `no ${claudePath} on PATH: install Claude Code and run claude auth login, or set claude.path in the settings to where it is`);
+}
+
+/** The bridge, loaded as pi would load it, keeping its provider and handlers. `notify` gets what it would show in pi's
+ * UI. It loads once per process, with the first caller's options. */
+export function loadBridge(options: BridgeOptions, notify: (notice: Notice) => void): Promise<Bridge> {
 	listeners.add(notify);
-	loading ??= load((notice) => listeners.forEach((listener) => listener(notice)));
+	loading ??= load(options, (notice) => listeners.forEach((listener) => listener(notice)));
 	return loading;
 }
 
-async function load(notify: (notice: Notice) => void): Promise<Bridge> {
+/** Points the bridge at `dir` for its settings and logs, with the Claude Code to run; returns the module that tells it so. */
+function prepareDir({ claudePath, dir }: BridgeOptions): string {
+	mkdirSync(dir, { recursive: true, mode: 0o700 });
+	const file = join(dir, "claude-bridge.json");
+	// The bridge writes the day it showed its startup notice here, so the rest of the file is kept.
+	const existing = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { provider?: object }) : {};
+	const settings = { ...existing, provider: { ...existing.provider, pathToClaudeCodeExecutable: claudeExecutable(claudePath) } };
+	writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
+	const agent = pathToFileURL(resolveFile("@earendil-works/pi-coding-agent")).href;
+	const module = join(dir, "pi-coding-agent.mjs");
+	writeFileSync(module, `// Written by aludra (src/bridge.ts): pi-coding-agent, with the bridge's own agent directory.\nexport * from ${JSON.stringify(agent)};\nexport function getAgentDir() {\n\treturn ${JSON.stringify(dir)};\n}\n`);
+	return module;
+}
+
+async function load(options: BridgeOptions, notify: (notice: Notice) => void): Promise<Bridge> {
 	const { createJiti } = await import("jiti");
-	// The bridge's imports of pi's packages get the copies Pi Durable uses.
+	// The bridge's imports of pi's packages get the copies Pi Durable uses, pi-coding-agent through prepareDir's module.
 	const jiti = createJiti(import.meta.url, {
 		alias: {
 			"@earendil-works/pi-ai/compat": resolveFile("@earendil-works/pi-ai/compat"),
 			"@earendil-works/pi-ai": resolveFile("@earendil-works/pi-ai"),
-			"@earendil-works/pi-coding-agent": resolveFile("@earendil-works/pi-coding-agent"),
+			"@earendil-works/pi-coding-agent": prepareDir(options),
 			"@earendil-works/pi-tui": resolveFile("@earendil-works/pi-tui"),
 		},
 	});

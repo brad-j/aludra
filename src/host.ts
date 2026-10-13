@@ -152,7 +152,7 @@ export async function openHost(options: HostOptions) {
 	} else if (config.model.provider === "faux" && options.bridge === undefined) {
 		({ models, model } = fauxModels());
 	} else {
-		bridged = bridgeProvider(options.bridge ?? (await loadBridge(notify)));
+		bridged = bridgeProvider(options.bridge ?? (await loadBridge({ claudePath: config.claude.path, dir: resolve(config.dataDir, "bridge") }, notify)));
 		const mutable = createModels();
 		mutable.setProvider(bridged.provider);
 		models = mutable;
