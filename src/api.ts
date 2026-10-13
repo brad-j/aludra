@@ -422,7 +422,7 @@ export function createApi(host: Host, options: ApiOptions) {
 
 	/** Sends `send` session `id`'s transcript and meta, then each change, until the returned function is called. */
 	async function follow(id: number, send: (event: ServerEvent) => void, feed: SessionsFeed): Promise<() => void> {
-		const record = await host.sessions.get(id);
+		let record = await host.sessions.get(id);
 		if (record === undefined) throw new Error(`No session ${id}`);
 		const state = await (await host.conversation(id)).viewState(context);
 		let sent: string[] = [];
@@ -459,11 +459,19 @@ export function createApi(host: Host, options: ApiOptions) {
 		const unwatchApprovals = host.approvals.onChange((request) => {
 			if (request.conversationId === id) schedule(state.value);
 		});
+		// A new title: the meta, and the summary it gives the feed, must carry it, or the next publish would put back
+		// the old one.
+		const unwatchRecord = host.sessions.onUpdate((updated) => {
+			if (updated.id !== id) return;
+			record = updated;
+			schedule(state.value);
+		});
 		return () => {
 			stopped = true;
 			clearTimeout(timer);
 			unsubscribe();
 			unwatchApprovals();
+			unwatchRecord();
 			state.dispose();
 		};
 	}

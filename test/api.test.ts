@@ -291,14 +291,21 @@ test("a project's colour is picked over the API and every open app hears of it",
 	assert.deepEqual(await (await call("/api/projects/color", { project: "one", color: null })).json(), { colors: {} });
 });
 
-test("a session is renamed over the API, and the sessions list follows", async (t) => {
-	const { call, base } = await api(t, [fauxAssistantMessage("Hi.")]);
+test("a session is renamed over the API: the list and the open session follow, and a later run keeps it", async (t) => {
+	const { call, base } = await api(t, [fauxAssistantMessage("Hi."), fauxAssistantMessage("Again.")]);
 	const socket = await live(t, base);
 	const { id } = await (await call("/api/sessions", { project: "one", text: "first words" })).json();
-	await socket.until(() => socket.state.sessions.some((s) => s.id === id), "the new session");
+	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.state === "done", "the first run");
+	socket.follow(id);
+	await socket.until(() => socket.state.meta?.summary.title === "first words", "the open session's meta");
 
 	assert.deepEqual(await (await call(`/api/sessions/${id}/title`, { title: "  The   real\nname " })).json(), { title: "The real name" });
 	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.title === "The real name", "the new title in the list");
+	await socket.until(() => socket.state.meta?.summary.title === "The real name", "the new title in the open session");
+	await call(`/api/sessions/${id}/messages`, { text: "more", mode: "followUp" });
+	await socket.until(() => socket.state.items.some((item) => JSON.stringify(item).includes("Again.")), "the second run");
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	assert.equal(socket.state.sessions.find((s) => s.id === id)?.title, "The real name", "a later run doesn't put the old title back");
 	assert.equal((await call(`/api/sessions/${id}/title`, { title: "   " })).status, 400);
 	assert.equal((await call("/api/sessions/999/title", { title: "x" })).status, 404);
 });
