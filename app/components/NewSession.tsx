@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Thinking } from "../../src/api-types.ts";
 import { shortPath } from "../lib/format.ts";
+import { NO_PROJECT_PATH } from "../lib/projects.ts";
 import { actions, useLive } from "../lib/live.ts";
 import { Composer } from "./Composer.tsx";
 import { Icon } from "./icons.tsx";
@@ -25,16 +26,18 @@ export function NewSession() {
 	const ideas = useLive((s) => s.ideas);
 	// The last project picked, else the one worked in most recently, else the first.
 	const recent = [...new Set((sessions ?? []).map((s) => projects.find((p) => p.dir === s.dir)?.path).filter((p) => p !== undefined))];
-	const chosen = projects.find((p) => p.path === project) ?? projects.find((p) => p.path === recent[0]) ?? projects[0];
+	// The empty path is "no project": a session in a scratch directory of its own.
+	const noProject = project === NO_PROJECT_PATH;
+	const chosen = noProject ? undefined : projects.find((p) => p.path === project) ?? projects.find((p) => p.path === recent[0]) ?? projects[0];
 	const model = agent.model ?? bootstrap?.defaults.model.id ?? "";
 	const thinking = agent.thinking ?? bootstrap?.defaults.thinking ?? "high";
 	const modelName = bootstrap?.models.find((m) => m.id === model)?.name ?? model;
-	const projectIdeas = ideas.filter((i) => i.dir === chosen?.dir);
+	const projectIdeas = noProject ? [] : ideas.filter((i) => i.dir === chosen?.dir);
 
 	const pickProject = () =>
 		ui.sheet("Project", (close) => (
 			<ProjectPicker
-				current={chosen?.path ?? ""}
+				current={noProject ? NO_PROJECT_PATH : chosen?.path ?? "-"}
 				onPick={(path) => {
 					setProject(path);
 					localStorage.setItem(LAST_PROJECT, path);
@@ -49,8 +52,8 @@ export function NewSession() {
 				<button className="icon-btn menu-btn" aria-label="Sessions" onClick={() => ui.setDrawer(true)}><Icon.menu /></button>
 				<div className="who">
 					<h1>New session</h1>
-					<button className="path" onClick={pickProject} aria-label={`Project: ${chosen?.name ?? "none"}. Change project`}>
-						<bdi>{chosen === undefined ? "Pick a project" : `${bootstrap?.machine}:${shortPath(chosen.dir)}`}</bdi>
+					<button className="path" onClick={pickProject} aria-label={`Project: ${noProject ? "no project" : chosen?.name ?? "none"}. Change project`}>
+						<bdi>{noProject ? `${bootstrap?.machine}: no project` : chosen === undefined ? "Pick a project" : `${bootstrap?.machine}:${shortPath(chosen.dir)}`}</bdi>
 					</button>
 				</div>
 			</header>
@@ -58,8 +61,10 @@ export function NewSession() {
 				<div className="scroll">
 					<div className="column">
 						<div className="empty">
-							<h2>{chosen?.name ?? "No projects"}</h2>
-							Say what it should do, or keep it as an idea for later. The path above changes the project.
+							<h2>{noProject ? "No project" : chosen?.name ?? "No projects"}</h2>
+							{noProject
+								? "A session that isn't about one repository, in a scratch directory of its own. The path above picks a project instead."
+								: "Say what it should do, or keep it as an idea for later. The path above changes the project."}
 						</div>
 						{projectIdeas.length > 0 && <div className="phone-only"><IdeaList ideas={projectIdeas} /></div>}
 					</div>
@@ -72,7 +77,7 @@ export function NewSession() {
 					label="What should it do?"
 					placeholder="What should it do?"
 					sendLabel="Start session"
-					secondary={{
+					secondary={noProject ? undefined : {
 						label: "Save as idea",
 						icon: <Icon.plus />,
 						onSend: async (text) => {
@@ -81,8 +86,8 @@ export function NewSession() {
 						},
 					}}
 					onSend={async (text) => {
-						if (chosen === undefined) throw new Error("no project");
-						const { id } = await actions.start(chosen.path, text, model, thinking);
+						if (!noProject && chosen === undefined) throw new Error("no project");
+						const { id } = await actions.start(noProject ? NO_PROJECT_PATH : chosen!.path, text, model, thinking);
 						await navigate({ to: "/s/$id", params: { id: String(id) } });
 					}}
 				>

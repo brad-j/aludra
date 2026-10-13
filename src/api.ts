@@ -242,8 +242,9 @@ export function createApi(host: Host, options: ApiOptions) {
 		if (path === "/api/sessions") {
 			const request = parseJson(body, newSession, "the new session");
 			if (request.text.trim() === "") throw new HttpError(400, "Say what the session should do");
-			const project = findProject(host.projects(), request.project);
-			const session = await host.sessions.create(project, request.text, { ...(request.model === undefined ? {} : { model: request.model }), ...(request.thinking === undefined ? {} : { thinking: request.thinking }) });
+			const agent = { ...(request.model === undefined ? {} : { model: request.model }), ...(request.thinking === undefined ? {} : { thinking: request.thinking }) };
+			// An empty project is a no-project session, in a scratch directory of its own.
+			const session = request.project === "" ? await host.sessions.createScratch(request.text, agent) : await host.sessions.create(findProject(host.projects(), request.project), request.text, agent);
 			await host.submit(session.id, request.text, request.requestId === undefined ? {} : { requestId: request.requestId });
 			return { id: session.id };
 		}

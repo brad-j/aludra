@@ -6,15 +6,15 @@ import { resolve } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { type CompactionPolicy, type ConversationId, createRegistry, defineDoc, Harness, type Extension, type ModelRef, ProviderDoc } from "@earendil-works/pi-durable";
+import { type CompactionPolicy, configure as configureAgent, type ConversationId, createRegistry, defineDoc, Harness, type Extension, type ModelRef, ProviderDoc } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice } from "./api-types.ts";
 import { type Bridge, bridgeProvider, loadBridge, type Notice, PROVIDER } from "./bridge.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
-import type { Config, Thinking } from "./config.ts";
-import { AGENT_DIR, contextExtension } from "./context.ts";
+import { type Config, expandHome, type Thinking } from "./config.ts";
+import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
 import { findProjects, type Project } from "./projects.ts";
 
@@ -31,7 +31,12 @@ export type SessionRecord = {
 	/** The project's files when it started, for its changes (src/changes.ts); or why there's no snapshot. */
 	base?: Snapshot;
 	baseError?: string;
+	/** A no-project session: `dir` is its own scratch directory, and `project` is NO_PROJECT. */
+	scratch?: boolean;
 };
+
+/** The project name of a session that isn't in a project (T3 Code's "no project" threads). */
+export const NO_PROJECT = "no project";
 
 /** Something to do later: a first message, filed under its project, not sent yet. */
 export type IdeaRecord = { id: number; workspace: string; project: string; dir: string; text: string; createdAt: number };
@@ -131,7 +136,15 @@ export async function openHost(options: HostOptions) {
 
 	let models: Models;
 	let model: ModelRef;
-	const extensions: Extension[] = [CodingTools, contextExtension(options.agentDir ?? AGENT_DIR)];
+	const agentDir = options.agentDir ?? AGENT_DIR;
+	// What a no-project session is told about this machine: each workspace's directory, and where agent histories are.
+	const places: Place[] = [
+		...config.workspaces.flatMap((w) => w.roots.map((root) => ({ path: expandHome(root.split("/*")[0]!), what: `projects in the ${w.name} workspace (${root.replace(/^.*?\/\*/, "*")})` }))),
+		{ path: resolve(agentDir, "sessions"), what: "terminal pi's session history (JSONL)" },
+		{ path: resolve(homedir(), ".claude", "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
+		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
+	];
+	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places })];
 	let bridged: ReturnType<typeof bridgeProvider> | undefined;
 	if (options.models !== undefined && options.model !== undefined) {
 		models = options.models;
@@ -170,6 +183,8 @@ export async function openHost(options: HostOptions) {
 	const created = new Set<(session: SessionRecord) => void>();
 
 	const projects = (): Project[] => findProjects(config.workspaces);
+	/** Where no-project sessions keep the files they make, one directory per session. */
+	const scratchRoot = resolve(config.dataDir, "scratch");
 
 	async function list(): Promise<SessionRecord[]> {
 		const doc = await harness.snapshot(Sessions, context);
@@ -224,6 +239,38 @@ export async function openHost(options: HostOptions) {
 				(await tx.doc(Sessions)).sessions[String(id)] = record;
 			},
 		}, context);
+		for (const listener of created) listener(record!);
+		return record!;
+	}
+
+	/**
+	 * A session in no project: its working directory is a scratch directory of its own, `scratch/<id>` in the data
+	 * directory, which the agent makes files in; it reads anything else by absolute path. No changes view: nothing to
+	 * compare against.
+	 */
+	async function createScratch(prompt: string, agent: { model?: string; thinking?: Thinking } = {}): Promise<SessionRecord> {
+		let record: SessionRecord | undefined;
+		await harness.createConversation({
+			ownership: { kind: "ownerless" },
+			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? thinkingLevel },
+			init: async (tx, id) => {
+				const dir = resolve(scratchRoot, String(id));
+				// The conversation's ID names its directory, so the working directory is set in the creating commit.
+				await configureAgent(tx, id, { cwd: dir });
+				record = {
+					id,
+					workspace: config.workspaces[0]?.name ?? "local",
+					project: NO_PROJECT,
+					dir,
+					title: prompt.split("\n")[0]!.slice(0, 80),
+					createdAt: Date.now(),
+					baseError: "A no-project session has no project to compare against.",
+					scratch: true,
+				};
+				(await tx.doc(Sessions)).sessions[String(id)] = record;
+			},
+		}, context);
+		mkdirSync(record!.dir, { recursive: true, mode: 0o700 });
 		for (const listener of created) listener(record!);
 		return record!;
 	}
@@ -341,7 +388,8 @@ export async function openHost(options: HostOptions) {
 		choices,
 		modelInfo,
 		projects,
-		sessions: { list, get, create, onCreate, states },
+		sessions: { list, get, create, createScratch, onCreate, states },
+		scratchRoot,
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		conversation,
 		submit,

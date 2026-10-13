@@ -130,7 +130,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			pendingApprovals: pending,
 			spend: usageState(usage),
 			workspace: record.workspace,
-			project: record.project,
+			// A no-project session has no `project`; its `dir` is its scratch directory.
+			...(record.scratch === true ? {} : { project: record.project }),
 			dir: record.dir,
 		};
 	}
@@ -233,14 +234,16 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			const record = await host.sessions.get(existing);
 			if (record !== undefined) return { conversation: summaries.get(existing) ?? (await summaryOf(record, "idle")), duplicate: true };
 		}
+		// No project (and no cwd naming one) makes a no-project session, in a scratch directory of its own.
 		const dir = typeof p.project === "string" ? p.project : p.settings?.cwd;
-		const project = host.projects().find((candidate) => candidate.dir === dir);
-		if (project === undefined) throw new ProtocolError("invalid_settings", `${String(dir)} isn't a project aludra knows; host.info lists them`);
+		const project = dir == null ? undefined : host.projects().find((candidate) => candidate.dir === dir);
+		if (dir != null && project === undefined) throw new ProtocolError("invalid_settings", `${String(dir)} isn't a project aludra knows; host.info lists them`);
 		const first = typeof p.text === "string" && p.text.trim() !== "" ? p.text : undefined;
 		const agent: { model?: string; thinking?: Thinking } = {};
 		if (p.settings?.model != null) agent.model = modelOf(p.settings.model);
 		if (p.settings?.thinkingLevel != null) agent.thinking = thinkingOf(p.settings.thinkingLevel);
-		const record = await host.sessions.create(project, first ?? (typeof p.title === "string" && p.title.trim() !== "" ? p.title : "New session"), agent);
+		const title = first ?? (typeof p.title === "string" && p.title.trim() !== "" ? p.title : "New session");
+		const record = project === undefined ? await host.sessions.createScratch(title, agent) : await host.sessions.create(project, title, agent);
 		await host.root.commit(async (tx) => {
 			(await tx.doc(AmyrlinDoc)).created[p.requestId] = record.id;
 		}, context);
@@ -362,7 +365,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		await readInbox();
 		const translator = new DurableTranslator({
 			conversationId: id,
-			conversation: () => ({ id, title: summaries.get(id)?.title ?? record.title, archived: false, parent: null, project: record.project, dir: record.dir }),
+			conversation: () => ({ id, title: summaries.get(id)?.title ?? record.title, archived: false, parent: null, ...(record.scratch === true ? {} : { project: record.project }), dir: record.dir }),
 			inboxExtra: (submission) => inbox.get(submission),
 			settings: (agent) => ({ ...settings, stored: Object.fromEntries(["model", "thinkingLevel", "cwd", "tools", "instructions"].filter((k) => agent?.[k] !== undefined).map((k) => [k, agent[k]])) }),
 			approvals: () => pending,

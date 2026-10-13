@@ -3,7 +3,7 @@ import { type CSSProperties, useState } from "react";
 import type { ModelChoice, Thinking } from "../../src/api-types.ts";
 import { age } from "../lib/format.ts";
 import { useLive } from "../lib/live.ts";
-import { projectColor, projectGroups, projectWash, searchProjects } from "../lib/projects.ts";
+import { NO_PROJECT, NO_PROJECT_PATH, projectColor, projectGroups, projectWash, searchProjects } from "../lib/projects.ts";
 
 export function ModelPicker({ model, thinking, onChange }: { model: string; thinking: Thinking; onChange: (change: { model?: string; thinking?: Thinking }) => void }) {
 	const bootstrap = useLive((s) => s.bootstrap);
@@ -49,6 +49,8 @@ export function ProjectPicker({ current, onPick }: { current: string; onPick: (p
 	const searching = query.trim() !== "";
 	const active = groupId ?? groups[0]?.id;
 	const shown = searching ? searchProjects(query, projects, sessions) : groups.filter((g) => g.id === active);
+	// "No project" heads the list, for a session that isn't about one repository.
+	const showNoProject = !searching || NO_PROJECT.includes(query.trim().toLowerCase());
 	return (
 		<>
 			<input className="search" type="search" placeholder="Find a project" aria-label="Find a project" autoComplete="off" value={query} onChange={(event) => setQuery(event.target.value)} />
@@ -60,6 +62,15 @@ export function ProjectPicker({ current, onPick }: { current: string; onPick: (p
 				))}
 			</div>
 			<ul className="list">
+				{showNoProject && (
+					<li>
+						<button className="pick project-pick" role="radio" aria-checked={current === NO_PROJECT_PATH} style={{ "--project": projectColor(NO_PROJECT), "--project-wash": projectWash(NO_PROJECT) } as CSSProperties} onClick={() => onPick(NO_PROJECT_PATH)}>
+							<span className="swatch" aria-hidden="true" />
+							<span className="grow">No project</span>
+							<span className="sub">a scratch directory</span>
+						</button>
+					</li>
+				)}
 				{shown.map((group) => (
 					<li key={group.id}>
 						{searching && <p className="group-label">{group.title}</p>}
@@ -76,7 +87,7 @@ export function ProjectPicker({ current, onPick }: { current: string; onPick: (p
 						</ul>
 					</li>
 				))}
-				{shown.length === 0 && <li className="empty">{searching ? `No project matches “${query}”.` : "No projects."}</li>}
+				{shown.length === 0 && !showNoProject && <li className="empty">{searching ? `No project matches “${query}”.` : "No projects."}</li>}
 			</ul>
 		</>
 	);

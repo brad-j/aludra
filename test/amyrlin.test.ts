@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -29,8 +29,12 @@ const lastUser = (ctx: TranscriptContext) => JSON.stringify(ctx.messages.findLas
 /** A faux host and its API on a free port. "push" asks to run git push (which waits for approval); anything else is answered. */
 async function api(t: TestContext) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000 }, { id: "faux-2", name: "Faux 2" }] });
+	const prompts: string[] = [];
 	faux.setResponses(Array.from({ length: 100 }, () => (ctx: TranscriptContext) => {
+		prompts.push(JSON.stringify(ctx.messages.filter((m) => m.role === "system")));
 		const last = ctx.messages.at(-1);
+		if (last?.role === "toolResult" && /pwd/.test(JSON.stringify(ctx.messages))) return fauxAssistantMessage(fauxText(`cwd: ${JSON.stringify(last.content)}`));
+		if (/where are you/.test(lastUser(ctx))) return fauxAssistantMessage(fauxToolCall("bash", { command: "pwd" }), { stopReason: "toolUse" });
 		if (last?.role === "toolResult") return fauxAssistantMessage(fauxText(`The push call ${last.isError ? "was blocked" : "ran"}.`));
 		if (/push/.test(lastUser(ctx))) return fauxAssistantMessage(fauxToolCall("bash", { command: "git push --dry-run 2>&1 || true" }), { stopReason: "toolUse" });
 		return fauxAssistantMessage(fauxText("Hello from the faux model."));
@@ -42,7 +46,7 @@ async function api(t: TestContext) {
 	const server = createApi(host, { user: USER, appDir: join(dir, "no-app"), name: "test-host" });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
-	return { host, project, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin` };
+	return { host, project, prompts, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin` };
 }
 
 /** A protocol v1 client: requests, and each subscription's events in order with `seq` checked. */
@@ -218,4 +222,24 @@ test("settings change model and thinking only, and unsupported or unknown reques
 	await assert.rejects(mac.request("conversations.archive", { conversationId: id, archived: true }), { code: "unsupported" });
 	await assert.rejects(mac.request("submit", { conversationId: 99_999, requestId: "x", text: "x" }), { code: "not_found" });
 	await assert.rejects(mac.request("no.such.method"), { code: "unknown_method" });
+});
+
+test("a session made with no project runs in a scratch directory of its own, and is told so", async (t) => {
+	const { url, host, prompts } = await api(t);
+	const mac = await client(t, url);
+	const created = await mac.request("conversations.create", { requestId: "np", text: "where are you" });
+	const summary = created.conversation;
+	assert.equal(summary.project, undefined, "a no-project session has no project");
+	assert.equal(summary.dir, join(host.scratchRoot, String(summary.id)));
+	assert.ok(existsSync(summary.dir), "its scratch directory exists");
+	const watch = (await mac.request("conversation.watch", { conversationId: summary.id })).subscription;
+	const run = await mac.event(watch, type("run.ended"), "the run");
+	const answer = run.find((e) => e.type === "item.added" && e.item.type === "assistant" && e.item.stopReason === "stop");
+	assert.match(answer.item.content[0].text, new RegExp(String(summary.id)), "pwd ran in the scratch directory");
+	assert.ok(prompts.some((p) => p.includes("isn't in a project") && p.includes(summary.dir)), "the system prompt says it has no project");
+	const settings = await mac.request("configure", { conversationId: summary.id, changes: { thinkingLevel: "low" } });
+	assert.equal(settings.settings.effective.cwd, summary.dir);
+	const record = await host.sessions.get(summary.id);
+	assert.equal(record?.scratch, true);
+	assert.equal(record?.project, "no project");
 });

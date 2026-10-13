@@ -17,10 +17,15 @@ export function hueIndex(name: string): number {
 	return Number(hash % BigInt(HUES.length));
 }
 
-/** A project's colour, at one lightness and chroma for every project. */
-export const projectColor = (name: string) => `oklch(80% 0.12 ${HUES[hueIndex(name)]})`;
+/** The project name of no-project sessions (src/host.ts NO_PROJECT); they're grey, not a hue. */
+export const NO_PROJECT = "no project";
+/** What the picker and the new-session screen pass for "no project": the API takes an empty project. */
+export const NO_PROJECT_PATH = "";
+
+/** A project's colour, at one lightness and chroma for every project; grey for no project. */
+export const projectColor = (name: string) => (name === NO_PROJECT ? "var(--color-ink-3)" : `oklch(80% 0.12 ${HUES[hueIndex(name)]})`);
 /** A selected row's wash in the project's hue. */
-export const projectWash = (name: string) => `oklch(25% 0.035 ${HUES[hueIndex(name)]})`;
+export const projectWash = (name: string) => (name === NO_PROJECT ? "var(--color-paper-3)" : `oklch(25% 0.035 ${HUES[hueIndex(name)]})`);
 
 export type Entry = { project: Project; sessions: number; lastActive?: number };
 export type Group = { id: string; title: string; entries: Entry[] };

@@ -4,7 +4,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { type CSSProperties, useEffect, useState } from "react";
 import type { Idea, SessionSummary } from "../../src/api-types.ts";
 import { age, shortPath, URGENCY } from "../lib/format.ts";
-import { projectColor, projectWash } from "../lib/projects.ts";
+import { NO_PROJECT, projectColor, projectWash } from "../lib/projects.ts";
 import { useLive } from "../lib/live.ts";
 import { type PushHere, pushHere, sendTest, turnOff, turnOn } from "../lib/push.ts";
 import { Icon, Mark } from "./icons.tsx";
@@ -40,7 +40,9 @@ export function Drawer() {
 
 	type Group = { project: string; dir: string; sessions: SessionSummary[]; ideas: Idea[] };
 	const groups = new Map<string, Group>();
-	const group = (project: string, dir: string) => groups.get(dir) ?? groups.set(dir, { project, dir, sessions: [], ideas: [] }).get(dir)!;
+	// No-project sessions each have their own scratch directory; they go together under one "no project" group.
+	const keyOf = (project: string, dir: string) => (project === NO_PROJECT ? NO_PROJECT : dir);
+	const group = (project: string, dir: string) => groups.get(keyOf(project, dir)) ?? groups.set(keyOf(project, dir), { project, dir: keyOf(project, dir), sessions: [], ideas: [] }).get(keyOf(project, dir))!;
 	for (const session of sessions ?? []) group(session.project, session.dir).sessions.push(session);
 	for (const idea of ideas) group(idea.project, idea.dir).ideas.push(idea);
 	// A project with only ideas comes after every project with a session.
@@ -70,8 +72,8 @@ export function Drawer() {
 					<section className="dir" key={dir} data-folded={isFolded} style={{ "--project": projectColor(project), "--project-wash": projectWash(project) } as CSSProperties}>
 						<button type="button" className="dir-head" aria-expanded={!isFolded} onClick={() => toggleFolded(dir)}>
 							<span className="name">{project}</span>
-							<span className="where">{shortPath(dir)}</span>
-							<span className="group">{dir.split("/").at(-2)}</span>
+							<span className="where">{project === NO_PROJECT ? "scratch" : shortPath(dir)}</span>
+							{project !== NO_PROJECT && <span className="group">{dir.split("/").at(-2)}</span>}
 							{isFolded && <span className="folded-note" data-state={note === "needs you" ? "waiting" : note === "working" ? "running" : undefined}>{note}</span>}
 							<Icon.chevron />
 						</button>

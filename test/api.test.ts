@@ -8,6 +8,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, type FauxResponseStep, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { WebSocket } from "ws";
 import { createApi, inlineScriptHashes } from "../src/api.ts";
+import { context } from "../src/host.ts";
 import type { Idea, Item, ServerEvent, SessionMeta, SessionSummary } from "../src/api-types.ts";
 import { createPush, loadPushKeys } from "../src/push.ts";
 import { decrypt, device, makeProject, tempDir, testHost } from "./helpers.ts";
@@ -260,4 +261,16 @@ test("an approval in a session nobody is watching is pushed, with what it wants 
 	assert.equal(pushed[0]?.title, "Waiting for you · one");
 	assert.match(pushed[0]!.body, /^Wants to run git push: git push --dry-run \|\| true\npush it$/);
 	assert.equal(pushed[0]!.urgency, "high");
+});
+
+test("an empty project starts a no-project session in its own scratch directory", async (t) => {
+	const { host, call } = await api(t, [fauxAssistantMessage(fauxText("Hello."))]);
+	const response = await call("/api/sessions", { project: "", text: "A question about no repository" });
+	assert.equal(response.status, 200);
+	const { id } = (await response.json()) as { id: number };
+	const record = await host.sessions.get(id);
+	assert.equal(record?.scratch, true);
+	assert.equal(record?.project, "no project");
+	assert.equal(record?.dir, join(host.scratchRoot, String(id)));
+	assert.equal((await (await host.conversation(id)).agent(context)).cwd, record?.dir);
 });

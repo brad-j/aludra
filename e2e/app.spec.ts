@@ -166,3 +166,23 @@ test("a project outside git says it has no changes to show", async ({ page }) =>
 	await page.locator(".who .path").click();
 	await expect(page.locator(".empty")).toContainText("not a git repository");
 });
+
+test("a no-project session runs in its own scratch directory and is listed under no project", async ({ page }) => {
+	await page.goto("/");
+	if (phone(page)) await page.locator(".scrim").click({ position: { x: page.viewportSize()!.width - 20, y: 300 } });
+	await page.locator(".who .path").click();
+	await page.locator(".sheet .pick").filter({ hasText: "No project" }).click();
+	await expect(page.locator(".who .path")).toContainText("no project");
+	await page.getByLabel("What should it do?").fill("No project here. Run pwd.");
+	await page.getByRole("button", { name: "Start session" }).click();
+	await expect(page).toHaveURL(/\/s\/\d+$/);
+	const id = /\/s\/(\d+)$/.exec(page.url())![1];
+	await expect(page.locator(".prose")).toContainText("Tool came back", { timeout: 10_000 });
+	await page.locator(".fold-row").click();
+	await page.locator(".call-row .arg").click();
+	await expect(page.locator(".calls .block pre")).toContainText(`scratch/${id}`);
+	if (phone(page)) await page.getByRole("button", { name: "Sessions" }).first().click();
+	const group = page.locator(".dir").filter({ hasText: "no project" });
+	await expect(group.locator(".where")).toHaveText("scratch");
+	await expect(group.locator(".session-row").first()).toContainText("No project here. Run pwd.");
+});
