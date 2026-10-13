@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { changesSince, fileDiff, parseNameStatus, parseNumstat, snapshot } from "../src/changes.ts";
@@ -73,6 +73,19 @@ test("a project inside a bigger repository sees only its own directory, with pat
 	assert.ok(changes.available);
 	assert.deepEqual(changes.files.map((f) => f.path), ["main.ts"]);
 	assert.match(await fileDiff(base, "main.ts"), /^\+b$/m);
+});
+
+test("a project reached through a symlink has its changes", async (t) => {
+	const root = tempDir(t);
+	mkdirSync(join(root, "real"));
+	repo(join(root, "real"));
+	symlinkSync(join(root, "real"), join(root, "link"));
+	const base = await snapshot(join(root, "link"));
+	assert.ok(!("error" in base), "error" in base ? base.error : "");
+	writeFileSync(join(root, "real", "new.ts"), "x\n");
+	const changes = await changesSince(base);
+	assert.ok(changes.available);
+	assert.deepEqual(changes.files.map((f) => f.path), ["new.ts"]);
 });
 
 test("a directory outside git has no changes, and says why", async (t) => {

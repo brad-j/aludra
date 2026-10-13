@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createDecipheriv, createECDH, type ECDH, hkdfSync, randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
@@ -12,7 +12,8 @@ import { openHost, type HostOptions } from "../src/host.ts";
 import type { Project } from "../src/projects.ts";
 
 export function tempDir(t: TestContext, name = "aludra-test-"): string {
-	const dir = mkdtempSync(join(tmpdir(), name));
+	// Resolved, since a process's cwd is (macOS's temporary directory is under the /var symlink).
+	const dir = realpathSync(mkdtempSync(join(tmpdir(), name)));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	return dir;
 }

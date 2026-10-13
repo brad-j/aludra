@@ -6,7 +6,7 @@
 // project's directory, so they include the session's commits but not what was already uncommitted when it started.
 // The tree is kept by its hash in the session's record; git keeps unreferenced objects for two weeks at least.
 import { execFile } from "node:child_process";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import type { Changes, ChangedFile } from "./api-types.ts";
@@ -33,7 +33,8 @@ export async function snapshot(dir: string): Promise<Snapshot | { error: string 
 	} catch {
 		return { error: "not a git repository" };
 	}
-	const prefix = relative(top, resolve(dir));
+	// git reports the top through symlinks resolved (macOS's /var is /private/var), so the directory is resolved too.
+	const prefix = relative(top, await realpath(resolve(dir)));
 	const scratch = await mkdtemp(join(tmpdir(), "aludra-index-"));
 	const index = join(scratch, "index");
 	try {
