@@ -293,6 +293,31 @@ export async function openHost(options: HostOptions) {
 		return () => created.delete(listener);
 	}
 
+	const updated = new Set<(session: SessionRecord) => void>();
+
+	/** Gives session `id` a new title; returns its record, or throws if there's no such session. */
+	async function rename(id: number, title: string): Promise<SessionRecord> {
+		const trimmed = title.replace(/\s+/g, " ").trim();
+		// ParseErrors, since they're about what was asked: the API answers them with 400.
+		if (trimmed === "") throw new ParseError("a title needs some text");
+		if (trimmed.length > 200) throw new ParseError("a title is at most 200 characters");
+		const record = await root.commit(async (tx) => {
+			const doc = await tx.doc(Sessions);
+			const found = doc.sessions[String(id)];
+			if (found === undefined) throw new Error(`no session ${id}`);
+			found.title = trimmed;
+			return { ...found };
+		}, context);
+		updated.forEach((listener) => listener(record));
+		return record;
+	}
+
+	/** Hears of a session record that changed after it was made, such as a new title. */
+	function onUpdate(listener: (session: SessionRecord) => void): () => void {
+		updated.add(listener);
+		return () => updated.delete(listener);
+	}
+
 	async function conversation(id: number) {
 		const found = await harness.conversation(conversationId(id), context);
 		if (found === undefined || (await get(id)) === undefined) throw new Error(`no session ${id}; aludra sessions lists them`);
@@ -427,7 +452,7 @@ export async function openHost(options: HostOptions) {
 		choices,
 		modelInfo,
 		projects,
-		sessions: { list, get, create, createScratch, onCreate, states },
+		sessions: { list, get, create, createScratch, onCreate, rename, onUpdate, states },
 		scratchRoot,
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },

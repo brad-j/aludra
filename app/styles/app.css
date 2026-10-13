@@ -461,6 +461,8 @@ svg { flex: none; }
 .sheet .grabber { width: 2.25rem; height: 4px; margin: 0 auto var(--space-sm); border-radius: var(--radius-pill); background: var(--color-rule-2); }
 @media (min-width: 40rem) { .sheet .grabber { display: none; } }
 .sheet h2 { font-size: var(--text-md); margin-bottom: var(--space-sm); }
+.sheet .field { width: 100%; min-height: var(--tap); padding: 0 var(--space-sm); margin-bottom: var(--space-sm); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-md); background: var(--color-paper); font-size: var(--text-md); }
+.sheet .field:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 0; }
 .sheet .search { width: 100%; min-height: var(--tap); padding: 0 var(--space-sm); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-md); background: var(--color-paper); font-size: var(--text-md); }
 .sheet .search::placeholder { color: var(--color-ink-3); }
 .sheet .search:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 0; }

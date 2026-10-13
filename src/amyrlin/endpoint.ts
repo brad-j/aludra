@@ -173,6 +173,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		}
 	});
 	const stopCreated = host.sessions.onCreate((record) => markDirty(record.id));
+	const stopUpdated = host.sessions.onUpdate((record) => markDirty(record.id));
 	const ready = refreshAll();
 
 	const listSummaries = () => [...summaries.values()].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -535,6 +536,18 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 					return { conversations: listSummaries() };
 				case "conversations.create":
 					return create(p);
+				case "conversations.rename": {
+					const { record } = await session(p.conversationId);
+					if (typeof p.title !== "string") throw new ProtocolError("bad_request", "conversations.rename takes a title");
+					let renamed;
+					try {
+						renamed = await host.sessions.rename(record.id, p.title);
+					} catch (error) {
+						throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+					}
+					// Watchers hear of it from onUpdate, which compares with the summary they last had.
+					return { conversation: await summaryOf(renamed, (await host.sessions.states()).get(renamed.id) ?? "idle") };
+				}
 				case "conversations.fork":
 				case "conversations.archive":
 					throw new ProtocolError("unsupported", `aludra doesn't support ${method}`);
@@ -575,6 +588,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			stopApprovals();
 			stopCommits();
 			stopCreated();
+			stopUpdated();
 		},
 	};
 }

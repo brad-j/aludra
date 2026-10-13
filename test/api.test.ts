@@ -290,3 +290,15 @@ test("a project's colour is picked over the API and every open app hears of it",
 	assert.equal((await call("/api/projects/color", { project: "one", color: 99 })).status, 400);
 	assert.deepEqual(await (await call("/api/projects/color", { project: "one", color: null })).json(), { colors: {} });
 });
+
+test("a session is renamed over the API, and the sessions list follows", async (t) => {
+	const { call, base } = await api(t, [fauxAssistantMessage("Hi.")]);
+	const socket = await live(t, base);
+	const { id } = await (await call("/api/sessions", { project: "one", text: "first words" })).json();
+	await socket.until(() => socket.state.sessions.some((s) => s.id === id), "the new session");
+
+	assert.deepEqual(await (await call(`/api/sessions/${id}/title`, { title: "  The   real\nname " })).json(), { title: "The real name" });
+	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.title === "The real name", "the new title in the list");
+	assert.equal((await call(`/api/sessions/${id}/title`, { title: "   " })).status, 400);
+	assert.equal((await call("/api/sessions/999/title", { title: "x" })).status, 404);
+});

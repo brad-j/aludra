@@ -80,6 +80,19 @@ test("an answer renders as Markdown, and the model and thinking change from the 
 	await expect(page.locator(".dock .meta")).toContainText("faux-1 · low");
 });
 
+test("a session is renamed from its menu, and the header and the drawer show the new title", async ({ page }) => {
+	await start(page, "alpha", "Say something short");
+	await page.getByRole("button", { name: "Session menu" }).first().click();
+	await page.locator(".sheet").getByRole("button", { name: "Rename" }).click();
+	const field = page.locator(".sheet").getByLabel("Title");
+	await expect(field).toHaveValue("Say something short");
+	await field.fill("A better name");
+	await page.locator(".sheet").getByRole("button", { name: "Rename" }).click();
+	await expect(page.locator("header h1")).toHaveText("A better name");
+	if (phone(page)) await page.getByRole("button", { name: "Sessions" }).first().click();
+	await expect(page.locator(".session-row").filter({ hasText: "A better name" })).toHaveCount(1);
+});
+
 test("a git push waits for approval above the composer, and Deny blocks it", async ({ page }) => {
 	await start(page, "alpha", "Commit and push");
 	const approval = page.locator(".approval");

@@ -1,6 +1,6 @@
 // One session: its transcript, what's running, and the composer for steering, queueing, following up and stopping.
 import { Link } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useChanges } from "../lib/changes.ts";
 import type { Item, SessionMeta } from "../../src/api-types.ts";
 import { type Call, callLabel, duration, shortPath, STATE_LABEL, summarize, tokens } from "../lib/format.ts";
@@ -10,6 +10,32 @@ import { Icon, Mark } from "./icons.tsx";
 import { ModelPicker } from "./Pickers.tsx";
 import { useTick, useUi } from "./Shell.tsx";
 import { Code, Diff, Markdown } from "./Text.tsx";
+
+/** A session's new title, saved on the host; the drawer and the Mac app hear of it. */
+function RenameForm({ session, title, close }: { session: number; title: string; close: () => void }) {
+	const [text, setText] = useState(title);
+	const [busy, setBusy] = useState(false);
+	async function save(event: FormEvent) {
+		event.preventDefault();
+		if (text.trim() === "" || busy) return;
+		setBusy(true);
+		try {
+			await actions.rename(session, text);
+			close();
+		} catch {
+			setBusy(false);
+		}
+	}
+	return (
+		<form onSubmit={(event) => void save(event)}>
+			<input className="field" aria-label="Title" value={text} maxLength={200} autoFocus onChange={(event) => setText(event.target.value)} onFocus={(event) => event.target.select()} />
+			<div className="sheet-actions">
+				<button className="btn" type="button" onClick={close}>Cancel</button>
+				<button className="btn primary" type="submit" disabled={busy || text.trim() === ""} data-state={busy ? "loading" : undefined}>Rename</button>
+			</div>
+		</form>
+	);
+}
 
 type Block = { kind: "item"; item: Item } | { kind: "round"; key: string; calls: Call[] };
 
@@ -50,6 +76,11 @@ export function SessionView({ id }: { id: number }) {
 		ui.sheet(meta?.summary.title ?? "Session", (close) => (
 			<ul className="list">
 				<li>
+					<button className="pick" onClick={() => { close(); setTimeout(rename, 320); }}>
+						<span className="grow">Rename</span>
+					</button>
+				</li>
+				<li>
 					<button className="pick" onClick={() => { close(); setTimeout(chooseModel, 320); }}>
 						<span className="grow">Model and thinking</span>
 						<span className="sub">{meta?.model.name} · {meta?.thinking}</span>
@@ -64,6 +95,10 @@ export function SessionView({ id }: { id: number }) {
 				)}
 			</ul>
 		));
+	}
+
+	function rename() {
+		ui.sheet("Rename", (close) => <RenameForm session={id} title={meta?.summary.title ?? ""} close={close} />);
 	}
 
 	function chooseModel() {

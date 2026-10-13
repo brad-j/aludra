@@ -139,6 +139,7 @@ export const actions = {
 	start: (project: string, text: string, model: string, thinking: Thinking) => post<{ id: number }>("/api/sessions", { project, text, model, thinking, requestId: requestId() }),
 	send: (session: number, text: string, mode: "steer" | "followUp") => post(`/api/sessions/${session}/messages`, { text, mode, requestId: requestId() }),
 	stop: (session: number) => post(`/api/sessions/${session}/stop`, {}),
+	rename: (session: number, title: string) => post<{ title: string }>(`/api/sessions/${session}/title`, { title }),
 	configure: (session: number, change: { model?: string; thinking?: Thinking }) => post(`/api/sessions/${session}/agent`, change),
 	withdraw: (session: number, submission: number) => post(`/api/sessions/${session}/withdraw`, { submission }),
 	decide: (approval: string, allow: boolean) => post(`/api/approvals/${approval}`, { allow }),

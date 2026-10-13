@@ -263,3 +263,18 @@ test("a picked project colour is in host.info and the host snapshot, and reaches
 	const { subscription: again } = await mac.request("host.watch");
 	assert.deepEqual((await mac.event(again, type("host.snapshot"), "a new snapshot")).find(type("host.snapshot")).projectColors, {});
 });
+
+test("a conversation is renamed from the Mac, and every watcher hears the new title", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const other = await client(t, url);
+	const { conversation } = await mac.request("conversations.create", { requestId: "rename-1", project: project.dir, text: "hello" });
+	const { subscription } = await other.request("host.watch");
+	await other.event(subscription, type("host.snapshot"), "the snapshot");
+
+	const renamed = await mac.request("conversations.rename", { conversationId: conversation.id, title: "Renamed" });
+	assert.equal(renamed.conversation.title, "Renamed");
+	await other.event(subscription, (e) => e.type === "conversation.updated" && e.conversation.title === "Renamed", "the new title");
+	await assert.rejects(mac.request("conversations.rename", { conversationId: conversation.id, title: "" }), { code: "bad_request" });
+	await assert.rejects(mac.request("conversations.rename", { conversationId: 999, title: "x" }), { code: "not_found" });
+});
