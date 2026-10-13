@@ -12,8 +12,11 @@ import { isListening, serve, socketPathFor } from "./server.ts";
 import { currentSpec, installService, platformOf, serviceState, uninstallService } from "./service.ts";
 import { login, logout } from "./login.ts";
 import { init } from "./setup.ts";
+import { runTui } from "./tui.ts";
 
-const USAGE = `usage: aludra [--config FILE] COMMAND
+const USAGE = `usage: aludra [--config FILE] [COMMAND]
+
+  (none) [--session ID]                  open the terminal UI: every session and its transcript, read-only
 
   init [--root PATTERN]... [--user LOGIN]... [--name NAME] [--yes] [--force]
                                          write the settings file, asking for what isn't given
@@ -51,7 +54,9 @@ const { values, positionals } = parseArgs({
 	allowPositionals: true,
 });
 const [command, ...rest] = positionals;
-if (values.help || command === undefined || command === "help") {
+// With no command in a terminal, the terminal UI; piped, or asked for help, the usage.
+const interactive = command === undefined && !values.help && process.stdout.isTTY && process.stdin.isTTY;
+if (values.help || command === "help" || (command === undefined && !interactive)) {
 	console.log(USAGE);
 	process.exit(command === undefined && !values.help ? 2 : 0);
 }
@@ -69,6 +74,10 @@ function sessionId(): number {
 }
 
 switch (command) {
+	case undefined: {
+		const session = values.session === undefined ? undefined : sessionId();
+		process.exit(await runTui(config, session === undefined ? {} : { session }));
+	}
 	case "init":
 		try {
 			const file = values.config ?? process.env.ALUDRA_CONFIG;
@@ -127,7 +136,7 @@ switch (command) {
 	case "watch":
 		process.exit(await talk(config, values.session === undefined ? { type: "watch" } : { type: "watch", session: sessionId() }));
 	case "sessions":
-		process.exit(await talk(config, { type: "sessions" }));
+		process.exit(await talk(config, { type: "sessions", listing: true }));
 	case "stop":
 		process.exit(await talk(config, { type: "stop", session: sessionId() }));
 	case "approvals":

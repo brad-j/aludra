@@ -1,5 +1,5 @@
-// The app's icons, drawn on a 24px grid with one stroke, and the state marks, which pair a shape with a colour so
-// colour is never the only cue.
+// The app's icons, drawn on a 24px grid with one stroke, and the state marks, which pair a shape with a color so
+// color is never the only cue.
 import type { ReactNode } from "react";
 import type { SessionState } from "../../src/api-types.ts";
 import { STATE_LABEL } from "../lib/format.ts";

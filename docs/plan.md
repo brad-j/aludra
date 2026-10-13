@@ -80,9 +80,9 @@ Decisions:
 - **Phase 3, the Mac app, done 2026-10-13** (amyrlin `2af8d0ea`): with no machines its window shows aludra's install commands and adds one; a machine that can't connect says why and what to run under its name, read from the WebSocket upgrade's HTTP status (403: the login isn't in `api.users`; 502: nothing behind tailscale serve) or the network error. Its README covers setup and opening the ad hoc signed app on another Mac (Control-click Open no longer bypasses Gatekeeper; Privacy & Security's Open Anyway, or removing the quarantine attribute).
 - **After the release work, 2026-10-13:**
   - **Backups:** the running host copies its database with SQLite's online backup once a day and keeps seven, in `backups/` in the data directory or `backup.dir`; owner-only files, named by their time. `aludra backup` makes one now; doctor says how old the newest is. Off-machine copies need `backup.dir` on another disk or a synced folder; where egwene's go is Brad's call.
-  - **Picked project colours,** for hashed hues that clash: name to hue index in `aludra.colors`; `projects.setColor` and `host.projectColors` on the Mac (a Colour menu on a project's row), `POST /api/projects/color` and a `colors` event on the web, which shows them but has no picker yet.
+  - **Picked project colors,** for hashed hues that clash: name to hue index in `aludra.colors`; `projects.setColor` and `host.projectColors` on the Mac (a Color menu on a project's row), `POST /api/projects/color` and a `colors` event on the web, which shows them but has no picker yet.
   - **Renaming:** `conversations.rename` and `POST /api/sessions/:id/title`; the Mac's session menu and a double-click on the header, the web's session menu. The open session's meta follows its record, so a later run can't put the old title back.
-  - **Images:** messages carry PNG, JPEG, GIF or WebP (8 at most, 5 MB each, sniffed), scaled to 1568 px by the apps; transcripts carry where each is, and the apps fetch the bytes (`GET /api/sessions/:id/images/…`, `conversation.image`). The bridge passes them to Claude Code: a live run on the Mac named a blue square's colour. Tool results' images (a screenshot read) show too.
+  - **Images:** messages carry PNG, JPEG, GIF or WebP (8 at most, 5 MB each, sniffed), scaled to 1568 px by the apps; transcripts carry where each is, and the apps fetch the bytes (`GET /api/sessions/:id/images/…`, `conversation.image`). The bridge passes them to Claude Code: a live run on the Mac named a blue square's color. Tool results' images (a screenshot read) show too.
   - `aludra service install` over a running launchd agent waits for bootout to finish; launchd's error 5 had left the Mac's host stopped after an update.
 - **Docs, 2026-10-13:** `docs/` now describes aludra as it stands, apart from this plan's history: setup, configuration, using it, the CLI, security, operations, architecture, the API and development, indexed from the README. The README keeps the quick start; restoring backups moved to `docs/operations.md`.
 - **CI** isn't set up: private repositories get 2,000 Actions minutes a month and macOS minutes count ten times, so if it comes, Linux only.
@@ -98,6 +98,14 @@ Brad asked for a second provider on his ChatGPT plan, with OpenRouter or OrcaRou
 - **CLI:** `aludra login openai` runs pi-ai's flow with `agentName: "aludra"` (callback on `127.0.0.1:1455`, or a pasted redirect URL over SSH), then lists the account's models from `GET /v1/models` as choices. `aludra logout openai`. Doctor's `openai` line checks the sign-in and that the account offers each choice; `claude` is skipped when no choice is Claude.
 - **Switching provider mid-session** needs no glue: Pi Durable's transcript is provider-neutral, and the bridge rebuilds Claude Code's session when it finds messages it didn't see (its "Case 4", written for provider switches).
 - **Not done:** the app's picker lists every choice in one list, without provider headings; the subscription meter stays Claude-only. The live check is Brad's: sign in on egwene, add a choice, run a session on it, and switch one session Claude → GPT → Claude.
+
+## The terminal (2026-10-13)
+
+Brad wanted aludra to look good in a terminal too, without it becoming a second way to drive sessions for now.
+
+- **`aludra sessions`** lays sessions out as the drawer does: grouped by project, the project that most needs you first, the app's state marks (◆ ◐ ⊘ □ ✓ ·), project colors (from `src/project-colors.ts`, now shared by the app, the CLI and amyrlin's rules) and the latest activity under each title. The host sends summaries as data on a `listing` request; an older host ignores it and sends the old lines.
+- **`aludra` with no command** opens a read-only terminal UI on pi-tui: the session tree on the left, the selected session's transcript on the right following its output, and its state, model and context at the foot. It's a client of the same live feed as the web app (`src/live.ts`, split out of `src/api.ts`), over a `live` request that keeps the CLI's socket open. Arrow keys pick a session; PgUp, PgDn and the wheel scroll; it reconnects when the host restarts. An older host is told apart from a stopped one and the UI says to update it.
+- **Not yet:** typing in it (follow-ups, steer, stop, approvals), new sessions, ideas and the changes view. Those were phases 3 and 4 of the plan Brad was offered; he chose read-only for now.
 
 ## Spike findings (2026-10-11)
 
@@ -119,7 +127,7 @@ Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gai
 
 After T3 Code's "no project" threads: a session that isn't about one repository. Its working directory is a scratch directory of its own, `scratch/<id>` in the data directory, set in the commit that creates the conversation (the ID names it); it reads anything else by absolute path, and the protected-path gate and approvals still apply. A `no_project` prompt section (`src/context.ts`) says so and lists where things are on egwene: each workspace's directory, terminal pi's and Claude Code's session histories, and aludra's own database, the ones that exist. It has no changes view and can't hold ideas. The record is `project: "no project"`, `scratch: true`.
 
-- **Web:** "No project" heads the picker; `POST /api/sessions` takes an empty project for it. The drawer groups them under "no project", grey.
+- **Web:** "No project" heads the picker; `POST /api/sessions` takes an empty project for it. The drawer groups them under "no project", gray.
 - **Mac (`/amyrlin`):** `conversations.create` without a project makes one; its summary has no `project`.
 - **Tests:** the web API and the endpoint (pwd runs in the scratch directory; the prompt says it has no project), and an e2e from the picker at both sizes.
 - Not done: reading other machines' histories (would need SSH to the homelab hosts, which waits for approval).
@@ -132,7 +140,7 @@ With the amyrlin Mac app: chrome in IBM Plex Mono (header, drawer, sheets, compo
 
 Brought over from the amyrlin Mac app's design pass, so the two read as one product:
 
-- **Project colours:** each project has its own colour from its name (`app/lib/projects.ts`, the same FNV hash and eleven OKLCH hues as the Mac app, red and amber left out for failed and waiting). Project names in the drawer, the open session's wash and the picker's swatches use it. `test/projects.test.ts` pins two indexes the Mac app's tests also pin.
+- **Project colors:** each project has its own color from its name (`app/lib/projects.ts`, the same FNV hash and eleven OKLCH hues as the Mac app, red and amber left out for failed and waiting). Project names in the drawer, the open session's wash and the picker's swatches use it. `test/projects.test.ts` pins two indexes the Mac app's tests also pin.
 - **Accent:** violet, `oklch(80% 0.13 300)`, replacing the blue of milestone 2. The sessions column is `#0a0a0a`, a step darker than the transcript.
 - **Drawer:** a project's label folds its sessions away, remembered per browser; folded, it shows a count, or that a session needs Brad or is working. The open session is highlighted again: the drawer sets `aria-current="page"` and the CSS had looked for `true`.
 - **Project picker:** Recent (projects with sessions, newest first), then each folder largest first, picked from a row of chips; a search ranks name prefixes first and keeps folders. It replaces a ranking that compared names against paths, so recent projects never came first.
@@ -182,9 +190,9 @@ The approved design was drawn for the phone, and on a desk it left the header, t
 
 ## Milestone 2 design (2026-10-11)
 
-`design/prototype.html` is one self-contained page with sample data; `design/tokens.css` holds its tokens for the app. The first pass (a session index with a starlight bloom) was redone the same day toward Brad's reference screenshots of Mario Zechner's Pi Mobile: the transcript is the screen, chrome is a hairline and a few icons. Every text colour meets WCAG AA contrast, and a Playwright pass found no overflow or wrapped buttons at 320, 375, 414, 768 and 1280 px.
+`design/prototype.html` is one self-contained page with sample data; `design/tokens.css` holds its tokens for the app. The first pass (a session index with a starlight bloom) was redone the same day toward Brad's reference screenshots of Mario Zechner's Pi Mobile: the transcript is the screen, chrome is a hairline and a few icons. Every text color meets WCAG AA contrast, and a Playwright pass found no overflow or wrapped buttons at 320, 375, 414, 768 and 1280 px.
 
-- **Look:** near-black, nearly neutral paper (`oklch(16.5% 0.003 260)`); colour only in syntax highlighting, state marks and one blue-white accent. IBM Plex Sans at 17px for prose, IBM Plex Mono for commands, paths, calls and code.
+- **Look:** near-black, nearly neutral paper (`oklch(16.5% 0.003 260)`); color only in syntax highlighting, state marks and one blue-white accent. IBM Plex Sans at 17px for prose, IBM Plex Mono for commands, paths, calls and code.
 - **Session screen:** a header with the menu, the title, the machine and path in mono (dotted underline; tapping it opens the changes), a files icon with the changed-file count, and a menu. User messages are right-aligned blocks; answers are full-width Markdown with a copy button. Each tool call is a mono row (mark, tool, a dotted-underlined argument that opens its output, code or diff, duration); a finished round folds into one line ("read 4 files · ran 2 commands · edited 3"). The running command is a code block with a spinner and a fixed-height tail of its output, so streaming never moves the page. A ↓ button appears when scrolled up.
 - **Composer:** flat under a hairline. `+` opens the session menu, the Steer/Queue label toggles how a message is delivered, the model, thinking and context sit beside it, and Stop shows while a run goes (Send appears once there's text). Queued messages wait above it; stopping drops them. An approval docks above it.
 - **Sessions:** a drawer from the left (a column on the desk), grouped by machine and directory, most urgent project first, each project name larger and in the accent with a hairline between groups. Rows show a mark (spinner, amber diamond, red crossed circle, check, square), title, latest activity and age; ideas sit under their project with Start. The five-hour and weekly windows are a thin meter at the foot of the drawer. A phone opens on the drawer.
@@ -193,7 +201,7 @@ The approved design was drawn for the phone, and on a desk it left the header, t
 - **Changes:** totals at the top, files ordered by size with an add/delete bar, each opening to its diff.
 - **Phone details:** 16px+ inputs, safe areas, a `visualViewport` fix so the composer and sheets sit above the iOS keyboard, contained scrolling.
 
-Approved by Brad on 2026-10-11, after project names in the drawer were made larger and accent-coloured. Brad checked it in Chrome on iOS, which runs on WebKit like Safari, and it looked right. Milestone 3 still checks the keyboard handling in the installed PWA, which runs standalone rather than in a browser tab. Subagents (Pi Mobile's agent count in the header) wait for milestone 6.
+Approved by Brad on 2026-10-11, after project names in the drawer were made larger and accent-colored. Brad checked it in Chrome on iOS, which runs on WebKit like Safari, and it looked right. Milestone 3 still checks the keyboard handling in the installed PWA, which runs standalone rather than in a browser tab. Subagents (Pi Mobile's agent count in the header) wait for milestone 6.
 
 ## Milestone 1 findings (2026-10-11)
 

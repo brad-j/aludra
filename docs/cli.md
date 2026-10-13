@@ -42,6 +42,23 @@ Checks the settings and everything the host needs, without starting it or spendi
 
 ## Working with sessions
 
+### `aludra`
+
+```
+aludra [--session ID]
+```
+
+With no command, in a terminal, opens a read-only view of the host: every session on the left, grouped and ordered as in the app's drawer, and the selected session's transcript on the right, following new output as it streams. The line at the foot has the session's state, model, thinking level and context use. A session waiting for approval shows the call and the `approve` and `deny` commands.
+
+| Key | Does |
+| --- | --- |
+| `↑` `↓` or `k` `j` | The previous or next session. |
+| `PgUp` `PgDn`, mouse wheel | Scroll the transcript. Scrolling up stops following; `End` or `G` follows again. |
+| `Home` or `g` | The start of the transcript. |
+| `q` or `Ctrl+C` | Quit. |
+
+`--session` opens that session first; otherwise the one that most needs you. Nothing here changes a session: answer approvals, steer and stop from the app or the commands below. If the host restarts, the view reconnects on its own. Piped, `aludra` prints the usage instead. `NO_COLOR` turns color off.
+
 ### `aludra ask`
 
 ```
@@ -70,7 +87,18 @@ Prints what every session does, prefixed `[id project]`, until Ctrl+C. New sessi
 
 ### `aludra sessions`
 
-Lists sessions grouped by project, each with its ID, state (`running`, `waiting` or `idle`), age and title.
+Lists sessions the way the app's drawer does: grouped by project, the project that most needs you first, and within each, sessions waiting for you, then running, then the rest, newest first. Each session has its state mark, ID, title and how long since it last did something, with its latest activity under it (the running command, the answer's first line, or the failure).
+
+| Mark | State |
+| --- | --- |
+| `◆` | Waiting for your approval. |
+| `◐` | Running. |
+| `⊘` | Failed. |
+| `□` | Stopped. |
+| `✓` | Done. |
+| `·` | Not started. |
+
+In a terminal, project names are in their project color (the same one the apps show, including a picked one), waiting is amber, running violet and failed red, and long titles are cut to the terminal's width. Piped, the output is plain text at 100 columns. `NO_COLOR` turns color off, and `FORCE_COLOR` turns it on when piped.
 
 ### `aludra stop --session ID`
 
@@ -82,7 +110,7 @@ Lists calls waiting for approval, oldest first, with their IDs.
 
 ### `aludra approve ID` and `aludra deny ID`
 
-Answers one. Exits 1 if nothing with that ID is waiting (it was answered, expired or cancelled).
+Answers one. Exits 1 if nothing with that ID is waiting (it was answered, expired or canceled).
 
 ## Other
 

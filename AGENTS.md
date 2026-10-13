@@ -3,7 +3,7 @@
 A coding agent Brad reaches from his phone and desk: Pi Durable on egwene, Opus 5.5 through `pi-claude-bridge` on his Claude subscription, a TanStack Start PWA over Tailscale.
 
 - [docs/plan.md](docs/plan.md) holds the decisions, architecture, milestones and spike findings. Read it before starting work, and update it when a decision changes or a milestone is done.
-- The rest of `docs/` describes aludra as it is now: setup, configuration, using it, the CLI, security, operations, architecture, the API and development (the README indexes them). Update the matching doc in the same change when a setting, command, endpoint, permission rule or behaviour it describes changes. Keep them general: nothing about Brad's machines, logins or homelab, which belong in plan.md or here.
+- The rest of `docs/` describes aludra as it is now: setup, configuration, using it, the CLI, security, operations, architecture, the API and development (the README indexes them). Update the matching doc in the same change when a setting, command, endpoint, permission rule or behavior it describes changes. Keep them general: nothing about Brad's machines, logins or homelab, which belong in plan.md or here.
 - [docs/design-brief.md](docs/design-brief.md) is the brief for the Hallmark design pass. Its three answers are settled.
 - The landing page and setup guide live in `../aludra-site`. Its setup page follows docs/setup.md, so change both together.
 - `spike/` holds the scripts that proved the bridge works in the Pi SDK and in Pi Durable. They're references, not app code.

@@ -244,7 +244,7 @@ test("a session made with no project runs in a scratch directory of its own, and
 	assert.equal(record?.project, "no project");
 });
 
-test("a picked project colour is in host.info and the host snapshot, and reaches every watcher", async (t) => {
+test("a picked project color is in host.info and the host snapshot, and reaches every watcher", async (t) => {
 	const { url } = await api(t);
 	const mac = await client(t, url);
 	const other = await client(t, url);
@@ -253,7 +253,7 @@ test("a picked project colour is in host.info and the host snapshot, and reaches
 	await other.event(subscription, type("host.snapshot"), "the snapshot");
 
 	assert.deepEqual(await mac.request("projects.setColor", { project: "one", color: 4 }), { projectColors: { one: 4 } });
-	const seen = await other.event(subscription, type("host.projectColors"), "the colour change");
+	const seen = await other.event(subscription, type("host.projectColors"), "the color change");
 	assert.deepEqual(seen.find(type("host.projectColors")).projectColors, { one: 4 });
 	assert.deepEqual((await mac.request("host.info")).projectColors, { one: 4 });
 

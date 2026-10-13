@@ -1,34 +1,22 @@
-// Projects for the drawer and the picker: each project's colour, and the picker's groups. The same rules as the amyrlin
-// Mac app (its AmyrlinCore ProjectColor and ProjectCatalog), so a project is the same colour on the phone and the Mac.
+// Projects for the drawer and the picker: each project's color (src/project-colors.ts), and the picker's groups. The
+// same rules as the amyrlin Mac app (its AmyrlinCore ProjectColor and ProjectCatalog), so a project is the same color on
+// the phone and the Mac.
 import type { Bootstrap, SessionSummary } from "../../src/api-types.ts";
+import { hueIndex, hueOf } from "../../src/project-colors.ts";
+
+export { hueIndex };
 
 export type Project = Bootstrap["projects"][number];
 
-/** OKLCH hues, ordered so neighbours differ. Red and amber are left out: they mean failed and waiting. */
-const HUES = [300, 165, 50, 240, 330, 110, 190, 355, 265, 140, 215];
-
-/** FNV-1a over the name's UTF-8, as the Mac app hashes it. */
-export function hueIndex(name: string): number {
-	let hash = 0xcbf29ce484222325n;
-	for (const byte of new TextEncoder().encode(name)) {
-		hash ^= BigInt(byte);
-		hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
-	}
-	return Number(hash % BigInt(HUES.length));
-}
-
-/** The project name of no-project sessions (src/host.ts NO_PROJECT); they're grey, not a hue. */
+/** The project name of no-project sessions (src/host.ts NO_PROJECT); they're gray, not a hue. */
 export const NO_PROJECT = "no project";
 /** What the picker and the new-session screen pass for "no project": the API takes an empty project. */
 export const NO_PROJECT_PATH = "";
 
-/** Picked colours: project name to hue index, from the host. */
+/** Picked colors: project name to hue index, from the host. */
 export type Colors = Readonly<Record<string, number>>;
 
-/** The project's hue: the one picked for it, else its name's. */
-const hueOf = (name: string, colors: Colors) => HUES[colors[name] ?? hueIndex(name)] ?? HUES[hueIndex(name)];
-
-/** A project's colour, at one lightness and chroma for every project; grey for no project. */
+/** A project's color, at one lightness and chroma for every project; gray for no project. */
 export const projectColor = (name: string, colors: Colors = {}) => (name === NO_PROJECT ? "var(--color-ink-3)" : `oklch(80% 0.12 ${hueOf(name, colors)})`);
 /** A selected row's wash in the project's hue. */
 export const projectWash = (name: string, colors: Colors = {}) => (name === NO_PROJECT ? "var(--color-paper-3)" : `oklch(25% 0.035 ${hueOf(name, colors)})`);

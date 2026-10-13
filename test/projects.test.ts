@@ -7,14 +7,14 @@ const project = (path: string): Project => ({ workspace: "code", name: path.spli
 const projects = ["Software/aludra", "Software/amyrlin", "Software/gaidin", "Software/gray-ajah", "Fabrication/keychain", "Fabrication/server-rack", "Electronics/esp32-projects", "Personal/Trips"].map(project);
 const session = (id: number, path: string, updatedAt: number) => ({ id, dir: `/w/${path}`, updatedAt }) as SessionSummary;
 
-test("project colours match the amyrlin Mac app's", () => {
-	// The same values the Mac app's ProjectColorTests pin, so a project is one colour on both.
+test("project colors match the amyrlin Mac app's", () => {
+	// The same values the Mac app's ProjectColorTests pin, so a project is one color on both.
 	assert.equal(hueIndex("aludra"), 6);
 	assert.equal(hueIndex("waygate-cs"), 8);
 	assert.equal(projectColor("amyrlin"), "oklch(80% 0.12 300)");
 });
 
-test("a picked colour wins over the name's, for that project only", () => {
+test("a picked color wins over the name's, for that project only", () => {
 	assert.equal(projectColor("aludra", { aludra: 0 }), "oklch(80% 0.12 300)");
 	assert.equal(projectColor("amyrlin", { aludra: 2 }), "oklch(80% 0.12 300)");
 	assert.equal(projectColor("aludra", { aludra: 99 }), projectColor("aludra"), "an index out of range falls back");

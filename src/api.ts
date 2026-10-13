@@ -15,7 +15,7 @@
 //   POST /api/ideas                       { project, text }                            → { id }
 //   POST /api/ideas/:id/start                                                          → { id } of the session
 //   POST /api/ideas/:id/delete
-//   POST /api/projects/color              { project, color: 0-10 | null }                 a picked colour, or the hashed one again
+//   POST /api/projects/color              { project, color: 0-10 | null }                 a picked color, or the hashed one again
 //   GET  /api/push                        the key devices sign up with, and the devices
 //   POST /api/push/subscribe              { endpoint, keys: { p256dh, auth }, label }
 //   POST /api/push/unsubscribe            { endpoint }
@@ -30,18 +30,17 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
 import { extname, join, normalize } from "node:path";
-import type { ConversationView } from "@earendil-works/pi-durable";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createAmyrlinEndpoint } from "./amyrlin/endpoint.ts";
-import type { Bootstrap, ClientEvent, Item, PushState, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
+import type { Bootstrap, ClientEvent, PushState, ServerEvent, Thinking } from "./api-types.ts";
 import { PACKAGE_DIR, THINKING } from "./config.ts";
 import { IMAGE_TYPES, messageContent, titleOf } from "./images.ts";
-import { context, type Host, type SessionRecord } from "./host.ts";
+import type { Host } from "./host.ts";
 import { array, boolean, integer, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
 import type { ApprovalRequest } from "./permissions.ts";
 import type { Push, PushMessage } from "./push.ts";
-import { contextUsed, firstChange, itemsOf, lineOf, queuedOf, stateOf, updatedAt } from "./transcript.ts";
+import { createLive, type Live } from "./live.ts";
 import { changesSince, fileDiff } from "./changes.ts";
 
 /** Where `pnpm build` puts the app. */
@@ -132,6 +131,8 @@ const subscription = object({ endpoint: string, keys: object({ p256dh: string, a
 const endpointBody = object({ endpoint: string });
 
 export type ApiOptions = {
+	/** The live feed to share; one of its own otherwise. */
+	live?: Live;
 	/** The Tailscale logins let in. */
 	users: readonly string[];
 	/** Where the built app is; without one, only the API is served. */
@@ -157,7 +158,9 @@ export function createApi(host: Host, options: ApiOptions) {
 		push.send(message).catch((error) => console.error("[push]", error instanceof Error ? error.message : error));
 	}
 
-	const feed = sessionsFeed(host, (after) => {
+	// The live feed is the server's when it shares one with the CLI's socket; a test's API makes its own.
+	const live = options.live ?? createLive(host);
+	const stopRunEnd = live.onRunEnd((after) => {
 		const url = `/s/${after.id}`;
 		if (after.state === "done") notify(after.id, { title: `Done · ${after.project}`, body: `${after.title}\n${after.line}`, tag: `session-${after.id}`, url });
 		if (after.state === "failed") notify(after.id, { title: `Failed · ${after.project}`, body: `${after.title}\n${after.line}`, tag: `session-${after.id}`, url, urgency: "high" });
@@ -183,8 +186,6 @@ export function createApi(host: Host, options: ApiOptions) {
 		});
 	}
 
-	feed.start();
-	const ideasEvent = async (): Promise<ServerEvent> => ({ type: "ideas", ideas: await host.ideas.list() });
 
 	function reply(response: ServerResponse, status: number, body: string | Buffer, type: string, cache = "no-store") {
 		response.writeHead(status, { ...headers, "Content-Type": type, "Cache-Control": cache });
@@ -212,7 +213,7 @@ export function createApi(host: Host, options: ApiOptions) {
 
 	async function post(path: string, body: string, origin: string): Promise<unknown> {
 		if (path === "/api/projects/color") {
-			const request = parseJson(body, projectColor, "the colour");
+			const request = parseJson(body, projectColor, "the color");
 			return { colors: await host.colors.set(request.project, request.color ?? null) };
 		}
 		if (path === "/api/ideas") {
@@ -286,7 +287,7 @@ export function createApi(host: Host, options: ApiOptions) {
 				return {};
 			case "agent":
 				await host.configure(id, parseJson(body, agentChange, "the change"));
-				feed.touch(id);
+				live.touch(id);
 				return {};
 			case "title":
 				return { title: (await host.sessions.rename(id, parseJson(body, newTitle, "the title").title)).title };
@@ -389,22 +390,16 @@ export function createApi(host: Host, options: ApiOptions) {
 			socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
 			return;
 		}
-		sockets.handleUpgrade(request, socket, head, (ws) => live(ws));
+		sockets.handleUpgrade(request, socket, head, (ws) => connectLive(ws));
 	});
 
-	function live(ws: WebSocket) {
+	function connectLive(ws: WebSocket) {
 		const send = (event: ServerEvent) => {
 			if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(event));
 		};
-		const stopFeed = feed.subscribe((sessions) => send({ type: "sessions", sessions }));
-		const sendIdeas = () => void ideasEvent().then(send, (error) => console.error("[api]", error));
-		const stopIdeas = host.ideas.onChange(sendIdeas);
-		sendIdeas();
-		const stopColors = host.colors.onChange((colors) => send({ type: "colors", colors }));
-		void host.colors.list().then((colors) => send({ type: "colors", colors }), (error) => console.error("[api]", error));
+		const client = live.connect(send);
 		const watcher = { session: null as number | null, visible: true };
 		watchers.set(ws, watcher);
-		let following: (() => void) | undefined;
 		// Proxies drop a WebSocket that says nothing for a while.
 		const ping = setInterval(() => ws.ping(), 25_000);
 		ws.on("message", (data) => {
@@ -421,103 +416,22 @@ export function createApi(host: Host, options: ApiOptions) {
 				return;
 			}
 			watcher.session = event.session;
-			following?.();
-			following = undefined;
-			if (event.session !== null) {
-				follow(event.session, send, feed).then((stop) => (following = stop), (error) => send({ type: "error", message: String(error?.message ?? error) }));
-			}
+			client.follow(event.session);
 		});
 		ws.on("close", () => {
 			clearInterval(ping);
 			watchers.delete(ws);
-			stopIdeas();
-			stopColors();
-			stopFeed();
-			following?.();
+			client.close();
 		});
 		ws.on("error", () => {});
-	}
-
-	/** Sends `send` session `id`'s transcript and meta, then each change, until the returned function is called. */
-	async function follow(id: number, send: (event: ServerEvent) => void, feed: SessionsFeed): Promise<() => void> {
-		let record = await host.sessions.get(id);
-		if (record === undefined) throw new Error(`No session ${id}`);
-		const state = await (await host.conversation(id)).viewState(context);
-		let sent: string[] = [];
-		let sentMeta = "";
-		let stopped = false;
-		let pending: ConversationView | undefined;
-		let timer: NodeJS.Timeout | undefined;
-
-		async function publish(view: ConversationView) {
-			const items = itemsOf(view);
-			const keys = items.map((item) => JSON.stringify(item));
-			const start = firstChange(sent, keys);
-			if (start < keys.length || keys.length !== sent.length) send({ type: "items", session: id, start, items: items.slice(start), length: items.length });
-			sent = keys;
-			const meta = await metaOf(record!, view, items);
-			if (stopped) return;
-			const metaJson = JSON.stringify(meta);
-			if (metaJson !== sentMeta) send({ type: "meta", session: id, meta });
-			sentMeta = metaJson;
-			feed.update(meta.summary);
-		}
-		// Commits come every 100 ms while an answer streams; send at most every 50 ms.
-		const schedule = (view: ConversationView) => {
-			pending = view;
-			timer ??= setTimeout(() => {
-				timer = undefined;
-				const next = pending!;
-				pending = undefined;
-				if (!stopped) publish(next).catch((error) => console.error("[api]", error));
-			}, 50);
-		};
-		await publish(state.value);
-		const unsubscribe = state.subscribe((view) => schedule(view));
-		const unwatchApprovals = host.approvals.onChange((request) => {
-			if (request.conversationId === id) schedule(state.value);
-		});
-		// A new title: the meta, and the summary it gives the feed, must carry it, or the next publish would put back
-		// the old one.
-		const unwatchRecord = host.sessions.onUpdate((updated) => {
-			if (updated.id !== id) return;
-			record = updated;
-			schedule(state.value);
-		});
-		return () => {
-			stopped = true;
-			clearTimeout(timer);
-			unsubscribe();
-			unwatchApprovals();
-			unwatchRecord();
-			state.dispose();
-		};
-	}
-
-	async function metaOf(record: SessionRecord, view: ConversationView, items: readonly Item[]): Promise<SessionMeta> {
-		const approval = (await host.approvals.all()).find((r) => r.conversationId === record.id && r.status === "pending");
-		// SAFETY: a document in the view is the JSON of its kind's state.
-		const agent = view.docs["pi.agent"] as { model?: { provider: string; modelId: string }; thinkingLevel?: Thinking } | undefined;
-		const ref = agent?.model ?? host.model;
-		const info = host.modelInfo(ref);
-		// SAFETY: as above.
-		const retry = (view.docs["pi.live"] as { generation?: { retry?: { at: number; error: string } } } | undefined)?.generation?.retry;
-		return {
-			summary: summaryOf(record, view, items, approval !== undefined),
-			model: { provider: ref.provider, id: ref.modelId, name: info.name },
-			thinking: agent?.thinkingLevel ?? host.thinking,
-			context: { used: contextUsed(view), window: info.window },
-			queued: queuedOf(view),
-			...(approval === undefined ? {} : { approval: { id: approval.id, summary: approval.summary, command: approval.command } }),
-			...(retry === undefined ? {} : { retry }),
-		};
 	}
 
 	return {
 		server,
 		listen: (port: number, done?: () => void) => server.listen(port, "127.0.0.1", done),
 		close: async () => {
-			feed.close();
+			stopRunEnd();
+			if (options.live === undefined) live.close();
 			stopApprovals();
 			for (const timer of timers) clearTimeout(timer);
 			for (const ws of sockets.clients) ws.terminate();
@@ -530,132 +444,3 @@ export function createApi(host: Host, options: ApiOptions) {
 		},
 	};
 }
-
-function summaryOf(record: SessionRecord, view: ConversationView, items: readonly Item[], waiting: boolean): SessionSummary {
-	const state = stateOf(view, waiting);
-	const { id, workspace, project, dir, title, createdAt } = record;
-	return { id, workspace, project, dir, title, createdAt, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state) };
-}
-
-type SessionsFeed = ReturnType<typeof sessionsFeed>;
-
-/**
- * Every session's summary, kept current: a session is read again when a task of it starts or ends, when one of its
- * approvals changes, and when it's created. A session someone follows is updated from its view as it changes.
- */
-function sessionsFeed(host: Host, onRunEnd: (summary: SessionSummary) => void) {
-	const summaries = new Map<number, SessionSummary>();
-	const put = (summary: SessionSummary) => {
-		const before = summaries.get(summary.id);
-		summaries.set(summary.id, summary);
-		return before;
-	};
-	/** Sessions whose run's tasks just ended; read again, a run that ended done or failed is reported once. */
-	const ended = new Set<number>();
-	/** The last run reported per session, by its newest timestamp, so a run is reported once. */
-	const reported = new Map<number, number>();
-	const listeners = new Set<(sessions: SessionSummary[]) => void>();
-	let live = new Set<number>();
-	let ready: Promise<void> | undefined;
-	let graphStop: (() => Promise<unknown>) | undefined;
-	let timer: NodeJS.Timeout | undefined;
-	const dirty = new Set<number>();
-	const unsubscribe: (() => unknown)[] = [];
-	let closed = false;
-
-	const list = () => [...summaries.values()].sort((a, b) => b.updatedAt - a.updatedAt);
-	const broadcast = () => {
-		const sessions = list();
-		for (const listener of listeners) listener(sessions);
-	};
-
-	async function read(id: number): Promise<SessionSummary | undefined> {
-		const record = await host.sessions.get(id);
-		if (record === undefined) return undefined;
-		const state = await (await host.conversation(id)).viewState(context);
-		try {
-			const waiting = (await host.approvals.all()).some((r) => r.conversationId === id && r.status === "pending");
-			return summaryOf(record, state.value, itemsOf(state.value), waiting);
-		} finally {
-			state.dispose();
-		}
-	}
-
-	async function flush() {
-		timer = undefined;
-		const ids = [...dirty];
-		dirty.clear();
-		for (const id of ids) {
-			const summary = await read(id);
-			if (summary === undefined) continue;
-			put(summary);
-			if (!ended.delete(id) || (summary.state !== "done" && summary.state !== "failed")) continue;
-			if (reported.get(id) === summary.updatedAt) continue;
-			reported.set(id, summary.updatedAt);
-			onRunEnd(summary);
-		}
-		if (!closed && ids.length > 0) broadcast();
-	}
-
-	function mark(ids: Iterable<number>) {
-		for (const id of ids) dirty.add(id);
-		timer ??= setTimeout(() => void flush().catch((error) => console.error("[api]", error)), 150);
-	}
-
-	async function start() {
-		for (const record of await host.sessions.list()) {
-			const summary = await read(record.id);
-			if (summary !== undefined) summaries.set(record.id, summary);
-		}
-		const graph = await host.harness.watchTaskGraph(context);
-		graphStop = () => graph.stop();
-		// A session works while it has a generation or tool task; a background compaction isn't a run.
-		const working = (value: typeof graph.value) =>
-			new Set(Object.values(value.tasks).filter((task) => task.kind === "pi.generation" || task.kind === "pi.tool").map((task) => Number(task.conversationId)));
-		const onGraph = (value: typeof graph.value) => {
-			const now = working(value);
-			for (const id of live) if (!now.has(id)) ended.add(id);
-			// Sessions working now, and those that just stopped.
-			mark(new Set([...now, ...live, ...Object.values(value.tasks).map((task) => Number(task.conversationId))]));
-			live = now;
-		};
-		live = working(graph.value);
-		graph.start(async (value) => onGraph(value));
-		unsubscribe.push(
-			host.approvals.onChange((request) => mark([request.conversationId])),
-			host.sessions.onCreate((record) => mark([record.id])),
-			host.sessions.onUpdate((record) => mark([record.id])),
-		);
-	}
-
-	return {
-		/** Starts watching the sessions, for notifications, before anyone subscribes. */
-		start() {
-			ready ??= start();
-			ready.catch((error) => console.error("[api]", error));
-		},
-		/** Calls `listener` with every session now and after each change. */
-		subscribe(listener: (sessions: SessionSummary[]) => void): () => void {
-			listeners.add(listener);
-			ready ??= start();
-			ready.then(() => listeners.has(listener) && listener(list()), (error) => console.error("[api]", error));
-			return () => listeners.delete(listener);
-		},
-		/** A followed session's new summary, from its view. */
-		update(summary: SessionSummary) {
-			const before = put(summary);
-			if (JSON.stringify(before) !== JSON.stringify(summary)) broadcast();
-		},
-		/** Reads session `id` again. */
-		touch(id: number) {
-			mark([id]);
-		},
-		close() {
-			closed = true;
-			clearTimeout(timer);
-			for (const stop of unsubscribe) stop();
-			void graphStop?.();
-		},
-	};
-}
-

@@ -20,6 +20,7 @@ import { type Config, expandHome, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
+import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
 import { ParseError } from "./parse.ts";
 
@@ -53,10 +54,10 @@ export const Ideas = defineDoc<{ next: number; ideas: Record<string, IdeaRecord>
 	initial: () => ({ next: 1, ideas: {} }),
 });
 
-/** How many project hues the apps have (app/lib/projects.ts, amyrlin's ProjectColor); a colour is an index into them. */
-export const PROJECT_HUES = 11;
+/** How many project hues the apps have (app/lib/projects.ts, amyrlin's ProjectColor); a color is an index into them. */
+export const PROJECT_HUES = HUES.length;
 
-/** Projects whose colour was picked rather than hashed from the name: name to hue index. */
+/** Projects whose color was picked rather than hashed from the name: name to hue index. */
 export const Colors = defineDoc<{ colors: Record<string, number> }>({
 	kind: "aludra.colors",
 	version: 1,
@@ -358,7 +359,7 @@ export async function openHost(options: HostOptions) {
 
 	const colorListeners = new Set<(colors: Record<string, number>) => void>();
 
-	/** The picked project colours: name to hue index. */
+	/** The picked project colors: name to hue index. */
 	async function listColors(): Promise<Record<string, number>> {
 		return { ...(await harness.snapshot(Colors, context))?.colors };
 	}
@@ -366,8 +367,8 @@ export async function openHost(options: HostOptions) {
 	/** Gives `project` hue `color`, or its own hashed one again with null. */
 	async function setColor(project: string, color: number | null): Promise<Record<string, number>> {
 		// ParseErrors, since they're about what was asked: the API answers them with 400.
-		if (project.trim() === "") throw new ParseError("a colour needs a project name");
-		if (color !== null && !(Number.isInteger(color) && color >= 0 && color < PROJECT_HUES)) throw new ParseError(`a colour is a hue from 0 to ${PROJECT_HUES - 1}`);
+		if (project.trim() === "") throw new ParseError("a color needs a project name");
+		if (color !== null && !(Number.isInteger(color) && color >= 0 && color < PROJECT_HUES)) throw new ParseError(`a color is a hue from 0 to ${PROJECT_HUES - 1}`);
 		const colors = await root.commit(async (tx) => {
 			const doc = await tx.doc(Colors);
 			if (color === null) delete doc.colors[project];

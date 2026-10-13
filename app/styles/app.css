@@ -8,7 +8,7 @@
 @import "@fontsource/ibm-plex-mono/latin-600.css";
 
 /* Hallmark · redesign 2026-10-12: console chrome around a readable transcript (see "Console" at the end). IBM Plex
- * Sans stays in the transcript; every other surface is IBM Plex Mono; square, 1 px rules; violet accent and project colours.
+ * Sans stays in the transcript; every other surface is IBM Plex Mono; square, 1 px rules; violet accent and project colors.
  * pre-emit critique: P5 H4 E4 S5 R4 V4
  */
 /* Hallmark · route: custom (tuned) · redesign toward the owner's references (Pi Mobile screenshots, 2026-10-11)
@@ -20,7 +20,7 @@
  * pre-emit critique: P5 H5 E4 S5 R5 V4
  */
 :root {
-	/* Near-black, barely cool. Colour lives in syntax, state marks and the one accent. */
+	/* Near-black, barely cool. Color lives in syntax, state marks and the one accent. */
 	--color-paper: oklch(16.5% 0.003 260);
 	--color-paper-2: oklch(21% 0.004 260);
 	--color-paper-3: oklch(25.5% 0.005 260);
@@ -29,7 +29,7 @@
 	--color-ink: oklch(93% 0.003 260);
 	--color-ink-2: oklch(79% 0.005 260);
 	--color-ink-3: oklch(64% 0.006 260);
-	/* Violet since 2026-10-12, matching the amyrlin Mac app; each project has its own colour (app/lib/projects.ts). */
+	/* Violet since 2026-10-12, matching the amyrlin Mac app; each project has its own color (app/lib/projects.ts). */
 	--color-accent: oklch(80% 0.13 300);
 	--color-accent-ink: oklch(17% 0.035 300);
 	--color-focus: oklch(84% 0.14 300);
@@ -43,7 +43,7 @@
 	--color-del: oklch(74% 0.13 22);
 	--color-del-wash: oklch(74% 0.13 22 / 0.09);
 	--color-scrim: oklch(8% 0.003 260 / 0.62);
-	/* Syntax: the only place colour runs freely. */
+	/* Syntax: the only place color runs freely. */
 	--syn-keyword: oklch(76% 0.11 305);
 	--syn-string: oklch(80% 0.12 145);
 	--syn-name: oklch(80% 0.09 235);
@@ -199,7 +199,7 @@ svg { flex: none; }
 .btn.small { min-height: 2rem; padding: 0 var(--space-sm); font-size: var(--text-xs); position: relative; }
 .btn.small::after { content: ""; position: absolute; inset: -6px -2px; }
 
-/* ── State marks: shape and colour together. ───────────────────────────────── */
+/* ── State marks: shape and color together. ───────────────────────────────── */
 .mark { flex: none; display: inline-grid; place-items: center; width: 1rem; height: 1rem; color: var(--color-ink-3); }
 .mark svg { width: 100%; height: 100%; }
 .mark[data-state="running"] { color: var(--color-accent); }
@@ -230,7 +230,7 @@ svg { flex: none; }
 .folded-note { flex: none; font-size: var(--text-2xs); color: var(--color-ink-3); font-variant-numeric: tabular-nums; }
 .folded-note[data-state="waiting"] { color: var(--color-wait); }
 .folded-note[data-state="running"] { color: var(--color-accent); }
-/* Project names in their own colour, a size up from the session titles under them. */
+/* Project names in their own color, a size up from the session titles under them. */
 .dir-head .name { font-size: var(--text-lg); font-weight: 500; color: var(--project, var(--color-accent)); white-space: nowrap; }
 .dir-head .where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-3); }
 .rows { list-style: none; margin: 0; padding: 0; }
@@ -473,7 +473,7 @@ svg { flex: none; }
 .pick[aria-checked="true"]::after { content: "\2713"; font-weight: 600; }
 .pick .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick .sub { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-3); white-space: nowrap; }
-/* The project picker: a row of group chips, then the group's projects, each with its colour. */
+/* The project picker: a row of group chips, then the group's projects, each with its color. */
 .chips { display: flex; gap: var(--space-2xs); margin-top: var(--space-xs); overflow-x: auto; scrollbar-width: none; }
 .chip {
 	flex: none; display: inline-flex; align-items: baseline; gap: var(--space-2xs);

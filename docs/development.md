@@ -74,6 +74,6 @@ pnpm test
 
 ## Conventions
 
-- Update these docs when behaviour they describe changes: a setting, a command, an endpoint, a permission rule.
+- Update these docs when behavior they describe changes: a setting, a command, an endpoint, a permission rule.
 - Record decisions, and the reasons for them, in [plan.md](plan.md).
 - Comments say what code is for and why, in plain sentences. Match the surrounding code.

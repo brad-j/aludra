@@ -2,6 +2,7 @@
 import { connect } from "node:net";
 import { createInterface } from "node:readline";
 import type { Config } from "./config.ts";
+import { renderSessions, terminalStyle } from "./listing.ts";
 import { type ClientMessage, parseServerMessage, socketPathFor } from "./server.ts";
 
 /**
@@ -21,7 +22,8 @@ export function talk(config: Config, request: ClientMessage, lost?: string): Pro
 			for await (const line of createInterface({ input: socket })) {
 				const message = parseServerMessage(line);
 				if (message.type === "line") console.log(message.text);
-				else status = message.status;
+				else if (message.type === "sessions") for (const text of renderSessions(message.sessions, message.colors, terminalStyle())) console.log(text);
+				else if (message.type === "done") status = message.status;
 			}
 			if (status === undefined && request.type !== "watch") {
 				console.error(lost ?? "lost the server before it finished.");

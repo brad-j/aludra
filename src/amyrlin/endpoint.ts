@@ -597,7 +597,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 				case "approval.answer":
 					return answer(p);
 				case "projects.setColor": {
-					if (typeof p.project !== "string" || !(p.color === null || typeof p.color === "number")) throw new ProtocolError("bad_request", "projects.setColor takes a project name and a colour, or null");
+					if (typeof p.project !== "string" || !(p.color === null || typeof p.color === "number")) throw new ProtocolError("bad_request", "projects.setColor takes a project name and a color, or null");
 					try {
 						return { projectColors: await host.colors.set(p.project, p.color) };
 					} catch (error) {

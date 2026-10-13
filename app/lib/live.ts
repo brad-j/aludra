@@ -11,7 +11,7 @@ export type LiveState = {
 	bootstrap?: Bootstrap;
 	sessions?: SessionSummary[];
 	ideas: Idea[];
-	/** Projects whose colour was picked: name to hue index. */
+	/** Projects whose color was picked: name to hue index. */
 	colors: Record<string, number>;
 	/** The session followed, and what's arrived of it. */
 	followed: number | null;

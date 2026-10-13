@@ -90,7 +90,7 @@ The changes are the project's files now against a snapshot taken when the sessio
 
 Sessions grouped by machine and project, the project that most needs you first. Each row has its state, title, latest activity and age. Tap a project's name to fold its sessions away; a folded project still says when one of its sessions needs you or is working. Folding is remembered per browser.
 
-Each project has a colour hashed from its name. When two clash, pick another in amyrlin (a Colour menu on the project's row); the web app shows picked colours but has no picker yet.
+Each project has a color hashed from its name. When two clash, pick another in amyrlin (a Color menu on the project's row); the web app shows picked colors but has no picker yet.
 
 On a narrow screen the app opens on the drawer. From 60rem wide it's a column beside the session.
 
@@ -104,13 +104,14 @@ The host sends notifications through the browser maker's push service (Apple's, 
 
 ## amyrlin
 
-[amyrlin](https://github.com/brad-j/amyrlin) is an optional native macOS client. It connects to every machine you add and shows all their sessions together. Everything above works there too, plus picking project colours. Its README covers installing it. Forking and archiving sessions aren't aludra features; amyrlin gets "unsupported" for those.
+[amyrlin](https://github.com/brad-j/amyrlin) is an optional native macOS client. It connects to every machine you add and shows all their sessions together. Everything above works there too, plus picking project colors. Its README covers installing it. Forking and archiving sessions aren't aludra features; amyrlin gets "unsupported" for those.
 
 ## The CLI
 
 The commands that read or change sessions talk to the running host over its socket. [cli.md](cli.md) has them all. The useful ones day to day:
 
 ```sh
+aludra                                  # every session and its transcript, live, read-only
 aludra sessions                         # every session by project, with its state
 aludra watch                            # what every session does, live, until Ctrl+C
 aludra ask --session 12 "Now add tests" # a follow-up (or --steer while it runs)

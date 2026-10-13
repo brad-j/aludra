@@ -38,7 +38,8 @@ test("a run killed with kill -9 during a tool call carries on after a restart, a
 
 	await serve();
 	const listed = cli("sessions");
-	assert.match(listed.stdout, new RegExp(`one \\(test\\)\\n\\s+${session}\\s+(running|idle)\\s`));
+	// Piped, so plain: the project and its path, then the session's mark, ID and title.
+	assert.match(listed.stdout, new RegExp(`^one  \\S+/one\\n  [◐□·✓] ${session}  where are you\\?`));
 	const again = cli("ask", "--session", session, "--id", "req-1", "where are you?");
 	assert.equal(again.status, 0, again.stderr);
 	// The bash call was cut off, so the model is told it may have partly run; the same request id found the same run.

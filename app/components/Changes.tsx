@@ -62,9 +62,9 @@ function FileRow({ session, file, most, version }: { session: number; file: Chan
 	const [error, setError] = useState<string | undefined>(undefined);
 	useEffect(() => {
 		if (!open) return;
-		let cancelled = false;
-		fetchDiff(session, file.path).then((d) => !cancelled && setPatch(d.patch), (e) => !cancelled && setError(e instanceof Error ? e.message : String(e)));
-		return () => void (cancelled = true);
+		let canceled = false;
+		fetchDiff(session, file.path).then((d) => !canceled && setPatch(d.patch), (e) => !canceled && setError(e instanceof Error ? e.message : String(e)));
+		return () => void (canceled = true);
 	}, [open, session, file.path, version, file.add, file.del]);
 
 	return (

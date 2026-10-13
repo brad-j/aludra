@@ -58,7 +58,7 @@ While it runs, the host checks a minute after start and every hour after that, a
 
 By default the copies sit in `backups/` beside the database, which protects against a bad upgrade or a corrupted file but not against losing the disk. Set `backup.dir` to another disk or a synced folder for that. Doctor says which you have.
 
-Losing the database loses session history, ideas, approvals, picked colours and notification sign-ups. It doesn't lose code: sessions work in your project directories.
+Losing the database loses session history, ideas, approvals, picked colors and notification sign-ups. It doesn't lose code: sessions work in your project directories.
 
 ### Restoring
 

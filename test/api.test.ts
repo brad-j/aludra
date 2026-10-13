@@ -277,11 +277,11 @@ test("an empty project starts a no-project session in its own scratch directory"
 	assert.equal((await (await host.conversation(id)).agent(context)).cwd, record?.dir);
 });
 
-test("a project's colour is picked over the API and every open app hears of it", async (t) => {
+test("a project's color is picked over the API and every open app hears of it", async (t) => {
 	const { call, base } = await api(t, []);
 	const socket = await live(t, base);
 	const colors = () => socket.state.events.filter((e) => e.type === "colors").map((e) => (e as { colors: Record<string, number> }).colors);
-	await socket.until(() => colors().length === 1, "the colours on connect");
+	await socket.until(() => colors().length === 1, "the colors on connect");
 	assert.deepEqual(colors()[0], {});
 
 	assert.deepEqual(await (await call("/api/projects/color", { project: "one", color: 7 })).json(), { colors: { one: 7 } });

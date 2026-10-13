@@ -8,7 +8,7 @@
  * pre-emit critique: P5 H5 E4 S5 R5 V4
  */
 :root {
-	/* Near-black, barely cool. Colour lives in syntax, state marks and the one accent. */
+	/* Near-black, barely cool. Color lives in syntax, state marks and the one accent. */
 	--color-paper: oklch(16.5% 0.003 260);
 	--color-paper-2: oklch(21% 0.004 260);
 	--color-paper-3: oklch(25.5% 0.005 260);
@@ -28,7 +28,7 @@
 	--color-del: oklch(74% 0.13 22);
 	--color-del-wash: oklch(74% 0.13 22 / 0.09);
 	--color-scrim: oklch(8% 0.003 260 / 0.62);
-	/* Syntax: the only place colour runs freely. */
+	/* Syntax: the only place color runs freely. */
 	--syn-keyword: oklch(76% 0.11 305);
 	--syn-string: oklch(80% 0.12 145);
 	--syn-name: oklch(80% 0.09 235);

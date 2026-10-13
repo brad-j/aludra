@@ -52,7 +52,7 @@ On connect, the server sends `sessions`, `ideas` and `colors`, then keeps each c
 | --- | --- |
 | `{ type: "sessions", sessions: SessionSummary[] }` | Any session's state, title, latest line or age changed. Newest first. |
 | `{ type: "ideas", ideas: Idea[] }` | An idea was added, started or deleted. |
-| `{ type: "colors", colors }` | A project's colour was picked or reset. |
+| `{ type: "colors", colors }` | A project's color was picked or reset. |
 | `{ type: "items", session, start, items, length }` | The followed session's transcript, from `start` on. Items before `start` are unchanged; drop any after `length`. |
 | `{ type: "meta", session, meta: SessionMeta }` | The followed session's state, model, thinking, context use, queued messages, pending approval and retry. |
 | `{ type: "error", message }` | A client event couldn't be handled. |
@@ -74,7 +74,7 @@ How aludra maps onto the protocol:
 
 - `conversations.create` takes a project directory (or a `cwd` naming one) and the first message; without a project it makes a no-project session. The project can't change afterwards, so `configure` changes only the model and thinking.
 - `conversations.list`, `conversations.rename`, `submit`, `abort`, `compact`, `reset`, `approval.answer`, `conversation.history`, `conversation.image`, `conversation.watch`, `host.info` and `host.watch` are supported.
-- `projects.setColor` picks a project's colour; `host.info` and the host snapshot carry the picked colours, and `host.projectColors` announces changes.
+- `projects.setColor` picks a project's color; `host.info` and the host snapshot carry the picked colors, and `host.projectColors` announces changes.
 - `conversations.fork` and `conversations.archive` answer `unsupported`.
 - Pending approvals are `approval.requested`. Approved, denied, and expired, stopped or superseded requests are `approval.resolved` with `approve`, `deny` or `cancelled`.
 - Spend comes from Pi Durable's usage. On a subscription its cost is 0; the token counts are real.
@@ -97,5 +97,9 @@ Client to server, one of:
 { "type": "approvals" }
 { "type": "decide", "id": "3f9a1c", "allow": true }
 ```
+
+`{ "type": "live" }` is the terminal UI's: the connection stays open and the server sends `{ "type": "event", "event": ServerEvent }` for each event the web app gets over `/api/live`. The client may then send one `ClientEvent` follow per line, `{ "type": "follow", "session": 12 }` or `{ "session": null }`, to change which transcript it gets. A host from before `live` answers it as an unknown request.
+
+`{ "type": "sessions", "listing": true }` asks for the sessions as data: the server answers with one `{ "type": "sessions", "sessions": SessionSummary[], "colors": { name: hue } }`, which the CLI lays out for its terminal. Without `listing`, the server sends them as text lines. A host from before `listing` ignores it and sends lines, which the CLI prints as they are.
 
 Server to client: any number of `{ "type": "line", "text": "..." }`, then `{ "type": "done", "status": "..." }` and the connection closes. `status` is `done` on success. A `watch` never sends `done`; it ends when the client closes.
