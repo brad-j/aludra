@@ -4,9 +4,9 @@
 //   edit of credential files, keys and agent logins are blocked, and so are shell commands naming them. The first
 //   block in a run lets the run go on; a second ends it, so probing stays cut off. Ending a run takes a tool result
 //   (`control.terminate`), which a beforeTool hook can't give, so the gate wraps the four tools instead.
-// - Approvals, a beforeTool hook: `git push`, and ssh, scp, rsync, sftp, mosh or sshfs naming one of the homelab hosts
-//   (egwene's keys reach them), wait for Brad. The request is stored, the call waits for a decision, and a restart
-//   waits on the same request. Brad answers with `aludra approve` or `aludra deny`; push notifications come later.
+// - Approvals, a beforeTool hook: `git push`, and ssh, scp, rsync, sftp, mosh or sshfs naming one of the hosts in
+//   `approvals.hosts` (ones this machine's keys reach), wait for the user. The request is stored, the call waits for a decision, and a restart
+//   waits on the same request. The user answers in the app, the Mac app, or with `aludra approve` or `aludra deny`.
 //
 // Both read shell commands as text, so they're best effort: a command can always be spelled so neither sees it.
 import { randomBytes } from "node:crypto";
@@ -44,7 +44,7 @@ export const Approvals = defineDoc<ApprovalState>({
 	initial: () => ({ requests: {} }),
 });
 
-const WARNING = "Do not retry this target through another tool, path or command. Continue without it, or ask Brad.";
+const WARNING = "Do not retry this target through another tool, path or command. Continue without it, or ask the user.";
 const SHELL_SEPARATORS = /;|&&|\|\||\||\n|\$\(|`|\(|\)/;
 const REMOTE_COMMANDS = new Set(["ssh", "scp", "rsync", "sftp", "mosh", "sshfs"]);
 /** Git's options that take the next word as their value. */
@@ -71,8 +71,8 @@ function isGitPush(words: readonly string[]): boolean {
 	return false;
 }
 
-/** The homelab host a remote command in `words` names, if any: `host`, `user@host`, `host:path` or `host.domain`. */
-function homelabHost(words: readonly string[], hosts: readonly string[]): string | undefined {
+/** The listed host a remote command in `words` names, if any: `host`, `user@host`, `host:path` or `host.domain`. */
+function listedHost(words: readonly string[], hosts: readonly string[]): string | undefined {
 	const start = words.findIndex((word) => REMOTE_COMMANDS.has(programName(word)));
 	if (start === -1) return undefined;
 	for (const word of words.slice(start + 1)) {
@@ -84,11 +84,11 @@ function homelabHost(words: readonly string[], hosts: readonly string[]): string
 	return undefined;
 }
 
-/** What a shell command does that needs Brad's approval, in a line, or nothing. */
+/** What a shell command does that needs the user's approval, in a line, or nothing. */
 export function approvalFor(command: string, hosts: readonly string[]): string | undefined {
 	for (const words of commandWords(command)) {
 		if (isGitPush(words)) return "git push";
-		const host = homelabHost(words, hosts);
+		const host = listedHost(words, hosts);
 		if (host !== undefined) return `${programName(words.find((w) => REMOTE_COMMANDS.has(programName(w)))!)} to ${host}`;
 	}
 	return undefined;
@@ -142,7 +142,7 @@ export class ApprovalService {
 		return Object.values(state?.requests ?? {}).map(plain);
 	}
 
-	/** Requests still waiting for Brad, oldest first. Ones whose call ended or whose time ran out are closed. */
+	/** Requests still waiting for the user, oldest first. Ones whose call ended or whose time ran out are closed. */
 	async pending(): Promise<ApprovalRequest[]> {
 		const waiting: ApprovalRequest[] = [];
 		for (const request of await this.all()) {
@@ -193,7 +193,7 @@ export class ApprovalService {
 		return request;
 	}
 
-	/** Brad's answer. Returns the request, or nothing if there's no pending one with that id. */
+	/** The user's answer. Returns the request, or nothing if there's no pending one with that id. */
 	async decide(id: string, allow: boolean): Promise<ApprovalRequest | undefined> {
 		const decided = await this.#commit((doc) => {
 			const request = doc.requests[id];
@@ -218,7 +218,7 @@ export class ApprovalService {
 		if (closed !== undefined) this.#settled(closed);
 	}
 
-	/** Brad sent a session a new message instead of answering: its pending requests are closed, so the run can go on. */
+	/** The user sent a session a new message instead of answering: its pending requests are closed, so the run can go on. */
 	async supersede(conversationId: number): Promise<void> {
 		for (const request of await this.pending()) {
 			if (request.conversationId === conversationId) await this.close(request.id, "superseded");
@@ -314,11 +314,11 @@ export function permissionsExtension(options: PermissionOptions) {
 		const request = await approvals.open(id, { conversationId: api.conversationId, taskId: api.taskId }, summary, command);
 		const done = await approvals.wait(request, signalOf(api, context));
 		if (done.status === "approved") return undefined;
-		const why = done.status === "denied" ? "Brad said no"
-			: done.status === "expired" ? "Brad didn't answer in time"
-			: done.status === "superseded" ? "Brad sent a new message instead of answering"
+		const why = done.status === "denied" ? "the user said no"
+			: done.status === "expired" ? "the user didn't answer in time"
+			: done.status === "superseded" ? "the user sent a new message instead of answering"
 			: "the run was stopped";
-		return { block: `Needs Brad's approval (${summary}), and ${why}.` };
+		return { block: `Needs the user's approval (${summary}), and ${why}.` };
 	}
 
 	return defineExtension({

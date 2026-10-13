@@ -1,4 +1,4 @@
-// Sessions and ideas by machine and project, the project that most needs Brad first, and this device's notifications at
+// Sessions and ideas by machine and project, the project that most needs you first, and this device's notifications at
 // the foot. A drawer on phones, a column on the desk.
 import { Link, useParams } from "@tanstack/react-router";
 import { type CSSProperties, useEffect, useState } from "react";
@@ -66,7 +66,7 @@ export function Drawer() {
 				{sessions !== undefined && ordered.length === 0 && <p className="empty">No sessions yet. Start one with +.</p>}
 				{ordered.map(({ project, dir, sessions: list, ideas: projectIdeas }) => {
 					const isFolded = folded.has(dir);
-					// A folded project still says when one of its sessions needs Brad or is working.
+					// A folded project still says when one of its sessions needs you or is working.
 					const note = list.some((s) => s.state === "waiting") ? "needs you" : list.some((s) => s.state === "running") ? "working" : String(list.length + projectIdeas.length);
 					return (
 					<section className="dir" key={dir} data-folded={isFolded} style={{ "--project": projectColor(project), "--project-wash": projectWash(project) } as CSSProperties}>

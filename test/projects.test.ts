@@ -3,7 +3,7 @@ import test from "node:test";
 import { hueIndex, type Project, projectColor, projectGroups, searchProjects } from "../app/lib/projects.ts";
 import type { SessionSummary } from "../src/api-types.ts";
 
-const project = (path: string): Project => ({ workspace: "egwene", name: path.split("/").at(-1)!, path, dir: `/w/${path}` });
+const project = (path: string): Project => ({ workspace: "code", name: path.split("/").at(-1)!, path, dir: `/w/${path}` });
 const projects = ["Software/aludra", "Software/amyrlin", "Software/gaidin", "Software/gray-ajah", "Fabrication/keychain", "Fabrication/server-rack", "Electronics/esp32-projects", "Personal/Trips"].map(project);
 const session = (id: number, path: string, updatedAt: number) => ({ id, dir: `/w/${path}`, updatedAt }) as SessionSummary;
 

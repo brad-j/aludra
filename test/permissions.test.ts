@@ -9,22 +9,22 @@ import { context, openHost } from "../src/host.ts";
 import { approvalFor, protectedTarget } from "../src/permissions.ts";
 import { makeProject, tempDir, testHost } from "./helpers.ts";
 
-test("git push and remote commands to homelab hosts need approval; other commands don't", () => {
-	const hosts = ["think-1", "think-2", "monitor-01"];
+test("git push and remote commands to listed hosts need approval; other commands don't", () => {
+	const hosts = ["build-box", "nas", "router"];
 	for (const command of ["git push", "git push origin main", "cd x && git -C ../y push --force", "/usr/bin/git --no-pager push", "pnpm test; git push", "jj git push"]) {
 		assert.equal(approvalFor(command, hosts), "git push", command);
 	}
-	assert.equal(approvalFor("ssh think-1 'qm list'", hosts), "ssh to think-1");
-	assert.equal(approvalFor("ssh -i key root@think-2.half.black uptime", hosts), "ssh to think-2");
-	assert.equal(approvalFor("rsync -av dist/ monitor-01:/srv/site", hosts), "rsync to monitor-01");
-	assert.equal(approvalFor("scp notes.txt think-1:", hosts), "scp to think-1");
-	for (const command of ["git status", "git commit -m 'push the fix'", "git log --grep push", "ssh github.com", "echo think-1", "pnpm push-docs", "ssh-keygen -l"]) {
+	assert.equal(approvalFor("ssh build-box 'df -h'", hosts), "ssh to build-box");
+	assert.equal(approvalFor("ssh -i key root@nas.example.net uptime", hosts), "ssh to nas");
+	assert.equal(approvalFor("rsync -av dist/ router:/srv/site", hosts), "rsync to router");
+	assert.equal(approvalFor("scp notes.txt build-box:", hosts), "scp to build-box");
+	for (const command of ["git status", "git commit -m 'push the fix'", "git log --grep push", "ssh github.com", "echo build-box", "pnpm push-docs", "ssh-keygen -l"]) {
 		assert.equal(approvalFor(command, hosts), undefined, command);
 	}
 });
 
 test("the protected-path gate blocks credential files and keys, as terminal pi's does", () => {
-	const cwd = "/home/brad/westwood/Projects/Software/aludra";
+	const cwd = "/home/you/code/aludra";
 	assert.match(protectedTarget("read", { path: ".env" }, cwd)!, /environment or credential file/);
 	assert.match(protectedTarget("edit", { path: "~/.ssh/config" }, cwd)!, /private key material/);
 	assert.match(protectedTarget("write", { path: "/home/brad/.pi/agent/auth.json" }, cwd)!, /agent authentication/);
@@ -58,7 +58,7 @@ async function pendingFor(host: Awaited<ReturnType<typeof testHost>>["host"], id
 	}
 }
 
-test("a git push waits for approval, and runs once Brad approves", async (t) => {
+test("a git push waits for approval, and runs once the user approves", async (t) => {
 	const { host, dir } = await testHost(t, oneCommand("echo pushing; git push --dry-run"));
 	const session = await host.sessions.create(makeProject(dir, "one"), "push it");
 	const run = await host.submit(session.id, "push it");
@@ -70,15 +70,15 @@ test("a git push waits for approval, and runs once Brad approves", async (t) => 
 	assert.match(await lastText(host, session.id), /pushing/);
 });
 
-test("a denied ssh to a homelab host is blocked, and the model hears why", async (t) => {
-	const { host, dir } = await testHost(t, oneCommand("ssh think-1 'qm list'"));
+test("a denied ssh to a listed host is blocked, and the model hears why", async (t) => {
+	const { host, dir } = await testHost(t, oneCommand("ssh build-box 'df -h'"));
 	const session = await host.sessions.create(makeProject(dir, "one"), "check vms");
 	const run = await host.submit(session.id, "check vms");
 	const request = await pendingFor(host, session.id);
-	assert.equal(request.summary, "ssh to think-1");
+	assert.equal(request.summary, "ssh to build-box");
 	await host.approvals.decide(request.id, false);
 	await run.wait(context);
-	assert.match(await lastText(host, session.id), /Needs Brad's approval \(ssh to think-1\), and Brad said no/);
+	assert.match(await lastText(host, session.id), /Needs the user's approval \(ssh to build-box\), and the user said no/);
 });
 
 test("a new message instead of an answer refuses the waiting call and runs", async (t) => {

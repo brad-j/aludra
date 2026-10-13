@@ -48,7 +48,7 @@ function start() {
 	void loadBootstrap();
 	connect();
 	// Back from the background (a phone's lock screen): the socket may be gone without saying so. The host is told
-	// whether the app is on screen, so it doesn't notify about the session Brad is looking at.
+	// whether the app is on screen, so it doesn't notify about the session you're looking at.
 	document.addEventListener("visibilitychange", () => {
 		if (document.visibilityState === "visible" && socket?.readyState !== WebSocket.OPEN) connect();
 		else sendVisible();

@@ -1,7 +1,7 @@
 {
 	"name": "aludra",
 	"short_name": "aludra",
-	"description": "Coding sessions on egwene",
+	"description": "Coding sessions on your machine",
 	"start_url": "/",
 	"scope": "/",
 	"display": "standalone",

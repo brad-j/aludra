@@ -103,7 +103,7 @@ function lastMessage(view: ConversationView): Message | undefined {
 	return undefined;
 }
 
-/** Whether a session's run is going, waits for Brad, or how it last ended. */
+/** Whether a session's run is going, waits for the user, or how it last ended. */
 export function stateOf(view: ConversationView, waiting: boolean): SessionState {
 	if (waiting) return "waiting";
 	// SAFETY: a document in the view is the JSON of its kind's state.

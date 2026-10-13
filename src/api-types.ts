@@ -95,6 +95,6 @@ export type ServerEvent =
 
 /**
  * Over the WebSocket, app to server: which session's transcript to follow, if any, and whether the app is on screen. A
- * session followed on screen doesn't get notifications: Brad is looking at it.
+ * session followed on screen doesn't get notifications: the user is looking at it.
  */
 export type ClientEvent = { type: "follow"; session: number | null } | { type: "visible"; visible: boolean };

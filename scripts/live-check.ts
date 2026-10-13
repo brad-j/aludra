@@ -1,4 +1,4 @@
-// The live check, run by hand: real pi-claude-bridge, real Claude Code, Brad's subscription. Rerun it after upgrading
+// The live check, run by hand: real pi-claude-bridge, real Claude Code, the user's own login. Rerun it after upgrading
 // Pi Durable or the bridge. It works in a temp directory and removes the Claude Code session files it made.
 //
 //   node --no-warnings scripts/live-check.ts
@@ -78,7 +78,7 @@ try {
 	check("Claude Code ran in each project's directory", ours.some((n) => n.endsWith("-one")) && ours.some((n) => n.endsWith("-two")), ours.join(", ") || "no session files under the projects' directories");
 
 	// 2
-	await ask(host, a.id, "Remember this for later: the backup on think-2 failed at 03:10 with exit code 23. Reply with just 'noted'.");
+	await ask(host, a.id, "Remember this for later: the backup on nas failed at 03:10 with exit code 23. Reply with just 'noted'.");
 	const conversation = await host.conversation(a.id);
 	const task = await conversation.compact(undefined, context);
 	const compacted = await host.harness.waitForTask(task, context);

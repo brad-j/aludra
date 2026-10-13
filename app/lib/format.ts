@@ -60,5 +60,5 @@ export const STATE_LABEL: Record<SessionState | "idea", string> = {
 	idea: "Idea",
 };
 
-/** How much a project needs Brad: waiting first, then running, then failed. */
+/** How much a project needs you: waiting first, then running, then failed. */
 export const URGENCY: Record<SessionState, number> = { waiting: 0, running: 1, failed: 2, stopped: 3, done: 4, idle: 5 };

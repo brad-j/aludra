@@ -8,7 +8,7 @@ import { tempDir } from "./helpers.ts";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd, encoding: "utf8" });
 
-/** A repository with a committed file, an uncommitted change and an ignored file, as Brad might leave it. */
+/** A repository with a committed file, an uncommitted change and an ignored file, as the user might leave it. */
 function repo(dir: string) {
 	git(dir, "init", "-q", "-b", "main");
 	writeFileSync(join(dir, ".gitignore"), "build/\n");
@@ -17,7 +17,7 @@ function repo(dir: string) {
 	writeFileSync(join(dir, "name.txt"), `${"stays the same, only the name changes\n".repeat(5)}`);
 	git(dir, "add", "-A");
 	git(dir, "commit", "-qm", "start");
-	writeFileSync(join(dir, "a.txt"), "one\ntwo\nthree\nBrad's own edit\n");
+	writeFileSync(join(dir, "a.txt"), "one\ntwo\nthree\nthe user's own edit\n");
 }
 
 test("the changes are what the session did: edits, new, deleted and renamed files, and its commits, not what was there before", async (t) => {
@@ -28,7 +28,7 @@ test("the changes are what the session did: edits, new, deleted and renamed file
 	assert.ok(!("error" in base));
 	assert.deepEqual(readFileSync(join(dir, ".git", "index")), indexBefore, "the real index is untouched");
 
-	writeFileSync(join(dir, "a.txt"), "one\n2\nthree\nBrad's own edit\nfour\n");
+	writeFileSync(join(dir, "a.txt"), "one\n2\nthree\nthe user's own edit\nfour\n");
 	writeFileSync(join(dir, "new.ts"), "export const x = 1;\n");
 	rmSync(join(dir, "old.txt"));
 	git(dir, "mv", "name.txt", "renamed.txt");
@@ -52,8 +52,8 @@ test("the changes are what the session did: edits, new, deleted and renamed file
 	const patch = await fileDiff(base, "a.txt");
 	assert.match(patch, /^-two$/m);
 	assert.match(patch, /^\+four$/m);
-	assert.doesNotMatch(patch, /^\+Brad's own edit$/m, "the edit from before the session isn't the session's");
-	assert.equal(git(dir, "status", "--porcelain").includes("committed.md"), false, "nothing was staged for Brad");
+	assert.doesNotMatch(patch, /^\+the user's own edit$/m, "the edit from before the session isn't the session's");
+	assert.equal(git(dir, "status", "--porcelain").includes("committed.md"), false, "nothing was staged for the user");
 });
 
 test("a project inside a bigger repository sees only its own directory, with paths relative to it", async (t) => {

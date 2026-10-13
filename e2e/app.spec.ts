@@ -91,7 +91,7 @@ test("a git push waits for approval above the composer, and Deny blocks it", asy
 	}
 	await approval.getByRole("button", { name: "Deny" }).click();
 	await expect(approval).toHaveCount(0);
-	await expect(page.locator(".prose").last()).toContainText("Brad said no", { timeout: 10_000 });
+	await expect(page.locator(".prose").last()).toContainText("the user said no", { timeout: 10_000 });
 });
 
 test("nothing scrolls sideways and no button wraps, from 320 px to the desk", async ({ page }) => {

@@ -28,7 +28,7 @@ async function api(t: TestContext, responses: FauxResponseStep[], appDir?: strin
 	faux.setResponses(responses);
 	const models = createModels();
 	models.setProvider(faux.provider);
-	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, approvalHosts: ["think-1"] });
+	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, approvalHosts: ["build-box"] });
 	const project = makeProject(dir, "one");
 	const phone = device();
 	const pushed: Pushed[] = [];
@@ -176,15 +176,15 @@ test("the model and thinking change per session; an unknown model is refused", a
 });
 
 test("an approval shows in the session's meta and is answered over the API", async (t) => {
-	const { call, base } = await api(t, toolThenAnswer("ssh think-1 uptime || true", "Result:"));
+	const { call, base } = await api(t, toolThenAnswer("ssh build-box uptime || true", "Result:"));
 	const client = await live(t, base);
-	const { id } = await (await call("/api/sessions", { project: "one", text: "uptime on think-1" })).json();
+	const { id } = await (await call("/api/sessions", { project: "one", text: "uptime on build-box" })).json();
 	client.follow(id);
 	await client.until(() => client.state.meta?.approval !== undefined, "the approval");
 	assert.equal(client.state.meta!.summary.state, "waiting");
 	await client.until(() => client.state.sessions.some((s) => s.id === id && s.state === "waiting"), "the list to show it waiting");
 	const { approval } = client.state.meta!;
-	assert.equal(approval!.summary, "ssh to think-1");
+	assert.equal(approval!.summary, "ssh to build-box");
 	assert.deepEqual(await (await call(`/api/approvals/${approval!.id}`, { allow: false })).json(), { status: "denied" });
 	await client.until(() => client.state.meta?.summary.state === "done", "the run to finish");
 	assert.equal((await call(`/api/approvals/${approval!.id}`, { allow: true })).status, 409);
@@ -227,14 +227,14 @@ test("an idea is saved under its project, shows on the socket, and starts as a s
 
 test("a signed-up device hears of an approval and of a run that ends, but not of a session on screen", async (t) => {
 	const { call, base, pushed, subscribe } = await api(t, [
-		...toolThenAnswer("ssh think-1 uptime || true", "Result:"),
+		...toolThenAnswer("ssh build-box uptime || true", "Result:"),
 		fauxAssistantMessage("Second run done."),
 		fauxAssistantMessage("Third run done."),
 	]);
 	const state = await (await subscribe()).json();
 	assert.deepEqual(state.devices.map((d: { label: string }) => d.label), ["iPhone"]);
 	const client = await live(t, base);
-	const { id } = await (await call("/api/sessions", { project: "one", text: "uptime on think-1" })).json();
+	const { id } = await (await call("/api/sessions", { project: "one", text: "uptime on build-box" })).json();
 	client.follow(id);
 	await client.until(() => client.state.meta?.approval !== undefined, "the approval");
 	// Followed and on screen: no notification.
@@ -248,7 +248,7 @@ test("a signed-up device hears of an approval and of a run that ends, but not of
 	await call(`/api/sessions/${id}/messages`, { text: "again", mode: "followUp" });
 	await client.until(() => client.state.events.filter((e) => e.type === "meta" && e.meta.summary.state === "done").length >= 2 && pushed.length > 0, "a notification");
 	assert.deepEqual(pushed.map((p) => [p.title, p.tag, p.url]), [["Done · one", `session-${id}`, `/s/${id}`]]);
-	assert.match(pushed[0]!.body, /^uptime on think-1\nSecond run done\./);
+	assert.match(pushed[0]!.body, /^uptime on build-box\nSecond run done\./);
 	const before = pushed.length;
 	assert.deepEqual(await (await call("/api/push/test", {})).json(), { devices: 1, inSeconds: 5 });
 	for (let i = 0; i < 140 && pushed.length === before; i++) await new Promise((resolve) => setTimeout(resolve, 50));

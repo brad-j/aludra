@@ -55,7 +55,7 @@ test("roots match directories, not files or hidden ones, and each match is a pro
 	assert.deepEqual(expandRoot(join(dir, "Projects/Soft*/g*")).length, 1);
 	assert.deepEqual(expandRoot(join(dir, "Missing/*")), []);
 
-	const projects = findProjects([{ name: "egwene", roots: [join(dir, "Projects/*/*"), join(dir, "Personal/*")] }]);
+	const projects = findProjects([{ name: "code", roots: [join(dir, "Projects/*/*"), join(dir, "Personal/*")] }]);
 	assert.deepEqual(projects.map((p) => p.path), ["Electronics/aludra", "Software/aludra", "Software/gaidin", "Personal/trips"]);
 	assert.equal(findProject(projects, "gaidin").dir, join(dir, "Projects/Software/gaidin"));
 	assert.equal(findProject(projects, "Electronics/aludra").dir, join(dir, "Projects/Electronics/aludra"));

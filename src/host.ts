@@ -59,7 +59,7 @@ export const Sessions = defineDoc<{ sessions: Record<string, SessionRecord> }>({
 export const displayName = (name: string) => name.replace(/^Claude /, "").replace(/ (1M|\(latest\))$/, "");
 
 export function conversationId(id: number): ConversationId {
-	// SAFETY: a session's id is the id Pi Durable gave its conversation, or a number from Brad that's only looked up.
+	// SAFETY: a session's id is the id Pi Durable gave its conversation, or a number from the user that's only looked up.
 	return id as ConversationId;
 }
 
@@ -164,7 +164,7 @@ export async function openHost(options: HostOptions) {
 	let approvals: ApprovalService | undefined;
 	const registry = createRegistry();
 	for (const extension of extensions) registry.install(extension);
-	// Last, so it wraps the tools the others bring, and other hooks see a call before it waits for Brad.
+	// Last, so it wraps the tools the others bring, and other hooks see a call before it waits for the user.
 	registry.install(permissionsExtension({ approvals: () => approvals!, hosts: config.approvals.hosts }));
 
 	const harness = await Harness.open(
@@ -358,7 +358,7 @@ export async function openHost(options: HostOptions) {
 	/** Takes back a message queued in session `id` before the run reaches it. */
 	async function withdraw(id: number, submission: number): Promise<"aborted" | "already_placed" | "settled" | "not_found"> {
 		const target = await conversation(id);
-		// SAFETY: a submission ID Pi Durable gave out, or a number from Brad that's only looked up in this conversation.
+		// SAFETY: a submission ID Pi Durable gave out, or a number from the user that's only looked up in this conversation.
 		return harness.abortSubmission(submission as Parameters<Harness["abortSubmission"]>[0], context, target.id);
 	}
 
@@ -370,7 +370,7 @@ export async function openHost(options: HostOptions) {
 		if (session !== undefined) bridged?.abort(session.sessionId);
 	}
 
-	/** Each session's state: running while a task of it is live, waiting while a call of it waits for Brad. */
+	/** Each session's state: running while a task of it is live, waiting while a call of it waits for the user. */
 	async function states(): Promise<Map<number, "running" | "waiting" | "idle">> {
 		const live = new Set((await harness.inspect(context)).tasks.map((t) => Number(t.record.conversationId)));
 		const waiting = new Set((await approvals!.pending()).map((r) => r.conversationId));

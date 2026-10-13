@@ -65,7 +65,7 @@ export function fakeBridge(responses: FauxResponseStep[]) {
 /** A host on a temp data directory with `options`, closed after the test. */
 export async function testHost(t: TestContext, options: Omit<HostOptions, "config"> & { approvalHosts?: string[] } = {}) {
 	const dir = tempDir(t);
-	const { config } = configFor(JSON.stringify({ dataDir: join(dir, "data"), workspaces: [{ name: "test", roots: [join(dir, "Projects", "*", "*")] }], approvals: { hosts: options.approvalHosts ?? ["think-1"] } }), {});
+	const { config } = configFor(JSON.stringify({ dataDir: join(dir, "data"), workspaces: [{ name: "test", roots: [join(dir, "Projects", "*", "*")] }], approvals: { hosts: options.approvalHosts ?? ["build-box"] } }), {});
 	const agentDir = join(dir, "agent");
 	mkdirSync(agentDir, { recursive: true });
 	const host = await openHost({ agentDir, onNotice: () => {}, ...options, config });

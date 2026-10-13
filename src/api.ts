@@ -65,7 +65,7 @@ class HttpError extends Error {
 }
 
 /**
- * On every response. Another site can't frame the app, which would carry Brad's tailnet identity, and the app runs only
+ * On every response. Another site can't frame the app, which would carry the user's tailnet identity, and the app runs only
  * its own scripts: the shell's inline scripts are allowed by hash, so nothing a model writes can run.
  */
 function securityHeaders(scriptHashes: readonly string[]) {
@@ -92,7 +92,7 @@ export function inlineScriptHashes(html: string): string[] {
 }
 
 /**
- * Another site open in Brad's browser could post here with his tailnet identity. A JSON body forces a CORS preflight,
+ * Another site open in the user's browser could post here with their tailnet identity. A JSON body forces a CORS preflight,
  * which gets no CORS headers back, and the Origin has to be this host.
  */
 function sameOrigin(request: IncomingMessage, json: boolean): boolean {
@@ -152,7 +152,7 @@ export function createApi(host: Host, options: ApiOptions) {
 		if (after.state === "done") notify(after.id, { title: `Done · ${after.project}`, body: `${after.title}\n${after.line}`, tag: `session-${after.id}`, url });
 		if (after.state === "failed") notify(after.id, { title: `Failed · ${after.project}`, body: `${after.title}\n${after.line}`, tag: `session-${after.id}`, url, urgency: "high" });
 	});
-	// An approval is pushed after a moment, if it still waits: the app may be about to show it, or Brad may answer it at once.
+	// An approval is pushed after a moment, if it still waits: the app may be about to show it, or the user may answer it at once.
 	const APPROVAL_DELAY_MS = 2000;
 	const timers = new Set<NodeJS.Timeout>();
 	const TEST_DELAY_MS = 5000;

@@ -335,7 +335,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			{ name: "read", description: "Read a file", requiresApproval: false },
 			{ name: "write", description: "Write a file", requiresApproval: false },
 			{ name: "edit", description: "Edit a file", requiresApproval: false },
-			{ name: "bash", description: "Run a shell command. git push, and ssh, scp or rsync to homelab hosts, wait for approval.", requiresApproval: false },
+			{ name: "bash", description: "Run a shell command. git push, and ssh, scp or rsync to the hosts listed in the settings, wait for approval.", requiresApproval: false },
 		];
 		return {
 			host: await identity(),

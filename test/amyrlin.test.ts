@@ -51,7 +51,7 @@ async function api(t: TestContext) {
 
 /** A protocol v1 client: requests, and each subscription's events in order with `seq` checked. */
 async function client(t: TestContext, url: string) {
-	const ws = new WebSocket(url, { headers: { "tailscale-user-login": USER, "tailscale-user-name": "Brad" } });
+	const ws = new WebSocket(url, { headers: { "tailscale-user-login": USER, "tailscale-user-name": "You" } });
 	t.after(() => ws.close());
 	const responses = new Map<string, Json>();
 	const events = new Map<string, Json[]>();
@@ -194,7 +194,7 @@ test("aludra's approvals reach the Mac: approve, deny, and a stop while one wait
 	const denied = await mac.event(watch, type("run.ended"), "the denied run", from);
 	const blocked = denied.find((e) => e.type === "item.added" && e.item.type === "toolResult").item;
 	assert.equal(blocked.isError, true);
-	assert.match(blocked.content.map((b: Json) => b.text).join(""), /Brad said no/);
+	assert.match(blocked.content.map((b: Json) => b.text).join(""), /the user said no/);
 
 	// Stop while one waits.
 	from = mac.count(watch);

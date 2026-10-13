@@ -10,7 +10,7 @@
  * stays in the transcript; every other surface is Fira Code; square, 1 px rules; violet accent and project colours.
  * pre-emit critique: P5 H4 E4 S5 R4 V4
  */
-/* Hallmark · route: custom (tuned) · redesign toward Brad's references (Pi Mobile screenshots, 2026-10-11)
+/* Hallmark · route: custom (tuned) · redesign toward the owner's references (Pi Mobile screenshots, 2026-10-11)
  * macrostructure: transcript-first app (session is the screen; sessions in a drawer, by machine and directory)
  * theme: custom · vibe: "quiet terminal-adjacent reader, near-black, content first" · paper: oklch(16.5% 0.003 260) · accent: oklch(85% 0.105 215)
  * display: Fira Sans 600 · body: Fira Sans 400 · mono: Fira Code · axes: dark / humanist-sans / neutral
@@ -216,7 +216,7 @@ svg { flex: none; }
 .dir { padding-top: var(--space-sm); }
 /* A hairline between projects, so each group reads as one block. */
 .dir + .dir { margin-top: var(--space-xs); border-top: var(--rule-hair) solid var(--color-rule); }
-/* A project's label folds its sessions away; folded, it keeps a count, or says a session needs Brad or is working. */
+/* A project's label folds its sessions away; folded, it keeps a count, or says a session needs you or is working. */
 .dir-head {
 	display: flex; align-items: baseline; gap: var(--space-xs); width: 100%;
 	padding: var(--space-2xs) var(--space-xs) var(--space-xs);
