@@ -56,6 +56,23 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces.
 
+## Release: aludra on any machine (2026-10-13)
+
+Brad decided to release aludra and the amyrlin Mac app publicly: anyone installs aludra on each machine whose projects they want to reach (Linux or macOS), and adds each machine to the Mac app. Phases: (1) a general host, (2) setup (`aludra init`, `aludra service install` for systemd and launchd, doctor fixes), (3) the Mac app's release (signing, notarization, first-run help), (4) docs, a license and public repositories. Egwene moves to the published package last.
+
+Decisions:
+
+- **Models through the user's own Claude Code**, after T3 Code. Anthropic's terms ([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)) forbid apps that offer Claude.ai login or handle Claude credentials, and allow "an end user ... signing in to the unmodified Claude Code binary with their own Claude subscription". So aludra never signs anyone in: the user installs Claude Code and runs `claude auth login`, and the bridge runs that binary. pi-claude-bridge stays the provider; Brad accepted that it goes further than T3 Code (pi's tools and prompt through SDK options) and that Anthropic may change billing. API keys through pi-ai may come later as a second provider. Docs may say aludra "runs Claude Code", and use no Claude or Anthropic marks.
+- **Phase 1, done on the `release-host` branch:**
+  - Settings in `~/.config/aludra/config.json` (or `$XDG_CONFIG_HOME`), data in `~/Library/Application Support/aludra` on macOS and `$XDG_DATA_HOME/aludra` elsewhere. No built-in workspaces: `serve` refuses to start without one and says how to name it. No approval hosts by default; `git push` still waits.
+  - `api.users`, a list of Tailscale logins, replaces `api.user`; an old `api.user` is an error rather than a quiet API shutdown. Each listed login sees itself in bootstrap and on the Mac.
+  - `claude.path` (default `claude` on PATH) is the binary the bridge runs, not the Agent SDK's bundled copy. The bridge reads that only from `claude-bridge.json` in pi's agent directory, so it gets its own: `bridge/` in the data directory, reached by aliasing its pi-coding-agent import to a module there that answers `getAgentDir()`. Terminal pi's bridge settings are left alone. A live run from the installed package went through a logging wrapper at `claude.path`.
+  - A package: the host builds to `dist/host` (Node won't strip types inside `node_modules`) and finds `dist/client` from its package root. React, TanStack and the fonts are dev dependencies. Pi's lockstep packages (chord, pi-agent-core, pi-ai, pi-codemode, pi-coding-agent, pi-durable, pi-mcp, pi-telemetry, pi-tui) are all pinned at 1.1.0: an npm install without the lockfile took pi-codemode 1.2.0, which satisfies 1.1's `^1.1.0` and breaks it. `npm install -g` of the packed tarball, then `doctor`, `serve` and `ask`, work on macOS and on egwene.
+  - macOS: a project reached through a symlink (`/var` is `/private/var`) lost its changes view; fixed, with a test. Doctor skips the systemd check where there's none.
+  - The model, the app and the tests speak of the user and listed hosts.
+- **Egwene's move**, when it comes: its `aludra.json` beside package.json is no longer read. It needs `~/.config/aludra/config.json` with the old defaults written out: workspace `egwene` with `~/westwood/Projects/*/*` and `~/westwood/Personal/*`, `api.users` with Brad's login, and `approvals.hosts` think-1, think-2 and monitor-01. The data directory stays `~/.local/share/aludra`.
+- **CI** waits for public repositories, where GitHub Actions is free; macOS runners on a private repository cost ten times the minutes.
+
 ## Spike findings (2026-10-11)
 
 Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gaidin's `node_modules` symlinked in, so their paths need adjusting to run again.
