@@ -1,0 +1,117 @@
+# Configuration
+
+aludra reads one JSON file at start. The host has to be restarted to pick up a change: `aludra service install` rewrites the unit and restarts it, or restart it with `launchctl kickstart -k gui/$(id -u)/io.bradjohnson.aludra` on macOS and `systemctl --user restart aludra` on Linux.
+
+## Where the file is
+
+The first of these that's set:
+
+1. `--config FILE` on the command line
+2. the `ALUDRA_CONFIG` environment variable
+3. `$XDG_CONFIG_HOME/aludra/config.json`, or `~/.config/aludra/config.json` when `XDG_CONFIG_HOME` isn't set (on macOS too)
+
+`aludra init` writes the third. If you install the service with `--config`, the unit passes the same file to the host.
+
+## A full example
+
+```json
+{
+	"workspaces": [
+		{ "name": "studio", "roots": ["~/code/*", "~/work/*/*"] }
+	],
+	"api": { "users": ["you@example.com"], "port": 8724 },
+	"model": {
+		"id": "claude-opus-5-5",
+		"thinking": "high",
+		"choices": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"]
+	},
+	"claude": { "path": "claude" },
+	"approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
+	"backup": { "dir": "/Volumes/nas/aludra", "everyHours": 24, "keep": 7 },
+	"dataDir": "~/Library/Application Support/aludra"
+}
+```
+
+Only `workspaces` is required. `aludra serve` and `aludra service install` refuse to start while a setting is wrong, and `aludra doctor` lists every problem.
+
+## Settings
+
+### `workspaces`
+
+A list of `{ "name", "roots" }`. Every directory a root matches is a project.
+
+- `name` is the machine's name in the apps. Names must be unique.
+- `roots` are path patterns. `~` is your home directory, and `*` matches any name within one path segment. Only directories match, never hidden ones. `~/code/*` makes each folder in `~/code` a project; `~/work/*/*` goes one level deeper.
+
+A directory matched by two roots is one project. On the command line, `--project` takes a project's folder name, its parent and name (`clients/site`) when two share a name, or its full path. `aludra projects` lists what the roots match.
+
+Projects are read from disk each time they're listed, so a new folder under a root shows up without a restart.
+
+### `api`
+
+- `users`: the Tailscale logins let in, such as `["you@example.com"]`. Default: none, and with none the web app, its API and the Mac app's endpoint stay off. Everyone listed sees and runs every session on this machine.
+- `port`: the loopback port the app and API listen on. Default `8724`. Point `tailscale serve` at the same port.
+
+An old single `api.user` is an error rather than being ignored, since ignoring it would quietly turn the API off.
+
+### `model`
+
+- `id`: the default model for new sessions. Default `claude-opus-5-5`.
+- `thinking`: the default thinking level: `off`, `minimal`, `low`, `medium`, `high` or `xhigh`. Default `high`.
+- `choices`: the models the apps offer in the model picker. Default Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1. The default `id` is added if it isn't listed. A choice the bridge doesn't have is left out of the picker.
+- `provider`: `claude-bridge` (the default) or `faux`. You won't normally set this; see `ALUDRA_MODEL` below.
+
+Each session keeps its own model and thinking level, which you can change from the apps at any time. The change applies to the session's next request.
+
+### `claude`
+
+- `path`: the Claude Code binary the bridge runs. Default `claude`, looked up on PATH. A path starting with `~/` is expanded.
+
+aludra never uses the copy of Claude Code that ships inside the Agent SDK. It runs the one you installed and logged in to.
+
+### `approvals`
+
+- `hosts`: host names whose remote commands wait for your approval. A shell command running `ssh`, `scp`, `rsync`, `sftp`, `mosh` or `sshfs` with an argument naming one of these (`host`, `user@host`, `host:path` or `host.domain`) waits. Default: none. `git push` always waits, whatever this says.
+- `waitHours`: how long a request waits before it expires and the call is refused. Default `24`.
+
+[security.md](security.md#permissions) covers what runs without asking.
+
+### `backup`
+
+- `dir`: where copies of the database go. Default `backups/` in the data directory. Put it on another disk or a synced folder if you want the copies to survive this disk failing.
+- `everyHours`: how old the newest copy may get before the host makes another. Default `24`.
+- `keep`: how many copies to keep, newest first. Default `7`.
+
+[operations.md](operations.md#backups) covers backups and restoring.
+
+### `dataDir`
+
+Where the database, keys and scratch directories go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.
+
+## Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `ALUDRA_CONFIG` | The settings file, when `--config` isn't given. |
+| `ALUDRA_DATA_DIR` | Replaces the data directory, over `dataDir` in the file. |
+| `ALUDRA_MODEL=faux` | Runs a scripted model with no network and no Claude Code, for tests and trying the app. |
+| `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | Move the default settings and (on Linux) data directories. |
+| `CLAUDE_BRIDGE_DEBUG=1`, `CLAUDE_BRIDGE_DEBUG_PATH` | The bridge's detailed log of its Claude Code sessions. |
+
+## The data directory
+
+| Path | What |
+| --- | --- |
+| `aludra.sqlite` | Every session, idea, approval and setting the apps change: one Pi Durable database. `-wal` and `-shm` sit beside it while the host runs. |
+| `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |
+| `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
+| `bridge/` | The bridge's own settings (`claude-bridge.json`, with `claude.path`) and a small module that points the bridge there instead of at terminal pi's settings. |
+| `scratch/<id>/` | The working directory of each no-project session. |
+| `backups/` | Copies of the database, unless `backup.dir` says otherwise. |
+| `tailscale/` | Only with aludra's own Tailscale node ([setup.md](setup.md#optional-a-tailscale-node-of-aludras-own-linux)). |
+
+The directory is created owner-only (`0700`), and the service runs with a `0077` umask.
+
+## Project context and skills
+
+Sessions get the same instructions terminal pi would: `~/.pi/agent/AGENTS.md`, then `AGENTS.md` or `CLAUDE.md` in each directory from `/` down to the project, and skills from `~/.pi/agent/skills` and the project's `.pi/skills`. They're read again before every request, so an edit reaches the session's next request without a restart.

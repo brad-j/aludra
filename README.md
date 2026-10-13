@@ -34,7 +34,8 @@ removes the unit; `npm uninstall -g aludra` removes the command.
 
 ## Settings
 
-`~/.config/aludra/config.json` (or `$XDG_CONFIG_HOME/aludra/config.json`, or `--config FILE`):
+`~/.config/aludra/config.json` (or `$XDG_CONFIG_HOME/aludra/config.json`, or `--config FILE`). Only `workspaces` is
+required; `aludra init` writes `workspaces` and `api.users`.
 
 ```json
 {
@@ -47,36 +48,24 @@ removes the unit; `npm uninstall -g aludra` removes the command.
 }
 ```
 
-- `workspaces`: each root is a pattern; every folder it matches is a project.
-- `api.users`: the Tailscale logins let in. Everyone listed sees and runs every session on this machine.
-- `claude.path`: the Claude Code to run, found on PATH by default.
-- `approvals.hosts`: ssh, scp and rsync to these wait for your approval, like `git push` always does.
-- `backup`: the running host copies its database every `everyHours` and keeps the newest `keep`. The copies go in
-  `backups/` in the data directory unless `dir` names another disk or a synced folder, which keeps them safe from
-  this one failing. `aludra backup` makes one now; `aludra doctor` says how old the newest is.
-- `dataDir`: the database and keys. Default `~/Library/Application Support/aludra` on macOS, `~/.local/share/aludra`
-  elsewhere.
-
-## Restoring a backup
-
-Stop the host (`aludra service uninstall`), copy a backup over `aludra.sqlite` in the data directory, delete
-`aludra.sqlite-wal` and `aludra.sqlite-shm` beside it, and start it again (`aludra service install`).
+[docs/configuration.md](docs/configuration.md) explains each setting, the environment variables and the data directory.
 
 ## How it's kept safe
 
-- The host listens on 127.0.0.1 only. `tailscale serve` is the way in, and it tells aludra who's asking; requests from
-  a login not in `api.users`, or without one, are refused. There are no passwords or tokens.
-- Inside a project the agent runs without asking: edits, builds, tests, installs, commits. `git push` and remote
-  commands to listed hosts wait for a tap. Credential files and keys are blocked. Both read shell commands as text, so
-  they're a guard against mistakes, not a sandbox.
-- Sessions run as your user, with the PATH the service was installed with.
+The host listens on 127.0.0.1 only. `tailscale serve` is the way in, and only the Tailscale logins in `api.users` get
+through. Inside a project the agent runs without asking; `git push` and remote commands to listed hosts wait for a tap,
+and credential files and keys are blocked. Both read shell commands as text, so they guard against mistakes, not a
+determined agent. [docs/security.md](docs/security.md) has the details.
 
-## Commands
+## Documentation
 
-`aludra --help` lists them: `ask`, `watch`, `sessions`, `stop`, `approvals`, `approve`, `deny` and `projects` work
-from a terminal against the running host.
-
-## Development
-
-`pnpm check` (types, lint, tests), `pnpm e2e` (Playwright against the built app), `pnpm dev` (the app on Vite, with
-the API from a running host). [docs/plan.md](docs/plan.md) has the decisions and their reasons.
+- [Setting up a machine](docs/setup.md): requirements, install, the service, Tailscale, connecting the apps, updating.
+- [Configuration](docs/configuration.md): every setting, environment variables, the data directory.
+- [Using aludra](docs/using.md): sessions, steering, ideas, approvals, changes, notifications, the Mac app.
+- [The aludra command](docs/cli.md): every CLI command and its flags.
+- [Security](docs/security.md): who gets in, the permissions, what's stored.
+- [Running aludra](docs/operations.md): logs, doctor, backups and restoring, upgrades, troubleshooting.
+- [Architecture](docs/architecture.md): how the host, the bridge and the apps fit together.
+- [API](docs/api.md): the web API, the Mac app's endpoint, the CLI socket.
+- [Development](docs/development.md): commands, tests, the faux model, dependencies.
+- [Plan](docs/plan.md): decisions, milestones and their reasons.

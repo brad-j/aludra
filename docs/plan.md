@@ -84,6 +84,7 @@ Decisions:
   - **Renaming:** `conversations.rename` and `POST /api/sessions/:id/title`; the Mac's session menu and a double-click on the header, the web's session menu. The open session's meta follows its record, so a later run can't put the old title back.
   - **Images:** messages carry PNG, JPEG, GIF or WebP (8 at most, 5 MB each, sniffed), scaled to 1568 px by the apps; transcripts carry where each is, and the apps fetch the bytes (`GET /api/sessions/:id/images/…`, `conversation.image`). The bridge passes them to Claude Code: a live run on the Mac named a blue square's colour. Tool results' images (a screenshot read) show too.
   - `aludra service install` over a running launchd agent waits for bootout to finish; launchd's error 5 had left the Mac's host stopped after an update.
+- **Docs, 2026-10-13:** `docs/` now describes aludra as it stands, apart from this plan's history: setup, configuration, using it, the CLI, security, operations, architecture, the API and development, indexed from the README. The README keeps the quick start; restoring backups moved to `docs/operations.md`.
 - **CI** isn't set up: private repositories get 2,000 Actions minutes a month and macOS minutes count ten times, so if it comes, Linux only.
 
 ## Spike findings (2026-10-11)
