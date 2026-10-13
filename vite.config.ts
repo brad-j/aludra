@@ -8,7 +8,8 @@ import { loadConfig } from "./src/config.ts";
 
 const { config } = loadConfig();
 const host = `127.0.0.1:${config.api.port}`;
-const identity = config.api.user === undefined ? {} : { "tailscale-user-login": config.api.user };
+const login = config.api.users[0];
+const identity = login === undefined ? {} : { "tailscale-user-login": login };
 
 export default defineConfig({
 	publicDir: "app/public",

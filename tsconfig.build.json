@@ -1,0 +1,11 @@
+{
+	// The host, built to JavaScript for the package: Node strips types from .ts files, but not inside node_modules.
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"noEmit": false,
+		"rootDir": "src",
+		"outDir": "dist/host",
+		"rewriteRelativeImportExtensions": true
+	},
+	"include": ["src"]
+}

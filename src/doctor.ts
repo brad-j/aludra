@@ -140,6 +140,7 @@ async function push(): Promise<Check[]> {
 
 async function service(): Promise<Check[]> {
 	const result = spawnSync("systemctl", ["--user", "is-active", "aludra.service"], { encoding: "utf8", timeout: 10_000 });
+	if (result.error !== undefined) return [{ status: "skip", area: "service", detail: "no systemd here; run the host with aludra serve" }];
 	const state = result.stdout.trim();
 	if (state === "active") return [{ status: "ok", area: "service", detail: "aludra.service is active" }];
 	return [{ status: "warn", area: "service", detail: `aludra.service is ${state || "not installed"}; deploy/aludra.service runs the host` }];

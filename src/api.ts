@@ -26,12 +26,12 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
-import { extname, join, normalize, resolve } from "node:path";
+import { extname, join, normalize } from "node:path";
 import type { ConversationView } from "@earendil-works/pi-durable";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createAmyrlinEndpoint } from "./amyrlin/endpoint.ts";
 import type { Bootstrap, ClientEvent, Item, PushState, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
-import { THINKING } from "./config.ts";
+import { PACKAGE_DIR, THINKING } from "./config.ts";
 import { context, type Host, type SessionRecord } from "./host.ts";
 import { boolean, integer, literal, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
@@ -41,7 +41,7 @@ import { contextUsed, firstChange, itemsOf, lineOf, queuedOf, stateOf, updatedAt
 import { changesSince, fileDiff } from "./changes.ts";
 
 /** Where `pnpm build` puts the app. */
-export const APP_DIR = resolve(import.meta.dirname, "../dist/client");
+export const APP_DIR = join(PACKAGE_DIR, "dist", "client");
 const SHELL = "_shell.html";
 
 const TYPES: Record<string, string> = {

@@ -2,20 +2,28 @@
   "name": "aludra",
   "version": "0.1.0",
   "private": true,
-  "description": "A coding agent on Pi Durable, reached from the phone and the desk",
+  "description": "Run coding agents on your own machines and reach them from your phone and your Mac, over Tailscale",
   "bin": {
-    "aludra": "src/main.ts"
+    "aludra": "dist/host/main.js"
+  },
+  "files": [
+    "dist/host",
+    "dist/client"
+  ],
+  "engines": {
+    "node": ">=22.18"
   },
   "scripts": {
     "aludra": "node --no-warnings src/main.ts",
     "serve": "node --no-warnings src/main.ts serve",
     "doctor": "node --no-warnings src/main.ts doctor",
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "vite build && tsc -p tsconfig.build.json",
     "check": "tsc && tsc -p app && pnpm lint && pnpm test",
     "lint": "oxlint --deny-warnings src test scripts app e2e",
     "test": "node --no-warnings --test test/*.test.ts",
-    "e2e": "pnpm build && playwright test"
+    "e2e": "pnpm build && playwright test",
+    "prepack": "pnpm build"
   },
   "devEngines": {
     "packageManager": {
@@ -28,28 +36,32 @@
   "type": "module",
   "dependencies": {
     "@earendil-works/chord": "1.1.0",
+    "@earendil-works/pi-agent-core": "1.1.0",
     "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-codemode": "1.1.0",
     "@earendil-works/pi-coding-agent": "1.1.0",
     "@earendil-works/pi-durable": "1.1.0",
+    "@earendil-works/pi-mcp": "1.1.0",
+    "@earendil-works/pi-telemetry": "1.1.0",
     "@earendil-works/pi-tui": "1.1.0",
-    "@fontsource/fira-code": "5.3.0",
-    "@fontsource/fira-sans": "5.3.0",
-    "@tanstack/react-router": "1.170.41",
-    "@tanstack/react-start": "1.168.60",
     "jiti": "2.7.0",
     "pi-claude-bridge": "0.9.2",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
     "ws": "8.22.0"
   },
   "devDependencies": {
+    "@fontsource/fira-code": "5.3.0",
+    "@fontsource/fira-sans": "5.3.0",
     "@playwright/test": "1.64.0",
+    "@tanstack/react-router": "1.170.41",
+    "@tanstack/react-start": "1.168.60",
     "@types/node": "26.6.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@types/ws": "8.18.2",
     "@vitejs/plugin-react": "6.1.2",
     "oxlint": "1.87.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "typescript": "7.0.2",
     "vite": "8.3.4"
   }
