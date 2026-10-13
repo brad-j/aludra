@@ -1,19 +1,20 @@
 /* aludra's styles, from design/prototype.html (milestone 2, approved). Tokens match design/tokens.css. */
-@import "@fontsource/fira-sans/latin-400.css";
-@import "@fontsource/fira-sans/latin-500.css";
-@import "@fontsource/fira-sans/latin-600.css";
-@import "@fontsource/fira-sans/latin-400-italic.css";
-@import "@fontsource/fira-code/latin-400.css";
-@import "@fontsource/fira-code/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-sans/latin-400-italic.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
 
-/* Hallmark · redesign 2026-10-12: console chrome around a readable transcript (see "Console" at the end). Fira Sans
- * stays in the transcript; every other surface is Fira Code; square, 1 px rules; violet accent and project colours.
+/* Hallmark · redesign 2026-10-12: console chrome around a readable transcript (see "Console" at the end). IBM Plex
+ * Sans stays in the transcript; every other surface is IBM Plex Mono; square, 1 px rules; violet accent and project colours.
  * pre-emit critique: P5 H4 E4 S5 R4 V4
  */
 /* Hallmark · route: custom (tuned) · redesign toward the owner's references (Pi Mobile screenshots, 2026-10-11)
  * macrostructure: transcript-first app (session is the screen; sessions in a drawer, by machine and directory)
  * theme: custom · vibe: "quiet terminal-adjacent reader, near-black, content first" · paper: oklch(16.5% 0.003 260) · accent: oklch(85% 0.105 215)
- * display: Fira Sans 600 · body: Fira Sans 400 · mono: Fira Code · axes: dark / humanist-sans / neutral
+ * display: IBM Plex Sans 500 · body: IBM Plex Sans 400 · mono: IBM Plex Mono · axes: dark / grotesque-sans / neutral
  * idea: "the transcript is the interface; chrome is a hairline and a few icons" · nav: header icons + drawer · footer: composer
  * studied: references (layout and density only; no copied content) · Hallmark v1.1.0
  * pre-emit critique: P5 H5 E4 S5 R5 V4
@@ -49,8 +50,8 @@
 	--syn-number: oklch(80% 0.12 60);
 	--syn-comment: oklch(63% 0.006 260);
 
-	--font-body: "Fira Sans", Seravek, "Gill Sans Nova", Ubuntu, sans-serif;
-	--font-mono: "Fira Code", "SF Mono", ui-monospace, monospace;
+	--font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+	--font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
 
 	--text-2xs: 0.75rem;
 	--text-xs: 0.8125rem;
@@ -89,7 +90,7 @@
 	--z-drawer: 20;
 	--z-sheet: 30;
 	--drawer-width: min(86vw, 22rem);
-	--measure: 40rem; /* about 70 characters of Fira Sans at 17px */
+	--measure: 40rem; /* about 70 characters of IBM Plex Sans at 17px */
 	color-scheme: dark;
 }
 
@@ -110,7 +111,7 @@ button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
-h1, h2, h3 { margin: 0; font-weight: 600; font-style: normal; }
+h1, h2, h3 { margin: 0; font-weight: 500; font-style: normal; }
 code, pre, .mono { font-family: var(--font-mono); font-variant-ligatures: none; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 svg { flex: none; }
@@ -230,7 +231,7 @@ svg { flex: none; }
 .folded-note[data-state="waiting"] { color: var(--color-wait); }
 .folded-note[data-state="running"] { color: var(--color-accent); }
 /* Project names in their own colour, a size up from the session titles under them. */
-.dir-head .name { font-size: var(--text-lg); font-weight: 600; color: var(--project, var(--color-accent)); white-space: nowrap; }
+.dir-head .name { font-size: var(--text-lg); font-weight: 500; color: var(--project, var(--color-accent)); white-space: nowrap; }
 .dir-head .where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-3); }
 .rows { list-style: none; margin: 0; padding: 0; }
 .session-row {
@@ -588,14 +589,14 @@ a.path { display: block; text-decoration: underline dotted var(--color-rule-2); 
 }
 
 /* ── Console (2026-10-12) ───────────────────────────────────────────────────
- * The amyrlin Mac app's console redesign: chrome in Fira Code, the transcript in Fira Sans, square corners, framed
+ * The amyrlin Mac app's console redesign: chrome in IBM Plex Mono, the transcript in IBM Plex Sans, square corners, framed
  * prompts and boxed tool calls, a tree drawer. A layer over the approved design, so it reads (and reverts) in one place.
  */
 :root { --font-ui: var(--font-mono); }
 
 /* Chrome in mono: header, drawer, sheets, composer, buttons. */
 .head, .drawer, .sheet, .dock, .btn, .chip, .meta, .mode, .notifications, .meter { font-family: var(--font-ui); }
-.head h1 { font-size: var(--text-md); font-weight: 600; }
+.head h1 { font-size: var(--text-md); font-weight: 500; }
 .dock textarea { font-family: var(--font-ui); font-size: var(--text-md); }
 
 /* The drawer as a tree: ▸/▾ beside the project, a guide line down its sessions. */
