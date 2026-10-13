@@ -2,8 +2,9 @@
 // puts HTTPS in front and adds Tailscale-User-Login; only the logins in `users` get in (after gaidin's web view).
 //
 //   GET  /api/bootstrap                   projects, models, thinking levels, defaults
-//   POST /api/sessions                    { project, text, model?, thinking? }        → { id }
-//   POST /api/sessions/:id/messages       { text, mode: "steer" | "followUp" }
+//   POST /api/sessions                    { project, text, images?, model?, thinking? } → { id }
+//   POST /api/sessions/:id/messages       { text, images?, mode: "steer" | "followUp" }
+//   GET  /api/sessions/:id/images/:entry/:message/:block   an image in the transcript (src/images.ts)
 //   POST /api/sessions/:id/stop
 //   POST /api/sessions/:id/title          { title }
 //   POST /api/sessions/:id/agent          { model?, thinking? }
@@ -34,8 +35,9 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { createAmyrlinEndpoint } from "./amyrlin/endpoint.ts";
 import type { Bootstrap, ClientEvent, Item, PushState, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
 import { PACKAGE_DIR, THINKING } from "./config.ts";
+import { IMAGE_TYPES, messageContent, titleOf } from "./images.ts";
 import { context, type Host, type SessionRecord } from "./host.ts";
-import { boolean, integer, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
+import { array, boolean, integer, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
 import type { ApprovalRequest } from "./permissions.ts";
 import type { Push, PushMessage } from "./push.ts";
@@ -74,7 +76,7 @@ function securityHeaders(scriptHashes: readonly string[]) {
 	const scripts = ["'self'", ...scriptHashes.map((h) => `'sha256-${h}'`)].join(" ");
 	return {
 		"Content-Security-Policy":
-			`default-src 'self'; script-src ${scripts}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; ` +
+			`default-src 'self'; script-src ${scripts}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; ` +
 			"worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
 		"X-Frame-Options": "DENY",
 		"X-Content-Type-Options": "nosniff",
@@ -103,18 +105,22 @@ function sameOrigin(request: IncomingMessage, json: boolean): boolean {
 	return origin === undefined || origin === `https://${request.headers.host}` || origin === `http://${request.headers.host}`;
 }
 
-async function readBody(request: IncomingMessage): Promise<string> {
+/** Messages carry images, so their posts may be large; anything else is small. */
+const bodyLimit = (path: string) => (path === "/api/sessions" || /^\/api\/sessions\/\d+\/messages$/.test(path) ? 64 * 1024 * 1024 : 200_000);
+
+async function readBody(request: IncomingMessage, limit: number): Promise<string> {
 	let text = "";
 	for await (const chunk of request) {
 		text += chunk;
-		if (text.length > 200_000) throw new HttpError(413, "Too large");
+		if (text.length > limit) throw new HttpError(413, "Too large");
 	}
 	return text;
 }
 
 const thinking = literal<Thinking>(...THINKING);
-const newSession = object({ project: string, text: string, model: optional(string), thinking: optional(thinking), requestId: optional(string) });
-const message = object({ text: string, mode: literal("steer", "followUp"), requestId: optional(string) });
+const image = object({ mimeType: string, data: string });
+const newSession = object({ project: string, text: string, images: optional(array(image)), model: optional(string), thinking: optional(thinking), requestId: optional(string) });
+const message = object({ text: string, images: optional(array(image)), mode: literal("steer", "followUp"), requestId: optional(string) });
 const agentChange = object({ model: optional(string), thinking: optional(thinking) });
 const withdrawal = object({ submission: integer });
 const newTitle = object({ title: string });
@@ -249,11 +255,13 @@ export function createApi(host: Host, options: ApiOptions) {
 		}
 		if (path === "/api/sessions") {
 			const request = parseJson(body, newSession, "the new session");
-			if (request.text.trim() === "") throw new HttpError(400, "Say what the session should do");
+			if (request.text.trim() === "" && (request.images ?? []).length === 0) throw new HttpError(400, "Say what the session should do");
+			const content = messageContent(request.text, request.images);
 			const agent = { ...(request.model === undefined ? {} : { model: request.model }), ...(request.thinking === undefined ? {} : { thinking: request.thinking }) };
+			const title = titleOf(request.text, request.images);
 			// An empty project is a no-project session, in a scratch directory of its own.
-			const session = request.project === "" ? await host.sessions.createScratch(request.text, agent) : await host.sessions.create(findProject(host.projects(), request.project), request.text, agent);
-			await host.submit(session.id, request.text, request.requestId === undefined ? {} : { requestId: request.requestId });
+			const session = request.project === "" ? await host.sessions.createScratch(title, agent) : await host.sessions.create(findProject(host.projects(), request.project), title, agent);
+			await host.submit(session.id, content, request.requestId === undefined ? {} : { requestId: request.requestId });
 			return { id: session.id };
 		}
 		const approval = /^\/api\/approvals\/([\w-]+)$/.exec(path);
@@ -269,8 +277,8 @@ export function createApi(host: Host, options: ApiOptions) {
 		switch (match[2]) {
 			case "messages": {
 				const request = parseJson(body, message, "the message");
-				if (request.text.trim() === "") throw new HttpError(400, "The message is empty");
-				const submission = await host.submit(id, request.text, { steer: request.mode === "steer", ...(request.requestId === undefined ? {} : { requestId: request.requestId }) });
+				if (request.text.trim() === "" && (request.images ?? []).length === 0) throw new HttpError(400, "The message is empty");
+				const submission = await host.submit(id, messageContent(request.text, request.images), { steer: request.mode === "steer", ...(request.requestId === undefined ? {} : { requestId: request.requestId }) });
 				return { submission: Number(submission.id) };
 			}
 			case "stop":
@@ -329,13 +337,22 @@ export function createApi(host: Host, options: ApiOptions) {
 			const changed = /^\/api\/sessions\/(\d+)\/changes(\/diff)?$/.exec(path);
 			if (changed !== null) return json(response, await changes(Number(changed[1]), changed[2] === undefined ? null : url.searchParams.get("path") ?? ""));
 			if (path === "/api/push") return json(response, await pushState());
+			const picture = /^\/api\/sessions\/(\d+)\/images\/(\d+)\/(\d+)\/(\d+)$/.exec(path);
+			if (picture !== null) {
+				const [id, entry, message, block] = picture.slice(1).map(Number) as [number, number, number, number];
+				if ((await host.sessions.get(id)) === undefined) throw new HttpError(404, `No session ${id}`);
+				const found = await host.image(id, entry, message, block);
+				if (found === undefined || !(IMAGE_TYPES as readonly string[]).includes(found.mimeType)) throw new HttpError(404, "No image there");
+				// Stored images never change, so the app can keep them.
+				return reply(response, 200, Buffer.from(found.data, "base64"), found.mimeType, "private, max-age=31536000, immutable");
+			}
 			if (path.startsWith("/api/")) throw new HttpError(404, "Not found");
 			return serveApp(path, response);
 		}
 		if (request.method !== "POST") throw new HttpError(405, "Method not allowed");
 		// The app's address, which push services are given as aludra's contact: tailscale serve sets the host and is HTTPS.
 		const origin = `https://${request.headers["x-forwarded-host"] ?? request.headers.host}`;
-		return json(response, await post(path, await readBody(request), origin));
+		return json(response, await post(path, await readBody(request, bodyLimit(path)), origin));
 	}
 
 	const server = createServer((request, response) => {
@@ -354,7 +371,8 @@ export function createApi(host: Host, options: ApiOptions) {
 	// The amyrlin Mac app (src/amyrlin/endpoint.ts). A native app sends no Origin, and a browser always does, so a web
 	// page can't open this socket with the user's Tailscale identity.
 	const amyrlin = createAmyrlinEndpoint(host, { name: options.name ?? hostname().split(".")[0]! });
-	const amyrlinSockets = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+	// Messages from the Mac carry images, scaled down there but up to 5 MB each.
+	const amyrlinSockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
 	server.on("upgrade", (request, socket, head) => {
 		const path = new URL(request.url ?? "/", "http://host").pathname;
 		if (path === "/amyrlin") {

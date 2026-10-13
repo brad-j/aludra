@@ -9,7 +9,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { WebSocket } from "ws";
 import { createApi } from "../src/api.ts";
 import { type Json, translateFixture } from "../src/amyrlin/translate.ts";
-import { makeProject, testHost } from "./helpers.ts";
+import { makeProject, PNG, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
 const FIXTURES = join(import.meta.dirname, "fixtures", "amyrlin");
@@ -277,4 +277,20 @@ test("a conversation is renamed from the Mac, and every watcher hears the new ti
 	await other.event(subscription, (e) => e.type === "conversation.updated" && e.conversation.title === "Renamed", "the new title");
 	await assert.rejects(mac.request("conversations.rename", { conversationId: conversation.id, title: "" }), { code: "bad_request" });
 	await assert.rejects(mac.request("conversations.rename", { conversationId: 999, title: "x" }), { code: "not_found" });
+});
+
+test("an image sent from the Mac is in the transcript as a block, and conversation.image gives its bytes", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const { conversation } = await mac.request("conversations.create", { requestId: "img-1", project: project.dir, text: "What's this?", images: [{ mimeType: "image/png", data: PNG }] });
+	assert.equal(conversation.title, "What's this?");
+	const { subscription } = await mac.request("conversation.watch", { conversationId: conversation.id });
+	const seen = await mac.event(subscription, (e) => e.type === "snapshot" || e.type === "item.added", "the transcript");
+	const items = seen.flatMap((e: Json) => (e.type === "snapshot" ? e.items : e.type === "item.added" ? [e.item] : []));
+	const user = items.find((item: Json) => item.type === "user");
+	const index = user.content.findIndex((b: Json) => b.type === "image");
+	assert.deepEqual(user.content[index], { type: "image", mimeType: "image/png" }, "the block says what it is, not its bytes");
+	assert.deepEqual(await mac.request("conversation.image", { conversationId: conversation.id, entryId: user.id, index }), { mimeType: "image/png", data: PNG });
+	await assert.rejects(mac.request("conversation.image", { conversationId: conversation.id, entryId: user.id, index: 0 }), { code: "not_found" });
+	await assert.rejects(mac.request("submit", { conversationId: conversation.id, requestId: "img-2", text: "", images: [{ mimeType: "image/png", data: "nope!" }] }), { code: "bad_request" });
 });

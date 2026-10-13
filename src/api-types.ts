@@ -21,8 +21,11 @@ export type SessionSummary = {
 };
 
 /** One thing in a session's transcript, in order. */
+/** Where an image is in a session; GET /api/sessions/:id/images/:entry/:message/:block has its bytes. */
+export type ImageAt = { entry: number; message: number; block: number; mimeType: string };
+
 export type Item =
-	| { kind: "user"; id: string; text: string; at: number }
+	| { kind: "user"; id: string; text: string; at: number; images?: ImageAt[] }
 	| { kind: "answer"; id: string; text: string; at: number; streaming?: boolean }
 	| {
 		kind: "call";
@@ -35,6 +38,8 @@ export type Item =
 		output?: string;
 		/** How long it took, once done. */
 		ms?: number;
+		/** Images the result returned, such as a screenshot the call read. */
+		images?: ImageAt[];
 	}
 	| {
 		kind: "failure";

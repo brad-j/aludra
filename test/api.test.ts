@@ -11,7 +11,7 @@ import { createApi, inlineScriptHashes } from "../src/api.ts";
 import { context } from "../src/host.ts";
 import type { Idea, Item, ServerEvent, SessionMeta, SessionSummary } from "../src/api-types.ts";
 import { createPush, loadPushKeys } from "../src/push.ts";
-import { decrypt, device, makeProject, tempDir, testHost } from "./helpers.ts";
+import { decrypt, device, makeProject, PNG, tempDir, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
 const PARTNER = "partner@example.com";
@@ -308,4 +308,26 @@ test("a session is renamed over the API: the list and the open session follow, a
 	assert.equal(socket.state.sessions.find((s) => s.id === id)?.title, "The real name", "a later run doesn't put the old title back");
 	assert.equal((await call(`/api/sessions/${id}/title`, { title: "   " })).status, 400);
 	assert.equal((await call("/api/sessions/999/title", { title: "x" })).status, 404);
+});
+
+test("a message with an image: the transcript says where it is, and the app gets its bytes", async (t) => {
+	const { call, base } = await api(t, [fauxAssistantMessage("Nice picture.")]);
+	const socket = await live(t, base);
+	const { id } = await (await call("/api/sessions", { project: "one", text: "", images: [{ mimeType: "image/png", data: PNG }] })).json();
+	socket.follow(id);
+	await socket.until(() => socket.state.items.some((item) => item.kind === "answer"), "the answer");
+	const user = socket.state.items.find((item) => item.kind === "user");
+	assert.ok(user?.kind === "user");
+	assert.equal(user.text, "");
+	assert.equal(user.images?.length, 1);
+	const at = user.images![0]!;
+	assert.equal(socket.state.sessions.find((s) => s.id === id)?.title, "An image");
+
+	const fetched = await call(`/api/sessions/${id}/images/${at.entry}/${at.message}/${at.block}`);
+	assert.equal(fetched.status, 200);
+	assert.equal(fetched.headers.get("content-type"), "image/png");
+	assert.match(fetched.headers.get("cache-control") ?? "", /immutable/);
+	assert.deepEqual(Buffer.from(await fetched.arrayBuffer()), Buffer.from(PNG, "base64"));
+	assert.equal((await call(`/api/sessions/${id}/images/${at.entry}/${at.message}/${at.block + 5}`)).status, 404);
+	assert.equal((await call(`/api/sessions/${id}/messages`, { text: "", images: [{ mimeType: "image/gif", data: PNG }], mode: "followUp" })).status, 400);
 });

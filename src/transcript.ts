@@ -3,6 +3,7 @@
 import type { AssistantMessage, Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ConversationView, InboxState, LiveState } from "@earendil-works/pi-durable";
 import type { Item, SessionState } from "./api-types.ts";
+import { imagesIn } from "./images.ts";
 
 /** Longest string sent for a call's argument or output; output keeps its tail, arguments their head. */
 const MAX_TEXT = 6000;
@@ -30,15 +31,20 @@ export function classifyFailure(message: string): { type: "refused" | "rate-limi
 	return requestId === undefined ? { type } : { type, requestId };
 }
 
+/** A tool's result, and where it's stored, so its images can be found. */
+type Result = { message: ToolResultMessage; entry: number; index: number };
+
 /** The items of one assistant message: text as answers, tool calls as calls, then its failure if it failed. */
-function assistantItems(message: AssistantMessage, key: string, results: Map<string, ToolResultMessage>, streaming: boolean): Item[] {
+function assistantItems(message: AssistantMessage, key: string, results: Map<string, Result>, streaming: boolean): Item[] {
 	const items: Item[] = [];
 	message.content.forEach((block, index) => {
 		if (block.type === "text" && block.text.trim() !== "") {
 			items.push({ kind: "answer", id: `${key}:${index}`, text: block.text, at: message.timestamp, ...(streaming ? { streaming: true } : {}) });
 		} else if (block.type === "toolCall") {
-			const result = results.get(block.id);
+			const stored = results.get(block.id);
+			const result = stored?.message;
 			const output = result === undefined ? undefined : cutTail(textOf(result.content));
+			const images = stored === undefined ? [] : imagesIn(stored.message.content, stored.entry, stored.index);
 			items.push({
 				kind: "call",
 				id: block.id,
@@ -47,6 +53,7 @@ function assistantItems(message: AssistantMessage, key: string, results: Map<str
 				status: result === undefined ? "pending" : result.isError ? "error" : "done",
 				...(output === undefined ? {} : { output }),
 				...(result === undefined ? {} : { ms: (result as ToolResultMessage & { durationMs?: number }).durationMs ?? Math.max(0, result.timestamp - message.timestamp) }),
+				...(images.length === 0 ? {} : { images }),
 			});
 		}
 	});
@@ -60,9 +67,9 @@ function assistantItems(message: AssistantMessage, key: string, results: Map<str
 
 /** The transcript, in order, with running calls and the answer being written overlaid from the live document. */
 export function itemsOf(view: ConversationView): Item[] {
-	const results = new Map<string, ToolResultMessage>();
+	const results = new Map<string, Result>();
 	for (const entry of view.entries) {
-		for (const message of entry.model ?? []) if (message.role === "toolResult") results.set(message.toolCallId, message);
+		for (const [index, message] of (entry.model ?? []).entries()) if (message.role === "toolResult") results.set(message.toolCallId, { message, entry: Number(entry.id), index });
 	}
 	const items: Item[] = [];
 	for (const entry of view.entries) {
@@ -71,7 +78,10 @@ export function itemsOf(view: ConversationView): Item[] {
 			continue;
 		}
 		for (const [index, message] of (entry.model ?? []).entries()) {
-			if (message.role === "user" && entry.kind === "pi.user") items.push({ kind: "user", id: `e${entry.id}:${index}`, text: textOf(message.content), at: message.timestamp });
+			if (message.role === "user" && entry.kind === "pi.user") {
+				const images = imagesIn(message.content, Number(entry.id), index);
+				items.push({ kind: "user", id: `e${entry.id}:${index}`, text: textOf(message.content), at: message.timestamp, ...(images.length === 0 ? {} : { images }) });
+			}
 			else if (message.role === "assistant") items.push(...assistantItems(message, `e${entry.id}:${index}`, results, false));
 		}
 	}

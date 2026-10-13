@@ -95,3 +95,6 @@ export function device() {
 	const auth = randomBytes(16);
 	return { ecdh, auth, p256dh: ecdh.getPublicKey("base64url"), authText: auth.toString("base64url") };
 }
+
+/** A 1×1 PNG, base64. */
+export const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

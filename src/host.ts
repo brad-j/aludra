@@ -4,9 +4,10 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { UserMessage } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { type CompactionPolicy, configure as configureAgent, type ConversationId, createRegistry, defineDoc, Harness, type Extension, type ModelRef, ProviderDoc } from "@earendil-works/pi-durable";
+import { type CompactionPolicy, configure as configureAgent, type ConversationId, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef, ProviderDoc } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
@@ -14,6 +15,7 @@ import type { ModelChoice } from "./api-types.ts";
 import { type Bridge, bridgeProvider, loadBridge, type Notice, PROVIDER } from "./bridge.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
 import { type Config, expandHome, type Thinking } from "./config.ts";
+import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
 import { findProjects, type Project } from "./projects.ts";
@@ -325,11 +327,21 @@ export async function openHost(options: HostOptions) {
 	}
 
 	/** Sends `content` to session `id`. A busy session queues it as a follow-up, or as a steer. */
-	async function submit(id: number, content: string, options: { requestId?: string; steer?: boolean } = {}) {
+	async function submit(id: number, content: UserMessage["content"], options: { requestId?: string; steer?: boolean } = {}) {
 		const target = await conversation(id);
 		// A new message instead of an answer: the waiting call is refused, so the run can take the message.
 		await approvals!.supersede(id);
 		return target.submit({ type: "input", content, whenBusy: options.steer ? "steer" : "followUp", ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }, context);
+	}
+
+	/** The image at block `block` of message `message` in entry `entry` of session `id`, or undefined if there's none. */
+	async function image(id: number, entry: number, message: number, block: number): Promise<ImageInput | undefined> {
+		const read = async (cid: ConversationId, eid: EntryId) => {
+			const found = await harness.conversation(cid, context);
+			return found === undefined ? undefined : (await found.entries({ minEntryId: eid, maxEntryId: eid }, 1, undefined, context)).items[0];
+		};
+		// SAFETY: entry IDs are the numbers Pi Durable gave out, or numbers from the user that are only looked up.
+		return readImage(read, conversationId(id), entry as EntryId, message, block);
 	}
 
 	const colorListeners = new Set<(colors: Record<string, number>) => void>();
@@ -458,6 +470,7 @@ export async function openHost(options: HostOptions) {
 		colors: { list: listColors, set: setColor, onChange: onColors },
 		conversation,
 		submit,
+		image,
 		configure,
 		withdraw,
 		stop,

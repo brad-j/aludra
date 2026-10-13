@@ -13,6 +13,7 @@ import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-d
 import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, type SessionRecord } from "../host.ts";
+import { type ImageInput, messageContent, titleOf } from "../images.ts";
 import type { ApprovalRequest } from "../permissions.ts";
 import { DurableTranslator, entryItem, type Json, text, usageState } from "./translate.ts";
 
@@ -239,11 +240,13 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		const dir = typeof p.project === "string" ? p.project : p.settings?.cwd;
 		const project = dir == null ? undefined : host.projects().find((candidate) => candidate.dir === dir);
 		if (dir != null && project === undefined) throw new ProtocolError("invalid_settings", `${String(dir)} isn't a project aludra knows; host.info lists them`);
-		const first = typeof p.text === "string" && p.text.trim() !== "" ? p.text : undefined;
+		const images = imagesParam(p.images);
+		const text = typeof p.text === "string" ? p.text : "";
+		const first = text.trim() !== "" || images.length > 0 ? content(text, images) : undefined;
 		const agent: { model?: string; thinking?: Thinking } = {};
 		if (p.settings?.model != null) agent.model = modelOf(p.settings.model);
 		if (p.settings?.thinkingLevel != null) agent.thinking = thinkingOf(p.settings.thinkingLevel);
-		const title = first ?? (typeof p.title === "string" && p.title.trim() !== "" ? p.title : "New session");
+		const title = first !== undefined ? titleOf(text, images) : typeof p.title === "string" && p.title.trim() !== "" ? p.title : "New session";
 		const record = project === undefined ? await host.sessions.createScratch(title, agent) : await host.sessions.create(project, title, agent);
 		await host.root.commit(async (tx) => {
 			(await tx.doc(AmyrlinDoc)).created[p.requestId] = record.id;
@@ -256,6 +259,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 
 	async function submit(p: Json): Promise<Json> {
 		if (typeof p.requestId !== "string" || typeof p.text !== "string") throw new ProtocolError("bad_request", "submit needs requestId and text");
+		const message = content(p.text, imagesParam(p.images));
 		const whenBusy = p.whenBusy ?? "followUp";
 		if (!["followUp", "steer", "reject"].includes(whenBusy)) throw new ProtocolError("bad_request", `whenBusy ${whenBusy}`);
 		const { record } = await session(p.conversationId);
@@ -263,7 +267,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		if (whenBusy === "reject" && before === undefined && (await host.sessions.states()).get(record.id) !== "idle") {
 			throw new ProtocolError("busy", "The session is busy");
 		}
-		const submission = await host.submit(record.id, p.text, { requestId: p.requestId, steer: whenBusy === "steer" });
+		const submission = await host.submit(record.id, message, { requestId: p.requestId, steer: whenBusy === "steer" });
 		const status = await submission.status(context);
 		const wire: Json = { id: status.id, type: status.type, status: status.status };
 		if (status.requestId !== undefined) wire.requestId = status.requestId;
@@ -323,6 +327,33 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			cursor = page.next;
 		} while (cursor !== undefined && items.length < limit);
 		return { items: items.reverse(), hasEarlier: more || cursor !== undefined };
+	}
+
+	/** A message's images from the app, `[{mimeType, data}]`. */
+	function imagesParam(value: Json): ImageInput[] {
+		if (value == null) return [];
+		if (!Array.isArray(value) || !value.every((i: Json) => typeof i?.mimeType === "string" && typeof i?.data === "string")) {
+			throw new ProtocolError("bad_request", "images should be a list of {mimeType, data}");
+		}
+		return value.map((i: Json) => ({ mimeType: i.mimeType, data: i.data }));
+	}
+
+	/** A message's content, or bad_request saying what's wrong with it. */
+	function content(text: string, images: ImageInput[]) {
+		try {
+			return messageContent(text, images);
+		} catch (error) {
+			throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	/** An image in a conversation's transcript: block `index` of entry `entryId`'s message (section 4.3 items). */
+	async function image(p: Json): Promise<Json> {
+		const { record } = await session(p.conversationId);
+		if (typeof p.entryId !== "number" || typeof p.index !== "number") throw new ProtocolError("bad_request", "conversation.image takes conversationId, entryId and index");
+		const found = await host.image(record.id, p.entryId, 0, p.index);
+		if (found === undefined) throw new ProtocolError("not_found", `No image at entry ${p.entryId}, block ${p.index}`);
+		return found;
 	}
 
 	async function history(p: Json): Promise<Json> {
@@ -575,6 +606,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 				}
 				case "conversation.history":
 					return history(p);
+				case "conversation.image":
+					return image(p);
 				default:
 					throw new ProtocolError("unknown_method", `Unknown method ${method}`);
 			}
