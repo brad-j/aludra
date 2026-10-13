@@ -143,8 +143,17 @@ export function installService(platform: Platform, spec: ServiceSpec): string[] 
 		writeUnit(file, launchdPlist(spec));
 		lines.push(`wrote ${file}`);
 		const target = `${domain()}/${label(spec.name)}`;
-		if (run("launchctl", ["print", target]).ok) must(run("launchctl", ["bootout", target]), "launchctl bootout");
-		must(run("launchctl", ["bootstrap", domain(), file]), "launchctl bootstrap");
+		if (run("launchctl", ["print", target]).ok) {
+			must(run("launchctl", ["bootout", target]), "launchctl bootout");
+			// bootout returns before launchd has let go of the job; bootstrapping before then fails with error 5.
+			waitUntil(() => !run("launchctl", ["print", target]).ok, 10_000);
+		}
+		let started = run("launchctl", ["bootstrap", domain(), file]);
+		for (let attempt = 1; !started.ok && attempt < 5; attempt++) {
+			sleepSync(1000);
+			started = run("launchctl", ["bootstrap", domain(), file]);
+		}
+		must(started, "launchctl bootstrap");
 		lines.push(`started ${label(spec.name)}; its log is ${logFile(spec.name)}`);
 		return lines;
 	}
@@ -204,6 +213,16 @@ function lstatExists(file: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+function sleepSync(ms: number) {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** Polls `done` every 100 ms until it holds or `timeout` ms pass. */
+function waitUntil(done: () => boolean, timeout: number) {
+	const deadline = Date.now() + timeout;
+	while (!done() && Date.now() < deadline) sleepSync(100);
 }
 
 function must(result: ReturnType<Run>, what: string) {
