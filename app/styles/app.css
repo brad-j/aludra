@@ -6,6 +6,10 @@
 @import "@fontsource/fira-code/latin-400.css";
 @import "@fontsource/fira-code/latin-500.css";
 
+/* Hallmark · redesign 2026-10-12: console chrome around a readable transcript (see "Console" at the end). Fira Sans
+ * stays in the transcript; every other surface is Fira Code; square, 1 px rules; violet accent and project colours.
+ * pre-emit critique: P5 H4 E4 S5 R4 V4
+ */
 /* Hallmark · route: custom (tuned) · redesign toward Brad's references (Pi Mobile screenshots, 2026-10-11)
  * macrostructure: transcript-first app (session is the screen; sessions in a drawer, by machine and directory)
  * theme: custom · vibe: "quiet terminal-adjacent reader, near-black, content first" · paper: oklch(16.5% 0.003 260) · accent: oklch(85% 0.105 215)
@@ -65,10 +69,10 @@
 	--space-xl: 2rem;
 	--space-2xl: 3rem;
 
-	/* 35% less rounding than milestone 2's 5, 8 and 14 px, matching the amyrlin Mac app (2026-10-12). */
-	--radius-sm: 3.25px;
-	--radius-md: 5.2px;
-	--radius-lg: 9.1px;
+	/* Square since the console redesign (2026-10-12), matching the amyrlin Mac app; 5, 8 and 14 px in milestone 2. */
+	--radius-sm: 0px;
+	--radius-md: 0px;
+	--radius-lg: 0px;
 	--radius-pill: 999px;
 	--rule-hair: 1px;
 	--tap: 44px;
@@ -582,3 +586,46 @@ a.path { display: block; text-decoration: underline dotted var(--color-rule-2); 
 	.new-ideas { display: block; flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-lg) var(--space-lg); }
 	.new-ideas .group-label { margin-top: var(--space-sm); }
 }
+
+/* ── Console (2026-10-12) ───────────────────────────────────────────────────
+ * The amyrlin Mac app's console redesign: chrome in Fira Code, the transcript in Fira Sans, square corners, framed
+ * prompts and boxed tool calls, a tree drawer. A layer over the approved design, so it reads (and reverts) in one place.
+ */
+:root { --font-ui: var(--font-mono); }
+
+/* Chrome in mono: header, drawer, sheets, composer, buttons. */
+.head, .drawer, .sheet, .dock, .btn, .chip, .meta, .mode, .notifications, .meter { font-family: var(--font-ui); }
+.head h1 { font-size: var(--text-md); font-weight: 600; }
+.dock textarea { font-family: var(--font-ui); font-size: var(--text-md); }
+
+/* The drawer as a tree: ▸/▾ beside the project, a guide line down its sessions. */
+.dir-head .name { font-size: var(--text-md); }
+.dir-head::before { content: "▾"; color: var(--color-ink-3); font-size: var(--text-xs); }
+.dir[data-folded="true"] .dir-head::before { content: "▸"; }
+.dir-head svg { display: none; }
+.rows { margin-inline-start: calc(var(--space-xs) + 0.2rem); border-inline-start: var(--rule-hair) solid var(--color-rule-2); }
+.session-row { border-radius: 0; }
+.session-row[aria-current="page"] { box-shadow: inset 2px 0 0 var(--project, var(--color-accent)); }
+.session-row .title { font-size: var(--text-sm); }
+
+/* Your message: a framed block with a ❯ prompt and a violet edge, full width. */
+.user {
+	justify-self: stretch; max-width: none; position: relative;
+	padding: var(--space-xs) var(--space-sm) var(--space-xs) calc(var(--space-sm) + 1.25rem);
+	background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule);
+	box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.user::before { content: "❯"; position: absolute; inset-inline-start: var(--space-sm); font-family: var(--font-ui); color: var(--color-accent); }
+
+/* Tool calls and folded rounds in a box, with what they open on darker paper. */
+.calls { padding: var(--space-3xs) var(--space-sm); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule); }
+.calls .block { margin-block: var(--space-2xs) var(--space-xs); background: var(--color-paper); border: var(--rule-hair) solid var(--color-rule); }
+.fold-row .what::before { content: "+ "; color: var(--color-ink-3); }
+
+/* The composer as an input line: a box, violet edge while typing. */
+.dock-row, .dock textarea { background: transparent; }
+.dock > form, .dock > .composer { border: var(--rule-hair) solid var(--color-rule); background: var(--color-paper-2); }
+.dock:focus-within textarea { box-shadow: inset 2px 0 0 var(--color-accent); }
+
+/* Chips square, like everything else; bars stay round. */
+.chip { border-radius: 0; }

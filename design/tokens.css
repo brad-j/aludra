@@ -54,10 +54,10 @@
 	--space-xl: 2rem;
 	--space-2xl: 3rem;
 
-	/* 35% less rounding than milestone 2's 5, 8 and 14 px, matching the amyrlin Mac app (2026-10-12). */
-	--radius-sm: 3.25px;
-	--radius-md: 5.2px;
-	--radius-lg: 9.1px;
+	/* Square since the console redesign (2026-10-12), matching the amyrlin Mac app; 5, 8 and 14 px in milestone 2. */
+	--radius-sm: 0px;
+	--radius-md: 0px;
+	--radius-lg: 0px;
 	--radius-pill: 999px;
 	--rule-hair: 1px;
 	--tap: 44px;
