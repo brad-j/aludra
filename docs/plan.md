@@ -94,6 +94,7 @@ Brought over from the amyrlin Mac app's design pass, so the two read as one prod
 - **Drawer:** a project's label folds its sessions away, remembered per browser; folded, it shows a count, or that a session needs Brad or is working. The open session is highlighted again: the drawer sets `aria-current="page"` and the CSS had looked for `true`.
 - **Project picker:** Recent (projects with sessions, newest first), then each folder largest first, picked from a row of chips; a search ranks name prefixes first and keeps folders. It replaces a ranking that compared names against paths, so recent projects never came first.
 - **Desk:** text 15% larger from 60rem; the phone keeps its sizes. The overflow e2e check passes at every width.
+- **Icon:** the Flame of Tar Valon, amyrlin's mark (`design/logo/amyrlin-mark.svg` there), violet on the app's background, replaces milestone 3's four-point star in `icon.svg` and the three PNGs. A phone keeps the old icon until the PWA is added to the home screen again.
 
 ## The amyrlin Mac app (2026-10-12)
 
