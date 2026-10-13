@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { configFor } from "../src/config.ts";
-import { launchdPlist, type ServiceSpec, systemdUnit } from "../src/service.ts";
+import { launchdPlist, type ServiceSpec, systemdUnit, writeUnit } from "../src/service.ts";
 import { findRepositories, settingsText, suggestRoots } from "../src/setup.ts";
 import { parseStatus, servesPort } from "../src/tailscale.ts";
 import { tempDir } from "./helpers.ts";
@@ -60,4 +60,23 @@ test("Tailscale's status gives this node's name and its owner's login; serve sta
 	assert.equal(servesPort(serve, 8724), true);
 	assert.equal(servesPort(serve, 8725), false);
 	assert.equal(servesPort("{}", 8724), false);
+});
+
+test("a unit linked from a checkout is replaced, not written through, even when the link dangles", (t) => {
+	const dir = tempDir(t);
+	const checkout = join(dir, "deploy.service");
+	const unit = join(dir, "user", "aludra.service");
+	writeFileSync(checkout, "the checkout's own file\n");
+	mkdirSync(join(dir, "user"));
+	symlinkSync(checkout, unit);
+	writeUnit(unit, "new\n");
+	assert.equal(lstatSync(unit).isSymbolicLink(), false);
+	assert.equal(readFileSync(checkout, "utf8"), "the checkout's own file\n");
+
+	rmSync(unit);
+	symlinkSync(checkout, unit);
+	rmSync(checkout);
+	writeUnit(unit, "again\n");
+	assert.equal(existsSync(checkout), false, "a dangling link doesn't bring the checkout's file back");
+	assert.equal(readFileSync(unit, "utf8"), "again\n");
 });

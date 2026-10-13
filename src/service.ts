@@ -3,7 +3,7 @@
 // their commands with the host's environment, and git, pnpm and Claude Code are found through it. Installing again
 // rewrites the unit and restarts the host, so a reinstall after an upgrade or a Node switch picks up the new paths.
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { findExecutable } from "./bridge.ts";
@@ -121,7 +121,7 @@ const run: Run = (command, args) => {
 const domain = () => `gui/${userInfo().uid}`;
 
 export function serviceState(platform: Platform, name = "aludra"): ServiceState {
-	const installed = existsSync(unitFile(platform, name));
+	const installed = lstatExists(unitFile(platform, name));
 	if (platform === "launchd") {
 		const printed = run("launchctl", ["print", `${domain()}/${label(name)}`]);
 		if (!printed.ok) return { installed, running: false, detail: installed ? `${label(name)} is installed but not loaded` : "not installed" };
@@ -137,13 +137,10 @@ export function serviceState(platform: Platform, name = "aludra"): ServiceState 
 /** Writes the unit and (re)starts the host. Returns what happened, a line each. */
 export function installService(platform: Platform, spec: ServiceSpec): string[] {
 	const file = unitFile(platform, spec.name);
-	mkdirSync(dirname(file), { recursive: true });
-	// An older setup linked the unit from a checkout; writing through the link would change the checkout's file.
-	if (existsSync(file) && lstatSync(file).isSymbolicLink()) rmSync(file);
 	const lines: string[] = [];
 	if (platform === "launchd") {
 		mkdirSync(dirname(logFile(spec.name)), { recursive: true });
-		writeFileSync(file, launchdPlist(spec));
+		writeUnit(file, launchdPlist(spec));
 		lines.push(`wrote ${file}`);
 		const target = `${domain()}/${label(spec.name)}`;
 		if (run("launchctl", ["print", target]).ok) must(run("launchctl", ["bootout", target]), "launchctl bootout");
@@ -151,7 +148,7 @@ export function installService(platform: Platform, spec: ServiceSpec): string[] 
 		lines.push(`started ${label(spec.name)}; its log is ${logFile(spec.name)}`);
 		return lines;
 	}
-	writeFileSync(file, systemdUnit(spec));
+	writeUnit(file, systemdUnit(spec));
 	lines.push(`wrote ${file}`);
 	must(run("systemctl", ["--user", "daemon-reload"]), "systemctl --user daemon-reload");
 	must(run("systemctl", ["--user", "enable", `${spec.name}.service`]), "systemctl --user enable");
@@ -169,8 +166,8 @@ export function uninstallService(platform: Platform, name = "aludra"): string[] 
 	} else {
 		run("systemctl", ["--user", "disable", "--now", `${name}.service`]);
 	}
-	if (!existsSync(file) && !lstatExists(file)) return ["no service was installed"];
-	rmSync(file);
+	if (!lstatExists(file)) return ["no service was installed"];
+	unlinkSync(file);
 	if (platform === "systemd") run("systemctl", ["--user", "daemon-reload"]);
 	return [`stopped the host and removed ${file}`];
 }
@@ -184,6 +181,15 @@ export function lingers(): boolean {
 export function installedUnit(platform: Platform, name = "aludra"): string | undefined {
 	const file = unitFile(platform, name);
 	return existsSync(file) ? readFileSync(file, "utf8") : undefined;
+}
+
+/** Writes a unit file. An older setup linked the unit from a checkout, and a pull can leave the link dangling; writing
+ * through it would change or recreate the checkout's file, so a link is replaced by a file. */
+export function writeUnit(file: string, text: string) {
+	mkdirSync(dirname(file), { recursive: true });
+	// unlinkSync, since rmSync leaves a dangling link in place without an error.
+	if (lstatExists(file) && lstatSync(file).isSymbolicLink()) unlinkSync(file);
+	writeFileSync(file, text);
 }
 
 function lstatExists(file: string): boolean {
