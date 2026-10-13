@@ -24,9 +24,12 @@
 	--color-ink: oklch(93% 0.003 260);
 	--color-ink-2: oklch(79% 0.005 260);
 	--color-ink-3: oklch(64% 0.006 260);
-	--color-accent: oklch(85% 0.105 215);
-	--color-accent-ink: oklch(17% 0.03 235);
-	--color-focus: oklch(88% 0.14 215);
+	/* Violet since 2026-10-12, matching the amyrlin Mac app; each project has its own colour (app/lib/projects.ts). */
+	--color-accent: oklch(80% 0.13 300);
+	--color-accent-ink: oklch(17% 0.035 300);
+	--color-focus: oklch(84% 0.14 300);
+	/* The sessions column, a step darker than the transcript: #0a0a0a. */
+	--color-panel: oklch(14.5% 0 0);
 	--color-wait: oklch(84% 0.13 82);
 	--color-wait-ink: oklch(20% 0.04 82);
 	--color-bad: oklch(72% 0.15 22);
@@ -114,7 +117,7 @@ svg { flex: none; }
 	position: fixed; z-index: var(--z-drawer); inset: 0 auto 0 0; width: var(--drawer-width);
 	display: flex; flex-direction: column;
 	padding-top: env(safe-area-inset-top);
-	background: var(--color-paper);
+	background: var(--color-panel);
 	border-inline-end: var(--rule-hair) solid var(--color-rule);
 	transform: translateX(-101%);
 }
@@ -128,6 +131,8 @@ svg { flex: none; }
 .app[data-drawer="open"] .scrim { opacity: 1; pointer-events: auto; }
 .app[data-drawer="open"] .drawer { z-index: calc(var(--z-drawer) + 1); }
 @media (min-width: 60rem) {
+	/* On the desk everything is 15% larger, as in the amyrlin Mac app; the phone keeps its sizes. */
+	html { font-size: 115%; }
 	.app { grid-template-columns: 21rem minmax(0, 1fr); }
 	.drawer { position: static; width: auto; transform: none; transition: none; }
 	.scrim, .menu-btn { display: none !important; }
@@ -206,9 +211,21 @@ svg { flex: none; }
 .dir { padding-top: var(--space-sm); }
 /* A hairline between projects, so each group reads as one block. */
 .dir + .dir { margin-top: var(--space-xs); border-top: var(--rule-hair) solid var(--color-rule); }
-.dir-head { display: flex; align-items: baseline; gap: var(--space-xs); padding: var(--space-2xs) var(--space-xs) var(--space-xs); }
-/* Project names in the accent, a size up from the session titles under them. */
-.dir-head .name { font-size: var(--text-lg); font-weight: 600; color: var(--color-accent); white-space: nowrap; }
+/* A project's label folds its sessions away; folded, it keeps a count, or says a session needs Brad or is working. */
+.dir-head {
+	display: flex; align-items: baseline; gap: var(--space-xs); width: 100%;
+	padding: var(--space-2xs) var(--space-xs) var(--space-xs);
+	border: 0; border-radius: var(--radius-md); background: transparent; text-align: start; font: inherit; color: inherit; cursor: pointer;
+}
+.dir-head:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+.dir-head svg { flex: none; align-self: center; width: 1rem; height: 1rem; margin-inline-start: auto; color: var(--color-ink-3); transition: transform var(--dur-short) var(--ease-in-out); }
+.dir[data-folded="true"] .dir-head svg { transform: rotate(-90deg); }
+.dir[data-folded="true"] { padding-bottom: var(--space-2xs); }
+.folded-note { flex: none; font-size: var(--text-2xs); color: var(--color-ink-3); font-variant-numeric: tabular-nums; }
+.folded-note[data-state="waiting"] { color: var(--color-wait); }
+.folded-note[data-state="running"] { color: var(--color-accent); }
+/* Project names in their own colour, a size up from the session titles under them. */
+.dir-head .name { font-size: var(--text-lg); font-weight: 600; color: var(--project, var(--color-accent)); white-space: nowrap; }
 .dir-head .where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-3); }
 .rows { list-style: none; margin: 0; padding: 0; }
 .session-row {
@@ -220,7 +237,7 @@ svg { flex: none; }
 .session-row .mark { margin-top: var(--space-3xs); }
 @media (hover: hover) and (pointer: fine) { .session-row:hover { background: var(--color-paper-2); } }
 .session-row:active { background: var(--color-paper-2); }
-.session-row[aria-current="true"] { background: var(--color-paper-3); }
+.session-row[aria-current="page"] { background: var(--project-wash, var(--color-paper-3)); }
 .session-row .title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); }
 .session-row .line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--color-ink-3); }
 .session-row[data-state="waiting"] .line { color: var(--color-wait); }
@@ -448,6 +465,21 @@ svg { flex: none; }
 .pick[aria-checked="true"]::after { content: "\2713"; font-weight: 600; }
 .pick .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick .sub { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-3); white-space: nowrap; }
+/* The project picker: a row of group chips, then the group's projects, each with its colour. */
+.chips { display: flex; gap: var(--space-2xs); margin-top: var(--space-xs); overflow-x: auto; scrollbar-width: none; }
+.chip {
+	flex: none; display: inline-flex; align-items: baseline; gap: var(--space-2xs);
+	min-height: 2.25rem; padding: 0 var(--space-sm);
+	border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-pill); background: transparent;
+	font-size: var(--text-sm); color: var(--color-ink-2); white-space: nowrap;
+}
+.chip .count { font-size: var(--text-2xs); color: var(--color-ink-3); font-variant-numeric: tabular-nums; }
+.chip[aria-selected="true"] { background: var(--color-paper-3); border-color: var(--color-paper-3); color: var(--color-ink); }
+@media (hover: hover) and (pointer: fine) { .chip:hover { border-color: var(--color-ink-3); } }
+.sheet .list .rows { margin: 0; padding: 0; list-style: none; }
+.sheet .list .group-label { margin: var(--space-sm) var(--space-xs) var(--space-2xs); }
+.project-pick .swatch { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--project); }
+.project-pick[aria-checked="true"] { color: var(--color-ink); background: var(--project-wash); }
 .pick.danger { color: var(--color-bad); }
 .group-label { margin: var(--space-md) 0 var(--space-xs); font-size: var(--text-xs); color: var(--color-ink-3); font-weight: 500; }
 .seg { display: inline-flex; padding: var(--space-3xs); border-radius: var(--radius-md); background: var(--color-paper); border: var(--rule-hair) solid var(--color-rule); }

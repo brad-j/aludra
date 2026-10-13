@@ -35,7 +35,6 @@ export function NewSession() {
 		ui.sheet("Project", (close) => (
 			<ProjectPicker
 				current={chosen?.path ?? ""}
-				recent={recent}
 				onPick={(path) => {
 					setProject(path);
 					localStorage.setItem(LAST_PROJECT, path);

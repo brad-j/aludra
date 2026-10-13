@@ -1,8 +1,9 @@
 // What sheets hold: the model and thinking picker, and the project picker.
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import type { ModelChoice, Thinking } from "../../src/api-types.ts";
-import { shortPath } from "../lib/format.ts";
+import { age } from "../lib/format.ts";
 import { useLive } from "../lib/live.ts";
+import { projectColor, projectGroups, projectWash, searchProjects } from "../lib/projects.ts";
 
 export function ModelPicker({ model, thinking, onChange }: { model: string; thinking: Thinking; onChange: (change: { model?: string; thinking?: Thinking }) => void }) {
 	const bootstrap = useLive((s) => s.bootstrap);
@@ -34,25 +35,48 @@ export function ModelPicker({ model, thinking, onChange }: { model: string; thin
 	);
 }
 
-export function ProjectPicker({ current, recent, onPick }: { current: string; recent: readonly string[]; onPick: (project: string) => void }) {
+/**
+ * Projects in groups: Recent (projects with sessions, newest first), then each folder, largest first, picked from a row
+ * of chips. Typing searches every folder, name prefixes first, grouped by folder. The amyrlin Mac app's picker follows
+ * the same rules (app/lib/projects.ts).
+ */
+export function ProjectPicker({ current, onPick }: { current: string; onPick: (project: string) => void }) {
 	const projects = useLive((s) => s.bootstrap?.projects ?? []);
+	const sessions = useLive((s) => s.sessions ?? []);
 	const [query, setQuery] = useState("");
-	const q = query.trim().toLowerCase();
-	const rank = (name: string) => (recent.includes(name) ? recent.indexOf(name) : recent.length);
-	const matches = projects.filter((p) => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)).sort((a, b) => rank(a.name) - rank(b.name));
+	const groups = projectGroups(projects, sessions);
+	const [groupId, setGroupId] = useState<string | undefined>(undefined);
+	const searching = query.trim() !== "";
+	const active = groupId ?? groups[0]?.id;
+	const shown = searching ? searchProjects(query, projects, sessions) : groups.filter((g) => g.id === active);
 	return (
 		<>
 			<input className="search" type="search" placeholder="Find a project" aria-label="Find a project" autoComplete="off" value={query} onChange={(event) => setQuery(event.target.value)} />
+			<div className="chips" role="tablist" aria-label="Project groups">
+				{groups.map((g) => (
+					<button key={g.id} type="button" role="tab" className="chip" aria-selected={!searching && g.id === active} onClick={() => { setQuery(""); setGroupId(g.id); }}>
+						{g.title} <span className="count">{g.entries.length}</span>
+					</button>
+				))}
+			</div>
 			<ul className="list">
-				{matches.map((project) => (
-					<li key={project.dir}>
-						<button className="pick" role="radio" aria-checked={project.path === current || project.name === current} onClick={() => onPick(project.path)}>
-							<span className="grow">{project.name}</span>
-							<span className="sub">{shortPath(project.dir)}</span>
-						</button>
+				{shown.map((group) => (
+					<li key={group.id}>
+						{searching && <p className="group-label">{group.title}</p>}
+						<ul className="rows">
+							{group.entries.map(({ project, sessions: count, lastActive }) => (
+								<li key={project.dir}>
+									<button className="pick project-pick" role="radio" aria-checked={project.path === current || project.name === current} style={{ "--project": projectColor(project.name), "--project-wash": projectWash(project.name) } as CSSProperties} onClick={() => onPick(project.path)}>
+										<span className="swatch" aria-hidden="true" />
+										<span className="grow">{project.name}</span>
+										<span className="sub">{count === 0 ? project.path : `${count} session${count === 1 ? "" : "s"}${lastActive === undefined ? "" : ` · ${age(lastActive)}`}`}</span>
+									</button>
+								</li>
+							))}
+						</ul>
 					</li>
 				))}
-				{matches.length === 0 && <li className="empty">No project matches “{query}”.</li>}
+				{shown.length === 0 && <li className="empty">{searching ? `No project matches “${query}”.` : "No projects."}</li>}
 			</ul>
 		</>
 	);

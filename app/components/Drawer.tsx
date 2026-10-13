@@ -1,14 +1,31 @@
 // Sessions and ideas by machine and project, the project that most needs Brad first, and this device's notifications at
 // the foot. A drawer on phones, a column on the desk.
 import { Link, useParams } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import type { Idea, SessionSummary } from "../../src/api-types.ts";
 import { age, shortPath, URGENCY } from "../lib/format.ts";
+import { projectColor, projectWash } from "../lib/projects.ts";
 import { useLive } from "../lib/live.ts";
 import { type PushHere, pushHere, sendTest, turnOff, turnOn } from "../lib/push.ts";
 import { Icon, Mark } from "./icons.tsx";
 import { IdeaRow } from "./Ideas.tsx";
 import { useTick, useUi } from "./Shell.tsx";
+
+const FOLDED = "aludra.folded";
+
+/** Projects folded in the drawer, by directory, kept in this browser. */
+function useFolded(): [Set<string>, (dir: string) => void] {
+	const [folded, setFolded] = useState<Set<string>>(() => new Set(typeof localStorage === "undefined" ? [] : JSON.parse(localStorage.getItem(FOLDED) ?? "[]")));
+	const toggle = (dir: string) =>
+		setFolded((old) => {
+			const next = new Set(old);
+			if (next.has(dir)) next.delete(dir);
+			else next.add(dir);
+			localStorage.setItem(FOLDED, JSON.stringify([...next]));
+			return next;
+		});
+	return [folded, toggle];
+}
 
 export function Drawer() {
 	const sessions = useLive((s) => s.sessions);
@@ -19,6 +36,7 @@ export function Drawer() {
 	const params = useParams({ strict: false });
 	const current = params.id === undefined ? undefined : Number(params.id);
 	const now = useTick();
+	const [folded, toggleFolded] = useFolded();
 
 	type Group = { project: string; dir: string; sessions: SessionSummary[]; ideas: Idea[] };
 	const groups = new Map<string, Group>();
@@ -44,14 +62,20 @@ export function Drawer() {
 					{machine ?? "…"} · {connection === "open" ? "local" : connection === "connecting" ? "connecting" : "reconnecting"}
 				</div>
 				{sessions !== undefined && ordered.length === 0 && <p className="empty">No sessions yet. Start one with +.</p>}
-				{ordered.map(({ project, dir, sessions: list, ideas: projectIdeas }) => (
-					<section className="dir" key={dir}>
-						<div className="dir-head">
+				{ordered.map(({ project, dir, sessions: list, ideas: projectIdeas }) => {
+					const isFolded = folded.has(dir);
+					// A folded project still says when one of its sessions needs Brad or is working.
+					const note = list.some((s) => s.state === "waiting") ? "needs you" : list.some((s) => s.state === "running") ? "working" : String(list.length + projectIdeas.length);
+					return (
+					<section className="dir" key={dir} data-folded={isFolded} style={{ "--project": projectColor(project), "--project-wash": projectWash(project) } as CSSProperties}>
+						<button type="button" className="dir-head" aria-expanded={!isFolded} onClick={() => toggleFolded(dir)}>
 							<span className="name">{project}</span>
 							<span className="where">{shortPath(dir)}</span>
 							<span className="group">{dir.split("/").at(-2)}</span>
-						</div>
-						<ul className="rows">
+							{isFolded && <span className="folded-note" data-state={note === "needs you" ? "waiting" : note === "working" ? "running" : undefined}>{note}</span>}
+							<Icon.chevron />
+						</button>
+						{!isFolded && <ul className="rows">
 							{list
 								.sort((a, b) => URGENCY[a.state] - URGENCY[b.state] || b.updatedAt - a.updatedAt)
 								.map((session) => (
@@ -74,9 +98,10 @@ export function Drawer() {
 									</li>
 								))}
 							{projectIdeas.map((idea) => <IdeaRow key={`idea-${idea.id}`} idea={idea} />)}
-						</ul>
+						</ul>}
 					</section>
-				))}
+					);
+				})}
 			</div>
 			<div className="drawer-foot"><Notifications /></div>
 		</aside>
