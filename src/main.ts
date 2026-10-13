@@ -95,9 +95,10 @@ switch (command) {
 			} else if (action === "uninstall") {
 				console.log(uninstallService(platform).join("\n"));
 			} else if (action === "status") {
+				// 0 running, 1 installed but not running, 3 not installed.
 				const state = serviceState(platform);
 				console.log(state.detail);
-				process.exit(state.running ? 0 : 1);
+				process.exit(state.running ? 0 : state.installed ? 1 : 3);
 			} else {
 				fail("usage: aludra service install | uninstall | status");
 			}
