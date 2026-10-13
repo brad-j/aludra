@@ -72,6 +72,15 @@ Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gai
 - **Classifier false positive.** One recovery request was refused by Opus 5.5's safeguards as `[cyber]`. The test read a file named `secret.txt` and the note said "The agent process restarted". With `notes.txt` and "(Continuing where we left off.)" it passed. These refusals can happen in real use; the app must show them plainly as their own failure, with the request ID.
 - `CLAUDE_BRIDGE_DEBUG=1` with `CLAUDE_BRIDGE_DEBUG_PATH` gives a detailed log of the bridge's session handling.
 
+## No-project sessions (2026-10-12)
+
+After T3 Code's "no project" threads: a session that isn't about one repository. Its working directory is a scratch directory of its own, `scratch/<id>` in the data directory, set in the commit that creates the conversation (the ID names it); it reads anything else by absolute path, and the protected-path gate and approvals still apply. A `no_project` prompt section (`src/context.ts`) says so and lists where things are on egwene: each workspace's directory, terminal pi's and Claude Code's session histories, and aludra's own database, the ones that exist. It has no changes view and can't hold ideas. The record is `project: "no project"`, `scratch: true`.
+
+- **Web:** "No project" heads the picker; `POST /api/sessions` takes an empty project for it. The drawer groups them under "no project", grey.
+- **Mac (`/amyrlin`):** `conversations.create` without a project makes one; its summary has no `project`.
+- **Tests:** the web API and the endpoint (pwd runs in the scratch directory; the prompt says it has no project), and an e2e from the picker at both sizes.
+- Not done: reading other machines' histories (would need SSH to the homelab hosts, which waits for approval).
+
 ## Console redesign (2026-10-12)
 
 With the amyrlin Mac app: chrome in Fira Code (header, drawer, sheets, composer, buttons), the transcript still in Fira Sans, square corners, a tree drawer (▾ project, a guide line down its sessions), your messages as framed blocks with a ❯ and a violet edge, tool calls and folded rounds in boxes, the composer as a box. It's one layer at the end of `app/styles/app.css` ("Console"), so it reads and reverts in one place; the radius tokens are 0. The Mac app also has a tmux-style status line; here the composer's model line carries the same facts. The overflow e2e check passes at every width.
