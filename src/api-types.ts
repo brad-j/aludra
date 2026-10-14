@@ -18,6 +18,8 @@ export type SessionSummary = {
 	state: SessionState;
 	/** The latest activity, in a line: the running command, the answer's first line, or the failure. */
 	line: string;
+	/** Dollars spent on providers that bill each request, if any of its answers came from one. */
+	cost?: number;
 };
 
 /** One thing in a session's transcript, in order. */
@@ -66,7 +68,8 @@ export type SessionMeta = {
 	retry?: { at: number; error: string };
 };
 
-export type ModelChoice = { provider: string; id: string; name: string };
+/** A model to pick. `price` is dollars per million input and output tokens, for providers that bill each request. */
+export type ModelChoice = { provider: string; id: string; name: string; price?: { input: number; output: number } };
 
 /** One file a session changed, against the project as it was when the session started. */
 export type ChangedFile = { path: string; old?: string; add: number; del: number; binary: boolean; status: "added" | "deleted" | "modified" | "renamed" };
@@ -84,7 +87,10 @@ export type Bootstrap = {
 	user: string;
 	machine: string;
 	projects: { workspace: string; name: string; path: string; dir: string }[];
+	/** The pinned models, from the settings. */
 	models: ModelChoice[];
+	/** Every model a session can run on, pinned or not, by provider. */
+	catalog: ModelChoice[];
 	thinking: Thinking[];
 	defaults: { model: ModelChoice; thinking: Thinking };
 };

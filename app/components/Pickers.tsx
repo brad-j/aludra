@@ -1,27 +1,48 @@
 // What sheets hold: the model and thinking picker, and the project picker.
 import { type CSSProperties, useState } from "react";
 import type { ModelChoice, Thinking } from "../../src/api-types.ts";
-import { age } from "../lib/format.ts";
+import { age, modelKey, perMillion } from "../lib/format.ts";
 import { useLive } from "../lib/live.ts";
 import { NO_PROJECT, NO_PROJECT_PATH, projectColor, projectGroups, projectWash, searchProjects } from "../lib/projects.ts";
 
+/** Who runs each provider's models, and how they're paid for. */
+const PROVIDERS: Record<string, string> = { "claude-bridge": "Claude Code · your plan", openai: "OpenAI · your ChatGPT plan", openrouter: "OpenRouter · billed per request", faux: "Faux" };
+
+/**
+ * The pinned models (the settings' `model.choices`) and the session's own, then the thinking level. Typing searches
+ * every model a provider this machine is signed in to has, grouped by provider, with prices where requests are billed.
+ * `model` and the changes are `provider/id` (format.ts modelKey).
+ */
 export function ModelPicker({ model, thinking, onChange }: { model: string; thinking: Thinking; onChange: (change: { model?: string; thinking?: Thinking }) => void }) {
 	const bootstrap = useLive((s) => s.bootstrap);
 	const [chosen, setChosen] = useState({ model, thinking });
+	const [query, setQuery] = useState("");
 	const pick = (change: { model?: string; thinking?: Thinking }) => {
 		setChosen({ ...chosen, ...change });
 		onChange(change);
 	};
+	const pinned = bootstrap?.models ?? [];
+	const catalog = bootstrap?.catalog ?? pinned;
+	const current = pinned.some((m) => modelKey(m) === chosen.model) ? undefined : catalog.find((m) => modelKey(m) === chosen.model);
+	const top = current === undefined ? pinned : [...pinned, current];
+	const words = query.toLowerCase().split(/\s+/).filter((w) => w !== "");
+	const found = words.length === 0 ? [] : catalog.filter((m) => words.every((w) => `${m.name} ${m.id} ${m.provider}`.toLowerCase().includes(w)));
+	const groups = [...new Set(found.map((m) => m.provider))].map((provider) => ({ provider, models: found.filter((m) => m.provider === provider).slice(0, 40) }));
+	const row = (choice: ModelChoice) => (
+		<li key={modelKey(choice)}>
+			<button className="pick" role="radio" aria-checked={modelKey(choice) === chosen.model} onClick={() => pick({ model: modelKey(choice) })}>
+				<span className="grow">{choice.name}</span>
+				{choice.price !== undefined && <span className="sub">{perMillion(choice.price.input)} · {perMillion(choice.price.output)} /M</span>}
+			</button>
+		</li>
+	);
 	return (
 		<>
+			{catalog.length > top.length && <input className="search" type="search" placeholder={`Search ${catalog.length} models`} aria-label="Search models" autoComplete="off" value={query} onChange={(event) => setQuery(event.target.value)} />}
 			<ul className="list" role="radiogroup" aria-label="Model">
-				{(bootstrap?.models ?? []).map((choice: ModelChoice) => (
-					<li key={choice.id}>
-						<button className="pick" role="radio" aria-checked={choice.id === chosen.model} onClick={() => pick({ model: choice.id })}>
-							<span className="grow">{choice.name}</span>
-						</button>
-					</li>
-				))}
+				{words.length === 0 && top.map(row)}
+				{groups.map((group) => [<li key={group.provider} className="group-label" role="presentation">{PROVIDERS[group.provider] ?? group.provider}</li>, ...group.models.map(row)])}
+				{words.length > 0 && found.length === 0 && <li className="empty">No model matches “{query}”.</li>}
 			</ul>
 			<p className="group-label">Thinking</p>
 			<div className="seg" role="group" aria-label="Thinking">

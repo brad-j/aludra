@@ -58,8 +58,8 @@ An old single `api.user` is an error rather than being ignored, since ignoring i
 
 - `id`: the default model for new sessions. Default `claude-opus-5-5`.
 - `thinking`: the default thinking level: `off`, `minimal`, `low`, `medium`, `high` or `xhigh`. Default `high`.
-- `choices`: the models the apps offer in the model picker. Default Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1. The default `id` is added if it isn't listed. A choice its provider doesn't have is left out of the picker. Two choices can't share an ID, even from different providers.
-- `provider`: the provider of a model written without one. `claude-bridge` (the default), `openai` or `faux`. You won't normally set this; see `ALUDRA_MODEL` below for `faux`.
+- `choices`: the models pinned at the top of the apps' model picker. Default Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1. The default `id` is added if it isn't listed. A choice its provider doesn't have is left out. Two choices can't share an ID, even from different providers.
+- `provider`: the provider of a model written without one. `claude-bridge` (the default), `openai`, `openrouter` or `faux`. You won't normally set this; see `ALUDRA_MODEL` below for `faux`.
 
 A model is `provider/id`, or a bare ID of `provider`:
 
@@ -67,8 +67,11 @@ A model is `provider/id`, or a bare ID of `provider`:
 | --- | --- | --- |
 | `claude-bridge` | Claude, through the Claude Code you installed: `claude-opus-5-5` | `claude auth login` |
 | `openai` | OpenAI's, on your ChatGPT plan: `openai/gpt-6.1-sol` | `aludra login openai` |
+| `openrouter` | Hundreds of models from many makers, billed per request: `openrouter/anthropic/claude-sonnet-5.5`, `openrouter/~google/gemini-pro-latest` | `aludra login openrouter` |
 
-Claude Code is only needed when a choice is a Claude model. After `aludra login openai`, the command lists the models your ChatGPT account offers, already written as choices. The sign-in reaches a running host from its next request; a change to `choices` needs a restart, like any other setting.
+Pinning is only for convenience. The picker also searches every model of every provider this machine is signed in to: Claude Code's, the ones your ChatGPT account offers, and OpenRouter's whole catalog with prices. Any of them can run a session. Claude Code is only needed when a choice is a Claude model. A sign-in reaches a running host from the next time a picker opens; a change to `choices` needs a restart, like any other setting.
+
+OpenRouter bills each request. aludra adds up what each session's answers cost and shows it beside the session's context use, in the apps and the terminal, and `aludra sessions` shows the month's total. Answers on Claude Code and ChatGPT cost nothing here; they're on your plans. For a cap, set a credit limit on the key at OpenRouter.
 
 Each session keeps its own model and thinking level, which you can change from the apps at any time. The change applies to the session's next request.
 
@@ -114,7 +117,7 @@ Where the database, keys and scratch directories go. Default `~/Library/Applicat
 | `aludra.sqlite` | Every session, idea, approval and setting the apps change: one Pi Durable database. `-wal` and `-shm` sit beside it while the host runs. |
 | `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |
 | `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
-| `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, and its refreshed tokens. Owner-only. |
+| `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, with its refreshed tokens, and the key `aludra login openrouter` gets. Owner-only. |
 | `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |
 | `bridge/` | The bridge's own settings (`claude-bridge.json`, with `claude.path`) and a small module that points the bridge there instead of at pi's own settings. |
 | `scratch/<id>/` | The working directory of each no-project session. |

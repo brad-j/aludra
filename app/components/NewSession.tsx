@@ -2,7 +2,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Thinking } from "../../src/api-types.ts";
-import { shortPath } from "../lib/format.ts";
+import { modelKey, shortPath } from "../lib/format.ts";
 import { NO_PROJECT_PATH } from "../lib/projects.ts";
 import { actions, useLive } from "../lib/live.ts";
 import { Composer } from "./Composer.tsx";
@@ -29,9 +29,9 @@ export function NewSession() {
 	// The empty path is "no project": a session in a scratch directory of its own.
 	const noProject = project === NO_PROJECT_PATH;
 	const chosen = noProject ? undefined : projects.find((p) => p.path === project) ?? projects.find((p) => p.path === recent[0]) ?? projects[0];
-	const model = agent.model ?? bootstrap?.defaults.model.id ?? "";
+	const model = agent.model ?? (bootstrap === undefined ? "" : modelKey(bootstrap.defaults.model));
 	const thinking = agent.thinking ?? bootstrap?.defaults.thinking ?? "high";
-	const modelName = bootstrap?.models.find((m) => m.id === model)?.name ?? model;
+	const modelName = [...(bootstrap?.models ?? []), ...(bootstrap?.catalog ?? [])].find((m) => modelKey(m) === model)?.name ?? model;
 	const projectIdeas = noProject ? [] : ideas.filter((i) => i.dir === chosen?.dir);
 
 	const pickProject = () =>

@@ -4,7 +4,7 @@ import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "re
 import { useChanges } from "../lib/changes.ts";
 import type { ImageAt, Item, SessionMeta } from "../../src/api-types.ts";
 import { imageSrc } from "../lib/images.ts";
-import { type Call, callLabel, duration, shortPath, STATE_LABEL, summarize, tokens } from "../lib/format.ts";
+import { type Call, callLabel, duration, modelKey, money, shortPath, STATE_LABEL, summarize, tokens } from "../lib/format.ts";
 import { actions, follow, useLive } from "../lib/live.ts";
 import { Composer } from "./Composer.tsx";
 import { Icon, Mark } from "./icons.tsx";
@@ -104,7 +104,7 @@ export function SessionView({ id }: { id: number }) {
 
 	function chooseModel() {
 		if (meta === undefined) return;
-		ui.sheet("Model", () => <ModelPicker model={meta.model.id} thinking={meta.thinking} onChange={(change) => void actions.configure(id, change)} />);
+		ui.sheet("Model", () => <ModelPicker model={modelKey(meta.model)} thinking={meta.thinking} onChange={(change) => void actions.configure(id, change)} />);
 	}
 
 	return (
@@ -178,7 +178,7 @@ function SessionComposer({ id, meta, running, onMore, onModel }: { id: number; m
 			<span className="grow" />
 			{meta !== undefined && (
 				<button className="meta" type="button" onClick={onModel}>
-					{meta.model.name} · {meta.thinking} · {tokens(meta.context.used)}
+					{meta.model.name} · {meta.thinking} · {tokens(meta.context.used)}{meta.summary.cost === undefined ? "" : ` · ${money(meta.summary.cost)}`}
 				</button>
 			)}
 			{running && <button className="icon-btn stop" type="button" aria-label="Stop the run" onClick={() => void actions.stop(id)}><Icon.stop /></button>}

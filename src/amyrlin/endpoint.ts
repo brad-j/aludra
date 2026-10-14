@@ -220,12 +220,13 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		return value as Thinking;
 	}
 
+	/** A model the Mac named, as host.choose takes it: any model a provider has, pinned or not. */
 	function modelOf(value: Json): string {
 		const id = value?.modelId;
-		if (typeof id !== "string" || !host.choices().some((c) => c.id === id && c.provider === value.provider)) {
+		if (typeof id !== "string" || typeof value.provider !== "string" || !host.hasModel(value.provider, id)) {
 			throw new ProtocolError("invalid_settings", `${value?.provider}/${id} isn't one of the models aludra offers`);
 		}
-		return id;
+		return `${value.provider}/${id}`;
 	}
 
 	async function create(p: Json): Promise<Json> {

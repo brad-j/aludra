@@ -107,6 +107,25 @@ Brad wanted aludra to look good in a terminal too, without it becoming a second 
 - **`aludra` with no command** opens a read-only terminal UI on pi-tui: the session tree on the left, the selected session's transcript on the right following its output, and its state, model and context at the foot. It's a client of the same live feed as the web app (`src/live.ts`, split out of `src/api.ts`), over a `live` request that keeps the CLI's socket open. Arrow keys pick a session; PgUp, PgDn and the wheel scroll; it reconnects when the host restarts. An older host is told apart from a stopped one and the UI says to update it.
 - **Not yet:** typing in it (follow-ups, steer, stop, approvals), new sessions, ideas and the changes view. Those were phases 3 and 4 of the plan Brad was offered; he chose read-only for now.
 
+## Session titles (2026-10-13)
+
+Titles were the first line of the first message cut at 80 characters, which says little when a message opens with "A couple of things…". Now a model writes one, as Claude Code and ChatGPT do.
+
+- **When:** once, when a session's first message is submitted, in the background; the first line shows until then. Every session, short prompts too (Brad's call).
+- **Which model:** Claude Haiku 5.5 through the bridge if it's loaded, else the cheapest OpenAI model in `model.choices`, else the default model; each tried in turn. A one-off request (`cacheRetention: "none"`) runs in its own Claude Code process with no tools, so no session is touched. Live through the bridge: about a second each, on the subscription.
+- **Renames win:** `titled` on the session record says whether a model or the user wrote it; a model's title never replaces a user's, even one that arrives after the rename.
+- **Older sessions:** `aludra retitle` names those still showing their first line, skipping ones renamed before `titled` existed (their title isn't the first line). Brad asked for it to be run once over egwene's sessions.
+- Rejected: the agent titling itself through a tool (a turn on the big model, and it may not), smarter truncation, and retitling as a session goes on.
+
+## Any model, and OpenRouter (2026-10-13)
+
+Brad asked for OpenRouter, signed in through the browser, and asked why models had to be listed in the settings to be picked. They don't any more.
+
+- **Any model:** the pickers list `model.choices` as pins, then search every model of every provider the machine is signed in to (`src/catalog.ts`): the bridge's, the ones the ChatGPT account offers, and OpenRouter's catalog (about 400 chat models) with prices per million tokens. The API and amyrlin take `provider/id` for any of them; a pinned ID still works alone. amyrlin's own picker still shows the pins only.
+- **OpenRouter:** pi-ai's provider and its OAuth flow, which mints an API key for aludra; `aludra login openrouter`, kept in `credentials.json`. OpenAI and OpenRouter are always loaded now (nothing happens until they're signed in); the bridge still only when a Claude model is pinned.
+- **Spend:** this reverses "No spend tracking" for billed providers only. A session's summary carries `cost`, the sum of pi-ai's priced answers from OpenRouter; the web app's model line, the terminal UI and `aludra sessions` show it, and `aludra sessions` adds the calendar month's total. Caps stay on OpenRouter's side (a credit limit on the key). Claude through OpenRouter is at Anthropic's API prices, so it's mainly for models the plans don't have.
+- **Not checked live:** no OpenRouter account was signed in during the work; the catalog, picking and cost counting are tested with a stored key and recorded answers.
+
 ## Spike findings (2026-10-11)
 
 Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gaidin's `node_modules` symlinked in, so their paths need adjusting to run again.

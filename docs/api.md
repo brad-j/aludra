@@ -16,12 +16,12 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 
 | Method and path | Body | Answer |
 | --- | --- | --- |
-| `GET /api/bootstrap` | | `Bootstrap`: the login, machine name, projects, model choices, thinking levels and defaults. |
+| `GET /api/bootstrap` | | `Bootstrap`: the login, machine name, projects, the pinned models, every model the signed-in providers have (`catalog`, with prices where billed), thinking levels and defaults. |
 | `POST /api/sessions` | `{ project, text, images?, model?, thinking?, requestId? }` | `{ id }`. An empty `project` makes a no-project session. Needs text or images. |
 | `POST /api/sessions/:id/messages` | `{ text, images?, mode: "steer" \| "followUp", requestId? }` | `{ submission }`, for withdrawing it. |
 | `POST /api/sessions/:id/stop` | `{}` | `{}` |
 | `POST /api/sessions/:id/title` | `{ title }` | `{ title }`, whitespace folded, 1 to 200 characters. |
-| `POST /api/sessions/:id/agent` | `{ model?, thinking? }` | `{}`. Applies from the next request. |
+| `POST /api/sessions/:id/agent` | `{ model?, thinking? }` | `{}`. Applies from the next request. `model` is a pinned model's ID or `provider/id` for any model, here and when starting a session. |
 | `POST /api/sessions/:id/withdraw` | `{ submission }` | `{ result }`: `aborted`, `already_placed`, `settled` or `not_found`. |
 | `GET /api/sessions/:id/changes` | | `Changes`: totals and files, or `{ available: false, reason }`. |
 | `GET /api/sessions/:id/changes/diff?path=FILE` | | `{ path, patch }`, for a file in the changes only. |
@@ -98,8 +98,10 @@ Client to server, one of:
 { "type": "decide", "id": "3f9a1c", "allow": true }
 ```
 
+`{ "type": "retitle" }` writes titles for sessions that still have their first message's first line and sends a line for each.
+
 `{ "type": "live" }` is the terminal UI's: the connection stays open and the server sends `{ "type": "event", "event": ServerEvent }` for each event the web app gets over `/api/live`. The client may then send one `ClientEvent` follow per line, `{ "type": "follow", "session": 12 }` or `{ "session": null }`, to change which transcript it gets. A host from before `live` answers it as an unknown request.
 
-`{ "type": "sessions", "listing": true }` asks for the sessions as data: the server answers with one `{ "type": "sessions", "sessions": SessionSummary[], "colors": { name: hue } }`, which the CLI lays out for its terminal. Without `listing`, the server sends them as text lines. A host from before `listing` ignores it and sends lines, which the CLI prints as they are.
+`{ "type": "sessions", "listing": true }` asks for the sessions as data: the server answers with one `{ "type": "sessions", "sessions": SessionSummary[], "colors": { name: hue } }`, which the CLI lays out for its terminal, and `spend: { month }`, this calendar month's OpenRouter spend, when any session used OpenRouter. A summary's `cost` is that session's total. Without `listing`, the server sends them as text lines. A host from before `listing` ignores it and sends lines, which the CLI prints as they are.
 
 Server to client: any number of `{ "type": "line", "text": "..." }`, then `{ "type": "done", "status": "..." }` and the connection closes. `status` is `done` on success. A `watch` never sends `done`; it ends when the client closes.

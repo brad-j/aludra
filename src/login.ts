@@ -1,21 +1,25 @@
 // `aludra login` and `aludra logout`: signing in to a model provider besides Claude Code, which keeps its own login
 // (claude auth login). OpenAI's is Sign in with ChatGPT, OpenAI's flow for open-source apps on the user's own machine:
-// requests go to api.openai.com on the user's ChatGPT plan, not an API key. Its callback comes to 127.0.0.1:1455 on this
-// machine, so with the browser elsewhere, the address the browser ends on is pasted here instead.
+// requests go to api.openai.com on the user's ChatGPT plan, not an API key. OpenRouter's is its OAuth flow, which gives
+// aludra an API key of its own, billed per request. Both call back to a loopback address on this machine, so with the
+// browser elsewhere, the address the browser ends on is pasted here instead.
 import { createInterface } from "node:readline/promises";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import type { Config } from "./config.ts";
 import { credentialsFile, deviceId, fileCredentialStore } from "./credentials.ts";
 
 /** The providers `aludra login` signs in to. */
-export const SIGN_INS = ["openai"] as const;
+export const SIGN_INS = ["openai", "openrouter"] as const;
+type SignIn = (typeof SIGN_INS)[number];
 
-/** OpenAI on this machine's sign-ins, for logging in and checking; the host builds its own with the bridge beside it. */
+/** OpenAI and OpenRouter on this machine's sign-ins, for logging in and checking; the host builds its own with the bridge beside it. */
 export function signInModels(config: Config): Models {
 	const models = createModels({ credentials: fileCredentialStore(credentialsFile(config.dataDir)) });
 	models.setProvider(openaiProvider());
+	models.setProvider(openrouterProvider());
 	return models;
 }
 
@@ -46,10 +50,11 @@ const terminal: AuthInteraction = {
 	},
 };
 
-function signInFor(provider: string | undefined): "openai" {
+function signInFor(provider: string | undefined): SignIn {
 	if (provider === "claude" || provider === "claude-bridge") throw new Error("Claude Code keeps its own login; run: claude auth login");
-	if (provider !== "openai") throw new Error(`name a provider to sign in to: ${SIGN_INS.join(", ")}`);
-	return provider;
+	const found = SIGN_INS.find((p) => p === provider);
+	if (found === undefined) throw new Error(`name a provider to sign in to: ${SIGN_INS.join(" or ")}`);
+	return found;
 }
 
 /**
@@ -72,7 +77,16 @@ export async function login(config: Config, provider: string | undefined): Promi
 	const id = signInFor(provider);
 	const models = signInModels(config);
 	await models.login(id, "oauth", terminal, { getDeviceId: () => deviceId(config.dataDir), agentName: "aludra" });
-	const lines = ["", "Signed in with ChatGPT. OpenAI's models in model.choices now run on your ChatGPT plan; a running host uses the sign-in from its next request."];
+	if (id === "openrouter") {
+		const count = models.getModels("openrouter").length;
+		return [
+			"",
+			`Signed in to OpenRouter. Its ${count} models are in the apps' model picker under All models; a running host has them from the next time the picker opens.`,
+			"OpenRouter bills every request, and aludra shows each session's cost. Set a credit limit on the key at openrouter.ai/settings/keys if you want a cap.",
+			`To pin one at the top of the picker, add it to model.choices in ${config.file ?? "the settings file"}, such as "openrouter/anthropic/claude-sonnet-5.5".`,
+		];
+	}
+	const lines = ["", "Signed in with ChatGPT. The models your account offers are in the apps' model picker under All models, on your ChatGPT plan; a running host has them from the next time the picker opens."];
 	try {
 		const { runnable, others } = await accountModels(models);
 		const offered = new Set(config.model.choices.filter((c) => c.provider === "openai").map((c) => c.id));
@@ -80,7 +94,7 @@ export async function login(config: Config, provider: string | undefined): Promi
 		lines.push("", "Models this account offers:", ...runnable.map((m) => `  ${`openai/${m.id}`.padEnd(width)}  ${m.name}${offered.has(m.id) ? "  (in model.choices)" : ""}`));
 		if (others > 0) lines.push(`  and ${others} more this aludra can't run yet`);
 		const example = runnable.find((m) => !offered.has(m.id));
-		if (example !== undefined) lines.push("", `To offer one in the apps, add it to model.choices in ${config.file ?? "the settings file"}, such as "openai/${example.id}", then restart the host (aludra service install).`);
+		if (example !== undefined) lines.push("", `To pin one at the top of the picker, add it to model.choices in ${config.file ?? "the settings file"}, such as "openai/${example.id}", then restart the host (aludra service install).`);
 	} catch (error) {
 		lines.push(`(Couldn't list the account's models: ${error instanceof Error ? error.message : String(error)})`);
 	}
@@ -91,5 +105,5 @@ export async function login(config: Config, provider: string | undefined): Promi
 export async function logout(config: Config, provider: string | undefined): Promise<string[]> {
 	const id = signInFor(provider);
 	await signInModels(config).logout(id);
-	return ["Signed out of ChatGPT on this machine. OpenAI's models stay in the picker but fail until you sign in again."];
+	return [id === "openai" ? "Signed out of ChatGPT on this machine." : "Signed out of OpenRouter on this machine. The key it made stays valid until you delete it at openrouter.ai/settings/keys."];
 }

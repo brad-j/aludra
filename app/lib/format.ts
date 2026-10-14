@@ -19,6 +19,18 @@ export function duration(ms: number): string {
 	return `${minutes}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
+/** Dollars spent: "<$0.01", "$0.42", "$12.30", "$140" (as src/listing.ts writes them). */
+export function money(dollars: number): string {
+	if (dollars < 0.005) return dollars === 0 ? "$0" : "<$0.01";
+	return dollars >= 100 ? `$${Math.round(dollars)}` : `$${dollars.toFixed(2)}`;
+}
+
+/** A price per million tokens: "$0.019", "$0.5", "$4", "$20". */
+export const perMillion = (dollars: number) => `$${dollars < 0.1 ? Number(dollars.toFixed(3)) : dollars < 10 ? Number(dollars.toFixed(2)) : Math.round(dollars)}`;
+
+/** A model as the pickers and the API name it: provider and ID. */
+export const modelKey = (model: { provider: string; id: string }) => `${model.provider}/${model.id}`;
+
 /** "41k", "1.2M". */
 export const tokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 

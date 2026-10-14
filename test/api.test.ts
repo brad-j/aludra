@@ -114,6 +114,8 @@ test("bootstrap lists the projects, the models and the defaults", async (t) => {
 	assert.equal(boot.user, USER);
 	assert.deepEqual(boot.projects.map((p: { name: string }) => p.name), ["one"]);
 	assert.deepEqual(boot.models, [{ provider: "faux", id: "faux-1", name: "Faux 1" }]);
+	// Every model the provider has can be picked, pinned or not.
+	assert.deepEqual(boot.catalog.map((m: { id: string }) => m.id), ["faux-1", "faux-2"]);
 	assert.equal(boot.defaults.model.id, "faux-1");
 	assert.ok(boot.thinking.includes("high"));
 });
@@ -161,7 +163,7 @@ test("a message sent while it runs waits in the queue, can be withdrawn, and sto
 	assert.equal(client.state.items.at(-1)!.kind, "failure");
 });
 
-test("the model and thinking change per session; an unknown model is refused", async (t) => {
+test("the model and thinking change per session, to a pinned model or any the provider has; an unknown model is refused", async (t) => {
 	const { call, base, host } = await api(t, [fauxAssistantMessage("ok")]);
 	const client = await live(t, base);
 	const { id } = await (await call("/api/sessions", { project: "one", text: "hi", thinking: "low" })).json();
@@ -172,6 +174,9 @@ test("the model and thinking change per session; an unknown model is refused", a
 	const refused = await call(`/api/sessions/${id}/agent`, { model: "faux-2" });
 	assert.equal(refused.status, 404);
 	assert.match(await refused.text(), /no model faux-2/);
+	assert.equal((await call(`/api/sessions/${id}/agent`, { model: "faux/nope" })).status, 404);
+	assert.equal((await call(`/api/sessions/${id}/agent`, { model: "faux/faux-2" })).status, 200);
+	await client.until(() => client.state.meta?.model.id === "faux-2", "the unpinned model");
 	assert.equal((await (await host.conversation(id)).agent(undefined as never)).thinkingLevel, "xhigh");
 });
 

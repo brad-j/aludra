@@ -22,7 +22,7 @@ export function talk(config: Config, request: ClientMessage, lost?: string): Pro
 			for await (const line of createInterface({ input: socket })) {
 				const message = parseServerMessage(line);
 				if (message.type === "line") console.log(message.text);
-				else if (message.type === "sessions") for (const text of renderSessions(message.sessions, message.colors, terminalStyle())) console.log(text);
+				else if (message.type === "sessions") for (const text of renderSessions(message.sessions, message.colors, terminalStyle(), Date.now(), message.spend)) console.log(text);
 				else if (message.type === "done") status = message.status;
 			}
 			if (status === undefined && request.type !== "watch") {

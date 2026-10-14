@@ -29,7 +29,7 @@ From a terminal:
 aludra ask --project site "Why does the build fail on main?"
 ```
 
-The session's title is the first line of its first message. Rename it from the session menu (the `⋯` in its header) in the web app, or from amyrlin's session menu or by double-clicking its header there.
+A session is titled from its first message: at first its first line, then, a second or two later, a short title a model writes, such as "Feature backlog: shortcuts, editable ideas". The smallest model on hand writes it (Claude Haiku through Claude Code, or the cheapest OpenAI model you offer), as a one-off request on your plan. If no model answers, the first line stays. A title you set yourself is never replaced. Rename it from the session menu (the `⋯` in its header) in the web app, or from amyrlin's session menu or by double-clicking its header there.
 
 ### The transcript
 
@@ -58,7 +58,7 @@ Sending a message while a call waits for approval refuses that call, so the run 
 
 ### Model and thinking
 
-The composer's model line shows the session's model, thinking level and how much of the context window the last request used. Tap it to change the model or thinking; the next request uses them. New sessions start with `model.id` and `model.thinking` from the settings.
+The composer's model line shows the session's model, thinking level and how much of the context window the last request used, and what the session has cost if it used OpenRouter. Tap it to change the model or thinking; the next request uses them. Your pinned models (`model.choices`) are listed first; type to search every model of every provider the machine is signed in to, with prices where requests are billed. New sessions start with `model.id` and `model.thinking` from the settings.
 
 ### Images
 

@@ -114,8 +114,17 @@ export function markOf(paint: ReturnType<typeof pen>, state: SessionState): stri
 	return paint.ink("dim", MARKS[state]);
 }
 
-/** The sessions as lines for a terminal of `style`'s width and colors. `colors` are the projects' picked hues. */
-export function renderSessions(sessions: readonly SessionSummary[], colors: Readonly<Record<string, number>>, style: ListingStyle, now = Date.now()): string[] {
+/** Dollars as the apps write them: "<$0.01", "$0.42", "$12.30", "$140". */
+export function money(dollars: number): string {
+	if (dollars < 0.005) return dollars === 0 ? "$0" : "<$0.01";
+	return dollars >= 100 ? `$${Math.round(dollars)}` : `$${dollars.toFixed(2)}`;
+}
+
+/**
+ * The sessions as lines for a terminal of `style`'s width and colors. `colors` are the projects' picked hues, and
+ * `spend` this month's spend on billed providers, shown at the foot when there's any.
+ */
+export function renderSessions(sessions: readonly SessionSummary[], colors: Readonly<Record<string, number>>, style: ListingStyle, now = Date.now(), spend?: { month: number }): string[] {
 	if (sessions.length === 0) return ['no sessions yet; start one with aludra ask --project NAME "..."'];
 	const paint = pen(style.depth);
 	const width = Math.max(40, style.width);
@@ -136,7 +145,8 @@ export function renderSessions(sessions: readonly SessionSummary[], colors: Read
 		lines.push(cut(`${paint.project(first.project, colors, first.project)}  ${paint.ink("dim", where + machine)}`, width));
 		for (const s of list) {
 			const mark = markOf(paint, s.state);
-			const when = age(s.updatedAt, now);
+			// A billed session's cost sits before its age.
+			const when = s.cost === undefined ? age(s.updatedAt, now) : `${money(s.cost)}  ${age(s.updatedAt, now)}`;
 			const room = width - indent - when.length - 2;
 			const title = cut(s.title, room);
 			const gap = " ".repeat(Math.max(2, width - indent - visibleWidth(title) - when.length));
@@ -146,5 +156,6 @@ export function renderSessions(sessions: readonly SessionSummary[], colors: Read
 			lines.push(`${" ".repeat(indent)}${paint.ink(tone, cut(s.line, width - indent))}`);
 		}
 	}
+	if (spend !== undefined) lines.push("", paint.ink("dim", `OpenRouter this month: ${money(spend.month)}`));
 	return lines;
 }

@@ -44,6 +44,7 @@ For the bridge's detail on how it drives Claude Code, set `CLAUDE_BRIDGE_DEBUG=1
 | versions | Pi Durable and pi-claude-bridge are the pinned versions. | See [Upgrading Pi Durable or the bridge](#upgrading-pi-durable-or-the-bridge). |
 | claude | `claude.path` runs, and Claude Code is logged in to a subscription. Skipped when no choice is a Claude model. | `claude auth login`. A login that isn't a subscription is a warning: runs would be billed. |
 | model | The default model's provider has it (the bridge loads, for Claude). Each choice its provider lacks is a warning, since the apps leave it out. | Lists the models the provider has. |
+| openrouter | When a choice is an OpenRouter model or the machine is signed in: there's a key. | `aludra login openrouter`. |
 | openai | Only when a choice is an OpenAI model: signed in with ChatGPT, and the account offers each one. | `aludra login openai`. An `OPENAI_API_KEY` with no sign-in is a warning: requests would be billed per token. |
 | app | `api.users` is set, the app is built, Tailscale is installed and logged in, and `tailscale serve` points at `api.port`. | Prints the command to run, then the app's addresses once it's all there. |
 | push | Apple's and Google's push services are reachable. | Notifications to those devices won't arrive. |

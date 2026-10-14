@@ -27,11 +27,13 @@ const USAGE = `usage: aludra [--config FILE] [COMMAND]
   watch [--session ID]                   print what every session (or one) does, until Ctrl+C
   sessions                               list sessions by project, with their state
   stop --session ID                      stop a session's run
+  retitle                                have a model title sessions that still have their first line
   approvals                              list calls waiting for approval
   approve ID | deny ID                   answer one
   projects                               list the projects the workspaces' roots match
   backup                                 copy the database into the backup directory now
-  login openai | logout openai           sign in with ChatGPT, so OpenAI's models run on your plan
+  login openai | openrouter              sign in with ChatGPT (OpenAI on your plan) or to OpenRouter (billed per request)
+  logout openai | openrouter             forget that sign-in on this machine
   doctor                                 check the settings and everything the host needs
 
 --id REQUEST with ask makes it safe to retry: the same id finds the same message rather than sending it twice.
@@ -141,6 +143,8 @@ switch (command) {
 		process.exit(await talk(config, { type: "stop", session: sessionId() }));
 	case "approvals":
 		process.exit(await talk(config, { type: "approvals" }));
+	case "retitle":
+		process.exit(await talk(config, { type: "retitle" }));
 	case "approve":
 	case "deny":
 		if (rest[0] === undefined) fail(`usage: aludra ${command} ID (aludra approvals lists them)`);

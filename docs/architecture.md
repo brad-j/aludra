@@ -36,7 +36,7 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
 
   | Document | Holds |
   | --- | --- |
-  | `aludra.sessions` | Each session's workspace, project, directory, title, creation time, and changes snapshot. |
+  | `aludra.sessions` | Each session's workspace, project, directory, title and who wrote it (a model or the user), creation time, and changes snapshot. |
   | `aludra.ideas` | Ideas, by ID. |
   | `aludra.approvals` | Approval requests and decisions; decided ones are dropped after a week. |
   | `aludra.colors` | Picked project colors: name to hue index. |
@@ -51,10 +51,13 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
 
 ## Model providers
 
-Pi Durable gets one pi-ai `Models` collection with each provider `model.choices` names, and a credential store over `credentials.json` in the data directory (`src/credentials.ts`). Sessions can change provider between requests: the bridge rebuilds Claude Code's session from the transcript when it finds messages it didn't see.
+Pi Durable gets one pi-ai `Models` collection: the bridge when `model.choices` names a Claude model, and pi-ai's own `openai` and `openrouter` providers always, with a credential store over `credentials.json` in the data directory (`src/credentials.ts`). Sessions can change provider between requests: the bridge rebuilds Claude Code's session from the transcript when it finds messages it didn't see.
 
 - **OpenAI** is pi-ai's own `openai` provider, which Pi Durable drives directly, with nothing in between. `aludra login openai` (`src/login.ts`) runs pi-ai's Sign in with ChatGPT flow with the machine's installation ID, and the store keeps and refreshes the tokens. The store reads the file for every request, so a login from the CLI reaches a running host; a lock file keeps the CLI and the host from writing at once.
+- **OpenRouter** is pi-ai's `openrouter` provider and its catalog of several hundred priced models. `aludra login openrouter` runs pi-ai's OAuth flow, which leaves an API key in the store.
 - **Claude** goes through the bridge, below.
+
+`src/catalog.ts` lists every model a session can run on: each provider this machine is signed in to, OpenAI's narrowed to what the ChatGPT account offers (asked of the account hourly). The pickers search it; `model.choices` are pinned above it. Costs come from pi-ai, which prices each answer from the catalog; `spendOf` in `src/transcript.ts` adds up the answers from billed providers (OpenRouter) for a session's summary and the month's total.
 
 ### The bridge
 
@@ -69,6 +72,10 @@ Pi Durable gets one pi-ai `Models` collection with each provider `model.choices`
 The bridge runs the user's own Claude Code (`claude.path`), not the Agent SDK's bundled copy. It reads that path only from its settings in pi's agent directory, so aludra gives it a directory of its own (`bridge/` in the data directory) by aliasing its pi-coding-agent import to a module there whose `getAgentDir()` answers with it.
 
 These fixes depend on bridge internals, so the bridge and Pi Durable are pinned and `aludra doctor` fails if either changes. `test/bridge.test.ts` has a test for each fix, and `scripts/live-check.ts` runs them against the real thing ([operations.md](operations.md#upgrading-pi-durable-or-the-bridge)).
+
+## Titles
+
+`src/titles.ts` writes each session's title from its first message once it's submitted, in the background: a one-off request (`cacheRetention: "none"`, which the bridge runs as its own Claude Code process with no tools and no saved session) to the smallest model on hand, then the next if one fails. The host records who wrote a title, so a rename by hand is never replaced, and announces the change like a rename. The faux model writes none.
 
 ## Permissions
 

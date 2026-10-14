@@ -9,7 +9,7 @@ Install aludra on each macOS or Linux computer whose projects you want to reach.
 - pnpm, to build. `corepack enable pnpm` is enough; the repository pins the version it wants.
 - npm, which comes with Node. The install script uses it to install the packed build globally.
 - git, for the changes view. Projects outside git still work; they just have no changes view.
-- [Claude Code](https://claude.com/product/claude-code), installed and logged in with `claude auth login`, for Claude models. aludra runs this binary and never sees your credentials. A subscription login is what you want: `aludra doctor` warns when Claude Code is logged in some other way, since runs would then be billed. For OpenAI's models on a ChatGPT plan, see [below](#optional-openais-models-on-your-chatgpt-plan).
+- [Claude Code](https://claude.com/product/claude-code), installed and logged in with `claude auth login`, for Claude models. aludra runs this binary and never sees your credentials. A subscription login is what you want: `aludra doctor` warns when Claude Code is logged in some other way, since runs would then be billed. For OpenAI's models on a ChatGPT plan, see [Sign in to a model](#sign-in-to-a-model).
 - [Tailscale](https://tailscale.com), on this machine and on every device you'll use aludra from.
 
 ## Install
@@ -42,6 +42,32 @@ aludra init --root '~/code/*' --root '~/work/*/*' --user you@example.com --name 
 ```
 
 `aludra init` refuses to overwrite an existing settings file unless you pass `--force`. Everything else in the file has a default; [configuration.md](configuration.md) lists every setting.
+
+## Sign in to a model
+
+Sessions need at least one of these, and can switch between them mid-session.
+
+**Claude.** Install [Claude Code](https://claude.com/product/claude-code) and log in with a subscription. aludra runs that binary with your login and never sees the credentials.
+
+```sh
+claude auth login
+```
+
+**OpenAI, on your ChatGPT plan.** Sign this machine in with ChatGPT:
+
+```sh
+aludra login openai
+```
+
+It prints an address to open in a browser. On SSH, the browser ends on a `127.0.0.1:1455` page that doesn't load; paste that page's address back at the prompt. The models your account offers are then in the apps' model picker; pin the ones you use most in `model.choices`, such as `"openai/gpt-6.1-sol"`.
+
+**OpenRouter, billed per request.** Hundreds of models from many makers, Gemini, DeepSeek and Kimi among them:
+
+```sh
+aludra login openrouter
+```
+
+It works the same way and gives aludra a key of its own. Each session shows what it has cost. To cap spending, set a credit limit on the key at OpenRouter. [configuration.md](configuration.md#model) has the details.
 
 ## Check it
 
@@ -81,7 +107,7 @@ The host listens on `127.0.0.1:8724` only. `tailscale serve` gives it an HTTPS a
 
 **amyrlin (macOS, optional).** In [amyrlin](https://github.com/brad-j/amyrlin), add the machine as `wss://<machine>.<tailnet>.ts.net/amyrlin`, or just its tailnet name. A machine that can't connect says why under its name in the sidebar: 403 means your login isn't in `api.users`, 502 means nothing is behind `tailscale serve`.
 
-**The CLI.** On the machine itself, `aludra` talks to the running host directly; see [cli.md](cli.md).
+**The terminal.** On the machine itself (or over SSH), `aludra` with no command shows every session and the open one's transcript as it streams, and `aludra sessions` prints the list. The other commands talk to the running host directly; see [cli.md](cli.md).
 
 ## Update
 
@@ -99,16 +125,6 @@ npm uninstall -g aludra    # removes the command
 ```
 
 Your settings (`~/.config/aludra/`) and data (see [configuration.md](configuration.md#the-data-directory)) stay until you delete them. Run `tailscale serve reset` if nothing else on the machine uses `tailscale serve`.
-
-## Optional: OpenAI's models on your ChatGPT plan
-
-Sessions can run OpenAI's models as well as Claude, and switch between them mid-session. Sign this machine in with ChatGPT:
-
-```sh
-aludra login openai
-```
-
-It prints an address to open in a browser. On SSH, the browser ends on a `127.0.0.1:1455` page that doesn't load; paste that page's address back at the prompt. It then lists the models your account offers. Add the ones you want to `model.choices` in the settings, such as `"openai/gpt-6.1-sol"`, and restart the host with `aludra service install`. They appear in the apps' model picker. [configuration.md](configuration.md#model) has the details.
 
 ## Optional: a Tailscale node of aludra's own (Linux)
 

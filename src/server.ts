@@ -3,7 +3,8 @@
 //
 // client → server: {"type":"ask","content":"...","project":"aludra"} or {"type":"ask","content":"...","session":3},
 //                  {"type":"watch","session":3?}, {"type":"sessions","listing":true?}, {"type":"stop","session":3},
-//                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true}, {"type":"live"}
+//                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true}, {"type":"live"},
+//                  {"type":"retitle"}
 // server → client: {"type":"line","text":"..."}, for a sessions request with listing
 //                  {"type":"sessions","sessions":[SessionSummary...],"colors":{...}}, and, last, {"type":"done","status":"..."}
 //
@@ -21,7 +22,7 @@ import { createInterface } from "node:readline";
 import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchEvents } from "@earendil-works/pi-durable";
 import type { ServerEvent, SessionSummary } from "./api-types.ts";
 import { createApi } from "./api.ts";
-import { createLive, type Live, readSummary } from "./live.ts";
+import { createLive, type Live, readSpend, readSummary } from "./live.ts";
 import { scheduleBackups } from "./backup.ts";
 import { createPush, loadPushKeys } from "./push.ts";
 import type { Config } from "./config.ts";
@@ -39,17 +40,18 @@ export type ClientMessage =
 	| { type: "stop"; session: number }
 	| { type: "approvals" }
 	| { type: "decide"; id: string; allow: boolean }
-	| { type: "live" };
+	| { type: "live" }
+	| { type: "retitle" };
 
 export type ServerMessage =
 	| { type: "line"; text: string }
-	| { type: "sessions"; sessions: SessionSummary[]; colors: Record<string, number> }
+	| { type: "sessions"; sessions: SessionSummary[]; colors: Record<string, number>; spend?: { month: number } }
 	| { type: "event"; event: ServerEvent }
 	| { type: "done"; status: string };
 
 const followEvent = object({ type: literal("follow"), session: nullable(integer) });
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "live"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "live", "retitle"),
 	content: optional(string),
 	project: optional(string),
 	session: optional(integer),
@@ -69,6 +71,7 @@ const summary = object({
 	updatedAt: number,
 	state: literal("running", "waiting", "failed", "stopped", "done", "idle"),
 	line: string,
+	cost: optional(number),
 });
 const serverMessage = object({
 	type: literal("line", "sessions", "event", "done"),
@@ -77,6 +80,7 @@ const serverMessage = object({
 	status: optional(string),
 	sessions: optional(array(summary)),
 	colors: optional(dictionary(integer)),
+	spend: optional(object({ month: number })),
 });
 
 export function parseClientMessage(line: string): ClientMessage {
@@ -95,6 +99,8 @@ export function parseClientMessage(line: string): ClientMessage {
 			return { type: "stop", session: m.session };
 		case "live":
 			return { type: "live" };
+		case "retitle":
+			return { type: "retitle" };
 		case "decide":
 			if (m.id === undefined || m.allow === undefined) throw new ParseError("a decision needs an id and allow");
 			return { type: "decide", id: m.id, allow: m.allow };
@@ -107,7 +113,7 @@ export function parseServerMessage(line: string): ServerMessage {
 	const m = parseJson(line, serverMessage, "the server's message");
 	// SAFETY: the host on our own socket sends the ServerEvents src/live.ts makes.
 	if (m.type === "event") return { type: "event", event: m.event as unknown as ServerEvent };
-	if (m.type === "sessions") return { type: "sessions", sessions: m.sessions ?? [], colors: Object.fromEntries(m.colors ?? []) };
+	if (m.type === "sessions") return { type: "sessions", sessions: m.sessions ?? [], colors: Object.fromEntries(m.colors ?? []), ...(m.spend === undefined ? {} : { spend: m.spend }) };
 	return m.type === "line" ? { type: "line", text: m.text ?? "" } : { type: "done", status: m.status ?? "" };
 }
 
@@ -311,7 +317,12 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 			case "sessions": {
 				if (request.listing !== true) return finish(describeSessions(await host.sessions.list(), await host.sessions.states()));
 				const sessions = (await Promise.all((await host.sessions.list()).map((s) => readSummary(host, s.id)))).flatMap((s) => (s === undefined ? [] : [s]));
-				send(socket, { type: "sessions", sessions, colors: await host.colors.list() });
+				// This calendar month's spend on billed providers, from sessions that ever used one.
+				const now = new Date();
+				const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+				const month = (await Promise.all(sessions.filter((s) => s.cost !== undefined).map((s) => readSpend(host, s.id, monthStart)))).reduce<number>((sum, n) => sum + (n ?? 0), 0);
+				const billed = sessions.some((s) => s.cost !== undefined);
+				send(socket, { type: "sessions", sessions, colors: await host.colors.list(), ...(billed ? { spend: { month } } : {}) });
 				return finish([]);
 			}
 			case "stop":
@@ -320,6 +331,17 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 			case "approvals": {
 				const pending = await host.approvals.pending();
 				return finish(pending.length === 0 ? ["nothing waits for approval"] : pending.map((r) => `[${r.conversationId}] ${describeApproval(r)}`));
+			}
+			case "retitle": {
+				let done = 0;
+				await host.sessions.retitle((before, after) => {
+					if (after === undefined) line(socket, `  ${String(before.id).padStart(4)}  kept: ${before.title}`);
+					else {
+						done += 1;
+						line(socket, `  ${String(before.id).padStart(4)}  ${after.title}   (was: ${before.title})`);
+					}
+				});
+				return finish([done === 0 ? "no titles to write: every session has one from a model or from you" : `wrote ${done} title${done === 1 ? "" : "s"}`]);
 			}
 			case "live": {
 				live ??= createLive(host);

@@ -4,7 +4,7 @@
 import type { ConversationView } from "@earendil-works/pi-durable";
 import type { Item, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
 import { context, type Host, type SessionRecord } from "./host.ts";
-import { contextUsed, firstChange, itemsOf, lineOf, queuedOf, stateOf, updatedAt } from "./transcript.ts";
+import { contextUsed, firstChange, itemsOf, lineOf, queuedOf, spendOf, stateOf, updatedAt } from "./transcript.ts";
 
 /** One client's view: its list of sessions, ideas and colors, and the session it follows. */
 export type LiveClient = {
@@ -143,7 +143,8 @@ async function metaOf(host: Host, record: SessionRecord, view: ConversationView,
 function summaryOf(record: SessionRecord, view: ConversationView, items: readonly Item[], waiting: boolean): SessionSummary {
 	const state = stateOf(view, waiting);
 	const { id, workspace, project, dir, title, createdAt } = record;
-	return { id, workspace, project, dir, title, createdAt, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state) };
+	const cost = spendOf(view);
+	return { id, workspace, project, dir, title, createdAt, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state), ...(cost === undefined ? {} : { cost }) };
 }
 
 /** Session `id`'s summary as the drawer shows it, read from its view; undefined if there's no such session. */
@@ -154,6 +155,16 @@ export async function readSummary(host: Host, id: number): Promise<SessionSummar
 	try {
 		const waiting = (await host.approvals.all()).some((r) => r.conversationId === id && r.status === "pending");
 		return summaryOf(record, state.value, itemsOf(state.value), waiting);
+	} finally {
+		state.dispose();
+	}
+}
+
+/** Dollars session `id` spent on billed providers from `since` on; undefined if it never used one. */
+export async function readSpend(host: Host, id: number, since: number): Promise<number | undefined> {
+	const state = await (await host.conversation(id)).viewState(context);
+	try {
+		return spendOf(state.value, since);
 	} finally {
 		state.dispose();
 	}

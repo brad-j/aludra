@@ -161,6 +161,24 @@ export function updatedAt(view: ConversationView, fallback: number): number {
 	return newest;
 }
 
+/** Providers that bill each request: their costs are added up and shown. */
+export const BILLED = new Set(["openrouter"]);
+
+/**
+ * Dollars a session's answers cost on providers that bill each request (BILLED), from `since` on;
+ * undefined when none of its answers came from one. Plan-paid answers (Claude Code, ChatGPT) cost nothing here.
+ */
+export function spendOf(view: ConversationView, since = 0): number | undefined {
+	let spent: number | undefined;
+	for (const entry of view.entries) {
+		for (const message of entry.model ?? []) {
+			if (message.role !== "assistant" || !BILLED.has(message.provider)) continue;
+			spent = (spent ?? 0) + (message.timestamp >= since ? message.usage.cost.total : 0);
+		}
+	}
+	return spent;
+}
+
 /** Tokens the last request used: its input, cached or not, and its output. */
 export function contextUsed(view: ConversationView): number {
 	// SAFETY: a document in the view is the JSON of its kind's state.

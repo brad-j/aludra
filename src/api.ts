@@ -139,7 +139,7 @@ export type ApiOptions = {
 	appDir?: string;
 	/** Notifications to devices; without it, none are sent. */
 	push?: Push;
-	/** The host's name in the amyrlin Mac app. Default: this machine's name. */
+	/** The host's name in the apps. Default: this machine's name. */
 	name?: string;
 };
 
@@ -193,14 +193,15 @@ export function createApi(host: Host, options: ApiOptions) {
 	}
 	const json = (response: ServerResponse, value: unknown) => reply(response, 200, JSON.stringify(value), "application/json");
 
-	function bootstrap(login: string): Bootstrap {
+	async function bootstrap(login: string): Promise<Bootstrap> {
 		const choices = host.choices();
 		const model = choices.find((c) => c.id === host.model.modelId) ?? { provider: host.model.provider, id: host.model.modelId, name: host.model.modelId };
 		return {
 			user: login,
-			machine: hostname(),
+			machine: options.name ?? hostname(),
 			projects: host.projects().map(({ workspace, name, path, dir }) => ({ workspace, name, path, dir })),
 			models: choices,
+			catalog: await host.catalog(),
 			thinking: [...THINKING],
 			defaults: { model, thinking: host.thinking },
 		};
@@ -334,7 +335,7 @@ export function createApi(host: Host, options: ApiOptions) {
 		const url = new URL(request.url ?? "/", "http://host");
 		const path = url.pathname;
 		if (request.method === "GET" || request.method === "HEAD") {
-			if (path === "/api/bootstrap") return json(response, bootstrap(login));
+			if (path === "/api/bootstrap") return json(response, await bootstrap(login));
 			const changed = /^\/api\/sessions\/(\d+)\/changes(\/diff)?$/.exec(path);
 			if (changed !== null) return json(response, await changes(Number(changed[1]), changed[2] === undefined ? null : url.searchParams.get("path") ?? ""));
 			if (path === "/api/push") return json(response, await pushState());

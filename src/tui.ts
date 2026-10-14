@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import { type Component, Container, getTerminalColorMode, HStack, Key, Markdown, type MarkdownTheme, matchesKey, ProcessTerminal, ScrollView, type Terminal, truncateToWidth, TuiAltScreen, visibleWidth, VStack, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Item, ServerEvent, SessionMeta, SessionSummary } from "./api-types.ts";
 import type { Config } from "./config.ts";
-import { age, groupSessions, markOf, NO_PROJECT, pen, shortPath } from "./listing.ts";
+import { age, groupSessions, markOf, money, NO_PROJECT, pen, shortPath } from "./listing.ts";
 import { parseServerMessage, socketPathFor } from "./server.ts";
 
 type Paint = ReturnType<typeof pen>;
@@ -234,7 +234,8 @@ class StatusLine implements Component {
 			const tokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 			const context = meta.context.window > 0 ? `${tokens(meta.context.used)} / ${tokens(meta.context.window)}` : tokens(meta.context.used);
 			const retry = meta.retry === undefined ? "" : paint.ink("wait", ` · retrying: ${meta.retry.error}`);
-			left = `${markOf(paint, meta.summary.state)} ${meta.summary.state} ${paint.ink("dim", "·")} ${meta.model.name} ${paint.ink("dim", "·")} ${meta.thinking} ${paint.ink("dim", "·")} ${context}${retry}`;
+			const cost = meta.summary.cost === undefined ? "" : ` ${paint.ink("dim", "·")} ${money(meta.summary.cost)}`;
+			left = `${markOf(paint, meta.summary.state)} ${meta.summary.state} ${paint.ink("dim", "·")} ${meta.model.name} ${paint.ink("dim", "·")} ${meta.thinking} ${paint.ink("dim", "·")} ${context}${cost}${retry}`;
 		}
 		const room = width - visibleWidth(keys) - 2;
 		if (room < 20) return [fit(left || keys, width)];

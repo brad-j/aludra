@@ -18,7 +18,7 @@
 // `api.users` are the Tailscale logins the app's API and the amyrlin endpoint let in (src/api.ts); without any, the API
 // doesn't start, since every request would be refused. Everyone listed sees and runs every session. `model.choices`
 // are the models the app offers, each `provider/id` or a bare ID of `model.provider` (claude-bridge unless set); so is
-// `model.id`. OpenAI's models run on the ChatGPT sign-in `aludra login openai` keeps (src/login.ts). `claude.path` is the Claude Code the bridge runs, the user's own install and login;
+// `model.id`. OpenAI's models run on the ChatGPT sign-in `aludra login openai` keeps, OpenRouter's on the key `aludra login openrouter` gets (src/login.ts). `claude.path` is the Claude Code the bridge runs, the user's own install and login;
 // a bare name is looked up on PATH. `backup` copies the database while the host runs (src/backup.ts); its directory is
 // backups/ in the data directory unless it names another disk or a synced folder.
 import { existsSync, readFileSync } from "node:fs";
@@ -31,8 +31,8 @@ export type Thinking = (typeof THINKING)[number];
 
 export type Workspace = { name: string; roots: string[] };
 
-/** The model providers: Claude Code through pi-claude-bridge, OpenAI on a ChatGPT sign-in, and the scripted faux model. */
-export const PROVIDERS = ["claude-bridge", "openai", "faux"] as const;
+/** The model providers: Claude Code through pi-claude-bridge, OpenAI on a ChatGPT sign-in, OpenRouter, and the scripted faux model. */
+export const PROVIDERS = ["claude-bridge", "openai", "openrouter", "faux"] as const;
 export type ProviderId = (typeof PROVIDERS)[number];
 export type ModelSetting = { provider: ProviderId; id: string };
 

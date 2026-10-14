@@ -8,12 +8,14 @@ import type { UserMessage } from "@earendil-works/pi-ai";
 import { createModels, type Models } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { type CompactionPolicy, configure as configureAgent, type ConversationId, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef, ProviderDoc } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice } from "./api-types.ts";
 import { type Bridge, bridgeProvider, loadBridge, type Notice, PROVIDER } from "./bridge.ts";
+import { choiceOf, createCatalog, displayName } from "./catalog.ts";
 import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
 import { type Config, expandHome, type Thinking } from "./config.ts";
@@ -23,6 +25,8 @@ import { ApprovalService, permissionsExtension } from "./permissions.ts";
 import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
 import { ParseError } from "./parse.ts";
+import { modelTitler, type Titler, titleModels } from "./titles.ts";
+import { itemsOf, textOf } from "./transcript.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
@@ -31,8 +35,10 @@ export type SessionRecord = {
 	workspace: string;
 	project: string;
 	dir: string;
-	/** The first line of the first message. */
+	/** The first line of the first message, until a model writes one (src/titles.ts) or someone renames it. */
 	title: string;
+	/** Who wrote the title: a model, or someone by hand. Unset, it's the first message's first line. */
+	titled?: "model" | "user";
 	createdAt: number;
 	/** The project's files when it started, for its changes (src/changes.ts); or why there's no snapshot. */
 	base?: Snapshot;
@@ -71,9 +77,6 @@ export const Sessions = defineDoc<{ sessions: Record<string, SessionRecord> }>({
 	scope: "session",
 	initial: () => ({ sessions: {} }),
 });
-
-/** "Claude Opus 5.5 1M" as "Opus 5.5". */
-export const displayName = (name: string) => name.replace(/^Claude /, "").replace(/ (1M|\(latest\))$/, "");
 
 export function conversationId(id: number): ConversationId {
 	// SAFETY: a session's id is the id Pi Durable gave its conversation, or a number from the user that's only looked up.
@@ -143,6 +146,8 @@ export type HostOptions = {
 	onNotice?: (notice: Notice) => void;
 	/** Over Pi Durable's compaction defaults; the live check keeps less so a small conversation compacts. */
 	compaction?: Partial<CompactionPolicy>;
+	/** Writes sessions' titles. Default: the smallest model on hand (src/titles.ts); none for the faux model, given models or a given bridge. */
+	titler?: Titler;
 };
 
 export async function openHost(options: HostOptions) {
@@ -169,7 +174,8 @@ export async function openHost(options: HostOptions) {
 	} else if (config.model.provider === "faux" && options.bridge === undefined) {
 		({ models, model } = fauxModels());
 	} else {
-		// Each provider the settings name; one with no model chosen isn't loaded, so Claude Code is needed only for Claude.
+		// The bridge only when the settings name a Claude model, so Claude Code is needed only for Claude. OpenAI and
+		// OpenRouter always: they cost nothing until signed in, and their models are then in the pickers.
 		const used = new Set([config.model.provider, ...config.model.choices.map((c) => c.provider)]);
 		const mutable = createModels({ credentials: fileCredentialStore(credentialsFile(config.dataDir)) });
 		if (used.has(PROVIDER) || options.bridge !== undefined) {
@@ -177,16 +183,20 @@ export async function openHost(options: HostOptions) {
 			mutable.setProvider(bridged.provider);
 			extensions.push(bridged.extension);
 		}
-		if (used.has("openai")) {
-			mutable.setProvider(openaiProvider());
-			const auth = await mutable.checkAuth("openai");
-			if (auth === undefined) console.error("[models] OpenAI's models are in model.choices, but this machine isn't signed in; run: aludra login openai");
-			else if (auth.type === "api_key") console.error(`[models] OpenAI's models run on ${auth.source ?? "an API key"}, billed per token; aludra login openai uses a ChatGPT plan instead`);
-		}
+		mutable.setProvider(openaiProvider());
+		mutable.setProvider(openrouterProvider());
+		const openai = await mutable.checkAuth("openai");
+		if (used.has("openai") && openai === undefined) console.error("[models] OpenAI's models are in model.choices, but this machine isn't signed in; run: aludra login openai");
+		else if (openai?.type === "api_key") console.error(`[models] OpenAI's models run on ${openai.source ?? "an API key"}, billed per token; aludra login openai uses a ChatGPT plan instead`);
+		if (used.has("openrouter") && (await mutable.checkAuth("openrouter")) === undefined) console.error("[models] OpenRouter's models are in model.choices, but this machine isn't signed in; run: aludra login openrouter");
 		models = mutable;
 		model = { provider: config.model.provider, modelId: config.model.id };
 		if (models.getModel(model.provider, model.modelId) === undefined) throw new Error(`${model.provider === PROVIDER ? "pi-claude-bridge" : model.provider} has no model ${model.modelId}`);
 	}
+
+	// Tests' models and fake bridges script every answer, so they get titles only from a titler they pass.
+	const real = options.models === undefined && options.bridge === undefined && config.model.provider !== "faux";
+	const titler = options.titler ?? (real ? modelTitler(models, titleModels(models, config)) : undefined);
 
 	let approvals: ApprovalService | undefined;
 	const registry = createRegistry();
@@ -224,14 +234,16 @@ export async function openHost(options: HostOptions) {
 		return found === undefined ? undefined : { ...found };
 	}
 
-	/** The models sessions can use: the settings' choices their providers have, or the one model given. */
+	/** The pinned models: the settings' choices their providers have, or the one model given. */
 	function choices(): ModelChoice[] {
 		const refs: ModelRef[] = options.models === undefined ? config.model.choices.map((c) => ({ provider: c.provider, modelId: c.id })) : [model];
 		return refs.flatMap((ref) => {
 			const found = models.getModel(ref.provider, ref.modelId);
-			return found === undefined ? [] : [{ provider: ref.provider, id: ref.modelId, name: displayName(found.name) }];
+			return found === undefined ? [] : [choiceOf(ref.provider, found)];
 		});
 	}
+
+	const catalog = createCatalog(models);
 
 	/** A model's name and context window; an unknown model gets its ID and no window. */
 	function modelInfo(ref: ModelRef): { name: string; window: number } {
@@ -239,11 +251,19 @@ export async function openHost(options: HostOptions) {
 		return found === undefined ? { name: ref.modelId, window: 0 } : { name: displayName(found.name), window: found.contextWindow };
 	}
 
-	function choose(modelId: string | undefined): ModelRef | undefined {
-		if (modelId === undefined) return undefined;
-		const choice = choices().find((c) => c.id === modelId);
-		if (choice === undefined) throw new Error(`no model ${modelId} to choose`);
-		return { provider: choice.provider, modelId: choice.id };
+	/**
+	 * The model `name` names: a pinned choice's ID, or `provider/id` for any model a provider has, such as
+	 * openrouter/anthropic/claude-opus-5.5. Throws for one there's no such model.
+	 */
+	function choose(name: string | undefined): ModelRef | undefined {
+		if (name === undefined) return undefined;
+		const pinned = choices().find((c) => c.id === name);
+		if (pinned !== undefined) return { provider: pinned.provider, modelId: pinned.id };
+		const slash = name.indexOf("/");
+		const provider = name.slice(0, slash);
+		const modelId = name.slice(slash + 1);
+		if (slash > 0 && models.getProvider(provider) !== undefined && models.getModel(provider, modelId) !== undefined) return { provider, modelId };
+		throw new Error(`no model ${name} to choose`);
 	}
 
 	/** A new session in `project`, titled from `prompt`, with the default model and thinking unless `agent` names others. */
@@ -266,6 +286,7 @@ export async function openHost(options: HostOptions) {
 				(await tx.doc(Sessions)).sessions[String(id)] = record;
 			},
 		}, context);
+		untitled.add(record!.id);
 		for (const listener of created) listener(record!);
 		return record!;
 	}
@@ -298,6 +319,7 @@ export async function openHost(options: HostOptions) {
 			},
 		}, context);
 		mkdirSync(record!.dir, { recursive: true, mode: 0o700 });
+		untitled.add(record!.id);
 		for (const listener of created) listener(record!);
 		return record!;
 	}
@@ -310,6 +332,59 @@ export async function openHost(options: HostOptions) {
 
 	const updated = new Set<(session: SessionRecord) => void>();
 
+	/** Sessions made in this process whose first message hasn't come yet; it's what their title is written from. */
+	const untitled = new Set<number>();
+
+	/**
+	 * Has the titler write session `id`'s title from `text`, its first message, unless someone renamed it meanwhile.
+	 * Resolves with the new record, or undefined when nothing changed; never rejects.
+	 */
+	async function writeTitle(id: number, text: string): Promise<SessionRecord | undefined> {
+		if (titler === undefined || text.trim() === "") return undefined;
+		try {
+			const title = await titler(text);
+			if (title === undefined) return undefined;
+			const record = await root.commit(async (tx) => {
+				const found = (await tx.doc(Sessions)).sessions[String(id)];
+				if (found === undefined || found.titled === "user") return undefined;
+				found.title = title;
+				found.titled = "model";
+				return { ...found };
+			}, context);
+			if (record !== undefined) updated.forEach((listener) => listener(record));
+			return record;
+		} catch (error) {
+			console.error(`[titles] session ${id}: ${error instanceof Error ? error.message : String(error)}`);
+			return undefined;
+		}
+	}
+
+	/** The text of session `id`'s first message, or undefined if it has none. */
+	async function firstMessage(id: number): Promise<string | undefined> {
+		const state = await (await conversation(id)).viewState(context);
+		try {
+			const first = itemsOf(state.value).find((item) => item.kind === "user");
+			return first?.kind === "user" ? first.text : undefined;
+		} finally {
+			state.dispose();
+		}
+	}
+
+	/**
+	 * Writes titles for sessions that still have their first message's first line, oldest first, and calls `onEach` with
+	 * each one done. Sessions renamed before titles were tracked are told apart by a title that isn't that first line.
+	 */
+	async function retitle(onEach: (before: SessionRecord, after: SessionRecord | undefined) => void = () => {}): Promise<void> {
+		for (const session of await list()) {
+			if (session.titled !== undefined) continue;
+			const text = await firstMessage(session.id);
+			if (text === undefined) continue;
+			const fromText = [text.split("\n")[0]!.slice(0, 80), text.split("\n").find((l) => l.trim() !== "")?.trim().slice(0, 80)];
+			if (!fromText.includes(session.title)) continue;
+			onEach(session, await writeTitle(session.id, text));
+		}
+	}
+
 	/** Gives session `id` a new title; returns its record, or throws if there's no such session. */
 	async function rename(id: number, title: string): Promise<SessionRecord> {
 		const trimmed = title.replace(/\s+/g, " ").trim();
@@ -321,6 +396,7 @@ export async function openHost(options: HostOptions) {
 			const found = doc.sessions[String(id)];
 			if (found === undefined) throw new Error(`no session ${id}`);
 			found.title = trimmed;
+			found.titled = "user";
 			return { ...found };
 		}, context);
 		updated.forEach((listener) => listener(record));
@@ -344,6 +420,8 @@ export async function openHost(options: HostOptions) {
 		const target = await conversation(id);
 		// A new message instead of an answer: the waiting call is refused, so the run can take the message.
 		await approvals!.supersede(id);
+		// A new session's first message names it, in the background.
+		if (untitled.delete(id)) void writeTitle(id, textOf(content));
 		return target.submit({ type: "input", content, whenBusy: options.steer ? "steer" : "followUp", ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }, context);
 	}
 
@@ -475,9 +553,13 @@ export async function openHost(options: HostOptions) {
 		model,
 		thinking: thinkingLevel,
 		choices,
+		/** Whether `provider` has model `id`. */
+		hasModel: (provider: string, id: string) => models.getProvider(provider) !== undefined && models.getModel(provider, id) !== undefined,
+		/** Every model a session can run on, by provider (src/catalog.ts). */
+		catalog: () => catalog.list(),
 		modelInfo,
 		projects,
-		sessions: { list, get, create, createScratch, onCreate, rename, onUpdate, states },
+		sessions: { list, get, create, createScratch, onCreate, rename, retitle, onUpdate, states },
 		scratchRoot,
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },

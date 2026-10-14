@@ -25,7 +25,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), app(config), push(), service(config), backups(config)];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), openrouter(config), app(config), push(), service(config), backups(config)];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -103,7 +103,8 @@ async function claude(config: Config): Promise<Check[]> {
 /** The default model is one its provider has (or the host won't start); a choice that isn't is left out of the picker. */
 async function model(config: Config): Promise<Check[]> {
 	if (config.model.provider === "faux") return [{ status: "warn", area: "model", detail: "the faux model: scripted answers, no network" }];
-	const known: Partial<Record<ProviderId, string[]>> = { openai: signInModels(config).getModels("openai").map((m) => m.id) };
+	const signIns = signInModels(config);
+	const known: Partial<Record<ProviderId, string[]>> = { openai: signIns.getModels("openai").map((m) => m.id), openrouter: signIns.getModels("openrouter").map((m) => m.id) };
 	if (uses(config, PROVIDER)) known[PROVIDER] = (await loadBridge({ claudePath: config.claude.path, dir: join(config.dataDir, "bridge") }, () => {})).models.map((m) => m.id);
 	const has = (provider: ProviderId, id: string) => known[provider]?.includes(id) === true;
 	const { provider, id } = config.model;
@@ -114,6 +115,14 @@ async function model(config: Config): Promise<Check[]> {
 		if (!has(choice.provider, choice.id)) checks.push({ status: "warn", area: "model", detail: `${choice.provider} has no ${choice.id}, so the apps leave it out` });
 	}
 	return checks;
+}
+
+/** OpenRouter, when a model is pinned or the machine is signed in: billed per request, so say so. */
+async function openrouter(config: Config): Promise<Check[]> {
+	if (config.model.provider === "faux") return [];
+	const auth = await signInModels(config).checkAuth("openrouter");
+	if (auth === undefined) return uses(config, "openrouter") ? [{ status: "fail", area: "openrouter", detail: "not signed in, so OpenRouter's models fail; run: aludra login openrouter" }] : [];
+	return [{ status: "ok", area: "openrouter", detail: `signed in (${auth.type === "oauth" ? "aludra's own key" : auth.source ?? "an API key"}); every request is billed, and each session shows its cost` }];
 }
 
 /** OpenAI, when the settings offer its models: signed in with ChatGPT, and each one in the account's catalog. */

@@ -30,6 +30,8 @@ A page from another site, open in your browser on a tailnet device, would carry 
 
 **OpenAI.** `aludra login openai` uses Sign in with ChatGPT, OpenAI's flow for open-source apps running on your own machine. The sign-in registers aludra with your ChatGPT account and grants it use of your plan for model requests; it doesn't grant access to your ChatGPT conversations. The tokens are kept in `credentials.json` in the data directory, owner-only, and the protected-path gate keeps sessions from reading it. Requests go straight to `api.openai.com` with `store: false`, carrying the session's transcript like any model request. Without a sign-in, an `OPENAI_API_KEY` in the host's environment is used instead, billed per token; doctor and the host's log say so.
 
+**OpenRouter.** `aludra login openrouter` uses OpenRouter's OAuth flow, which creates an API key for aludra on your OpenRouter account. It's kept in `credentials.json` like the ChatGPT sign-in, and works until you delete it on OpenRouter's site. Requests go to `openrouter.ai`, which passes them to the model's maker, carrying the session's transcript. An `OPENROUTER_API_KEY` in the host's environment works too.
+
 ## Permissions
 
 Inside a session the agent works without asking: reading and editing files, builds, tests, installs, commits. Two things stop it.
