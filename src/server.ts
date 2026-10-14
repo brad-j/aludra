@@ -22,7 +22,7 @@ import { createInterface } from "node:readline";
 import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchEvents } from "@earendil-works/pi-durable";
 import type { ServerEvent, SessionSummary } from "./api-types.ts";
 import { createApi } from "./api.ts";
-import { createLive, type Live, readSpend, readSummary } from "./live.ts";
+import { createLive, type Live, monthSpend, readSummary } from "./live.ts";
 import { scheduleBackups } from "./backup.ts";
 import { createPush, loadPushKeys } from "./push.ts";
 import type { Config } from "./config.ts";
@@ -323,11 +323,9 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				if (request.listing !== true) return finish(describeSessions(await host.sessions.list(), await host.sessions.states()));
 				const sessions = (await Promise.all((await host.sessions.list()).map((s) => readSummary(host, s.id)))).flatMap((s) => (s === undefined ? [] : [s]));
 				// This calendar month's spend on billed providers, from sessions that ever used one.
-				const now = new Date();
-				const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-				const month = (await Promise.all(sessions.filter((s) => s.cost !== undefined).map((s) => readSpend(host, s.id, monthStart)))).reduce<number>((sum, n) => sum + (n ?? 0), 0);
-				const billed = sessions.some((s) => s.cost !== undefined);
-				send(socket, { type: "sessions", sessions, colors: await host.colors.list(), ...(billed ? { spend: { month } } : {}) });
+				const billed = sessions.filter((s) => s.cost !== undefined).map((s) => s.id);
+				const spend = billed.length === 0 ? {} : { spend: { month: await monthSpend(host, billed) } };
+				send(socket, { type: "sessions", sessions, colors: await host.colors.list(), ...spend });
 				return finish([]);
 			}
 			case "stop":

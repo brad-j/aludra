@@ -71,7 +71,7 @@ A model is `provider/id`, or a bare ID of `provider`:
 
 Pinning is only for convenience. The picker also searches every model of every provider this machine is signed in to: Claude Code's, the ones your ChatGPT account offers, and OpenRouter's whole catalog with prices. Any of them can run a session. Claude Code is only needed when a choice is a Claude model. A sign-in reaches a running host from the next time a picker opens; a change to `choices` needs a restart, like any other setting.
 
-OpenRouter bills each request. aludra adds up what each session's answers cost and shows it beside the session's context use, in the apps and the terminal, and `aludra sessions` shows the month's total. Answers on Claude Code and ChatGPT cost nothing here; they're on your plans. For a cap, set a credit limit on the key at OpenRouter.
+OpenRouter bills each request. aludra adds up what each session cost there, compaction summaries included, and shows it beside the session's context use, in the apps and the terminal, and `aludra sessions` shows the month's total. Answers on Claude Code and ChatGPT cost nothing here; they're on your plans. For a cap, set a credit limit on the key at OpenRouter.
 
 Each session keeps its own model and thinking level, which you can change from the apps at any time. The change applies to the session's next request.
 

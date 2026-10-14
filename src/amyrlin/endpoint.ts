@@ -16,6 +16,8 @@ import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, type SessionRecord } from "../host.ts";
 import { type ImageInput, messageContent, titleOf } from "../images.ts";
 import type { ApprovalRequest } from "../permissions.ts";
+import { monthSpend } from "../live.ts";
+import { billedCost } from "../transcript.ts";
 import { DurableTranslator, entryItem, type Json, text, usageState } from "./translate.ts";
 
 const LIMITS = { maxFrameBytes: 16 * 1024 * 1024, snapshotItems: 200 };
@@ -131,6 +133,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			updatedAt: newest?.model?.[0]?.timestamp ?? record.createdAt,
 			pendingApprovals: pending,
 			spend: usageState(usage),
+			// What was charged: `spend` prices every answer at API rates, plan-paid ones too.
+			...costOf(billedCost(usage)),
 			workspace: record.workspace,
 			// A no-project session has no `project`; its `dir` is its scratch directory.
 			...(record.scratch === true ? {} : { project: record.project }),
@@ -183,6 +187,16 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 	const ready = refreshAll();
 
 	const listSummaries = () => [...summaries.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+
+	/** A summary's `cost`: dollars charged by providers that bill each request, present only when it used one. */
+	const costOf = (cost: number | undefined): Json => (cost === undefined ? {} : { cost });
+
+	/** The host's `monthCost`: this calendar month's charged dollars, present only when any session was charged. */
+	async function monthCostOf(): Promise<Json> {
+		await ready;
+		const billed = listSummaries().filter((c) => c.cost !== undefined).map((c) => Number(c.id));
+		return billed.length === 0 ? {} : { monthCost: await monthSpend(host, billed) };
+	}
 
 	async function hostSpend(): Promise<Json> {
 		return usageState(await harness.usage(context));
@@ -385,6 +399,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			defaults: { model: host.model, thinkingLevel: host.thinking },
 			projects: host.projects().map((p) => ({ workspace: p.workspace, name: p.name, path: p.path, dir: p.dir })),
 			projectColors: await host.colors.list(),
+			...(await monthCostOf()),
 		};
 	}
 
@@ -536,7 +551,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 							stopColors();
 						});
 						respond({ subscription: id });
-						await send([{ type: "host.snapshot", host: await identity(), spend: await hostSpend(), conversations: listSummaries(), projectColors: await host.colors.list() }]);
+						await send([{ type: "host.snapshot", host: await identity(), spend: await hostSpend(), ...(await monthCostOf()), conversations: listSummaries(), projectColors: await host.colors.list() }]);
 						summaryListeners.add(onSummary);
 						if (subscriptions.has(id)) stopColors = host.colors.onChange((projectColors) => void send([{ type: "host.projectColors", projectColors }]));
 						return;

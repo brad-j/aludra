@@ -1,10 +1,10 @@
 // What's live, for the apps' sockets: every session's summary, ideas and picked colors, kept current, and the transcript
 // and meta of the session a client follows. The web app gets it over /api/live (src/api.ts) and the terminal UI over the
 // CLI's socket (src/server.ts, src/tui.ts); both speak ServerEvent and ClientEvent (src/api-types.ts).
-import type { ConversationView } from "@earendil-works/pi-durable";
+import type { ConversationView, UsageState } from "@earendil-works/pi-durable";
 import type { Item, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
 import { context, type Host, type SessionRecord } from "./host.ts";
-import { contextUsed, firstChange, itemsOf, lineOf, queuedOf, spendOf, stateOf, updatedAt } from "./transcript.ts";
+import { billedCost, contextUsed, firstChange, itemsOf, lineOf, queuedOf, spendOf, stateOf, updatedAt } from "./transcript.ts";
 
 /** One client's view: its list of sessions, ideas and colors, and the session it follows. */
 export type LiveClient = {
@@ -143,7 +143,8 @@ async function metaOf(host: Host, record: SessionRecord, view: ConversationView,
 function summaryOf(record: SessionRecord, view: ConversationView, items: readonly Item[], waiting: boolean): SessionSummary {
 	const state = stateOf(view, waiting);
 	const { id, workspace, project, dir, title, createdAt } = record;
-	const cost = spendOf(view);
+	// SAFETY: a document in the view is the JSON of its kind's state.
+	const cost = billedCost(view.docs["pi.usage"] as UsageState | undefined);
 	return { id, workspace, project, dir, title, createdAt, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state), ...(cost === undefined ? {} : { cost }), ...(record.archived === true ? { archived: true } : {}) };
 }
 
@@ -168,6 +169,12 @@ export async function readSpend(host: Host, id: number, since: number): Promise<
 	} finally {
 		state.dispose();
 	}
+}
+
+/** This calendar month's spend on billed providers across `ids`, the sessions that ever used one. */
+export async function monthSpend(host: Host, ids: readonly number[], now = new Date()): Promise<number> {
+	const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+	return (await Promise.all(ids.map((id) => readSpend(host, id, start)))).reduce<number>((sum, n) => sum + (n ?? 0), 0);
 }
 
 type SessionsFeed = ReturnType<typeof sessionsFeed>;

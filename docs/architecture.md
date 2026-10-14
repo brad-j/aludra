@@ -57,7 +57,7 @@ Pi Durable gets one pi-ai `Models` collection: the bridge when `model.choices` n
 - **OpenRouter** is pi-ai's `openrouter` provider and its catalog of several hundred priced models. `aludra login openrouter` runs pi-ai's OAuth flow, which leaves an API key in the store.
 - **Claude** goes through the bridge, below.
 
-`src/catalog.ts` lists every model a session can run on: each provider this machine is signed in to, OpenAI's narrowed to what the ChatGPT account offers (asked of the account hourly). The pickers search it; `model.choices` are pinned above it. Costs come from pi-ai, which prices each answer from the catalog; `spendOf` in `src/transcript.ts` adds up the answers from billed providers (OpenRouter) for a session's summary and the month's total.
+`src/catalog.ts` lists every model a session can run on: each provider this machine is signed in to, OpenAI's narrowed to what the ChatGPT account offers (asked of the account hourly). The pickers search it; `model.choices` are pinned above it. Costs come from pi-ai, which prices each answer from the catalog; A session's `cost` is `billedCost` in `src/transcript.ts`: the OpenRouter part of its usage ledger (Pi Durable's `pi.usage`, keyed `provider/modelId`), which counts compaction summaries too. The month's total is `spendOf`, which adds up answers by their time; the ledger has no times, so that total leaves out compaction summaries.
 
 ### The bridge
 

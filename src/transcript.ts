@@ -1,7 +1,7 @@
 // A session's transcript as the app shows it: Pi Durable's view (entries and the live document) turned into a list of
 // items, with what's running overlaid. The app gets these over the WebSocket (src/api.ts).
 import type { AssistantMessage, Message, ToolResultMessage } from "@earendil-works/pi-ai";
-import type { ConversationView, InboxState, LiveState } from "@earendil-works/pi-durable";
+import type { ConversationView, InboxState, LiveState, UsageState } from "@earendil-works/pi-durable";
 import type { Item, SessionState } from "./api-types.ts";
 import { imagesIn } from "./images.ts";
 
@@ -165,7 +165,20 @@ export function updatedAt(view: ConversationView, fallback: number): number {
 export const BILLED = new Set(["openrouter"]);
 
 /**
- * Dollars a session's answers cost on providers that bill each request (BILLED), from `since` on;
+ * Dollars a session has cost on providers that bill each request, from its usage ledger (Pi Durable's `pi.usage`, keyed
+ * `provider/modelId`), which counts compaction summaries as well as answers; undefined when it never used one.
+ */
+export function billedCost(usage: Pick<UsageState, "models"> | undefined): number | undefined {
+	let spent: number | undefined;
+	for (const [key, used] of Object.entries(usage?.models ?? {})) {
+		if (BILLED.has(key.slice(0, key.indexOf("/")))) spent = (spent ?? 0) + used.cost.total;
+	}
+	return spent;
+}
+
+/**
+ * Dollars a session's answers cost on providers that bill each request (BILLED), from `since` on, for totals over a
+ * period: the ledger has no times, so this counts answers only;
  * undefined when none of its answers came from one. Plan-paid answers (Claude Code, ChatGPT) cost nothing here.
  */
 export function spendOf(view: ConversationView, since = 0): number | undefined {

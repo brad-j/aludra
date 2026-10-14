@@ -6,9 +6,11 @@ import test, { type TestContext } from "node:test";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { UsageDoc } from "@earendil-works/pi-durable";
 import { WebSocket } from "ws";
 import { createApi } from "../src/api.ts";
 import { type Json, translateFixture } from "../src/amyrlin/translate.ts";
+import { context, conversationId } from "../src/host.ts";
 import { makeProject, PNG, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
@@ -297,6 +299,29 @@ test("a conversation is archived from the Mac: hidden from conversations.list, s
 	assert.equal((await mac.request("conversations.archive", { conversationId: conversation.id, archived: false })).conversation.archived, false);
 	assert.equal((await mac.request("conversations.list", {})).conversations.some((c: Json) => c.id === conversation.id), true);
 	await assert.rejects(mac.request("conversations.archive", { conversationId: conversation.id }), { code: "bad_request" });
+});
+
+test("a summary's cost is what billed providers charged, and the host has the month's total; plan-paid sessions have neither", async (t) => {
+	const { url, project, host } = await api(t);
+	const mac = await client(t, url);
+	const { conversation } = await mac.request("conversations.create", { requestId: "cost-1", project: project.dir });
+	const listed = async () => (await mac.request("conversations.list", {})).conversations.find((c: Json) => c.id === conversation.id);
+	assert.equal((await listed()).cost, undefined);
+	assert.equal((await mac.request("host.info")).monthCost, undefined);
+
+	// As if it had run on OpenRouter: the ledger Pi Durable keeps, keyed provider/model.
+	const used = (total: number) => ({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total } });
+	await host.harness.commit(async (tx) => {
+		const usage = await tx.doc(UsageDoc, conversationId(conversation.id));
+		usage.models["openrouter/anthropic/claude-sonnet-5.5"] = used(0.25);
+		usage.models["faux/faux-1"] = used(3);
+	}, context);
+	const deadline = Date.now() + 5000;
+	while ((await listed()).cost === undefined && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+	const summary = await listed();
+	assert.equal(summary.cost, 0.25);
+	assert.ok(summary.spend.byModel["faux/faux-1"] !== undefined, "spend still has every model");
+	assert.equal(typeof (await mac.request("host.info")).monthCost, "number");
 });
 
 test("an image sent from the Mac is in the transcript as a block, and conversation.image gives its bytes", async (t) => {

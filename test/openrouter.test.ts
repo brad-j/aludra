@@ -12,7 +12,7 @@ import { configFor } from "../src/config.ts";
 import { credentialsFile, fileCredentialStore } from "../src/credentials.ts";
 import { context, conversationId, openHost } from "../src/host.ts";
 import { money, renderSessions } from "../src/listing.ts";
-import { spendOf } from "../src/transcript.ts";
+import { billedCost, spendOf } from "../src/transcript.ts";
 import { fakeBridge, makeProject, tempDir } from "./helpers.ts";
 
 test("OpenRouter's models are offered once signed in, each with its price", async (t) => {
@@ -65,6 +65,13 @@ test("a session's spend adds up billed answers only, from a given time on", () =
 	assert.equal(spendOf(view, 15), 0.5);
 	assert.equal(spendOf({ entries: [{ model: [answer("claude-bridge", 3, 1)] }] } as unknown as ConversationView), undefined, "nothing billed");
 	assert.deepEqual([money(0), money(0.001), money(0.4), money(12.3), money(140.4)], ["$0", "<$0.01", "$0.40", "$12.30", "$140"]);
+});
+
+test("a session's charged cost comes from its usage ledger, billed providers only", () => {
+	const used = (total: number) => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total } });
+	assert.equal(billedCost({ models: { "openrouter/anthropic/claude-opus-5.5": used(0.3), "openrouter/~deepseek/deepseek-flash-latest": used(0.02), "claude-bridge/claude-opus-5-5": used(2), "openai/gpt-6.1-sol": used(1) } }), 0.32);
+	assert.equal(billedCost({ models: { "openai/gpt-6.1-sol": used(1) } }), undefined, "ChatGPT is on the plan");
+	assert.equal(billedCost(undefined), undefined);
 });
 
 test("aludra sessions shows a billed session's cost and the month's total", () => {
