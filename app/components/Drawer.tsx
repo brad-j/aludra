@@ -12,6 +12,8 @@ import { IdeaRow } from "./Ideas.tsx";
 import { useTick, useUi } from "./Shell.tsx";
 
 const FOLDED = "aludra.folded";
+/** The archived group's key in the folded set; it's the other way round from projects: listed there means open. */
+const ARCHIVED = "aludra:archived";
 
 /** Projects folded in the drawer, by directory, kept in this browser. */
 function useFolded(): [Set<string>, (dir: string) => void] {
@@ -44,7 +46,9 @@ export function Drawer() {
 	// No-project sessions each have their own scratch directory; they go together under one "no project" group.
 	const keyOf = (project: string, dir: string) => (project === NO_PROJECT ? NO_PROJECT : dir);
 	const group = (project: string, dir: string) => groups.get(keyOf(project, dir)) ?? groups.set(keyOf(project, dir), { project, dir: keyOf(project, dir), sessions: [], ideas: [] }).get(keyOf(project, dir))!;
-	for (const session of sessions ?? []) group(session.project, session.dir).sessions.push(session);
+	// Archived sessions leave their projects for one folded group at the end.
+	const archived = (sessions ?? []).filter((s) => s.archived === true).sort((a, b) => b.updatedAt - a.updatedAt);
+	for (const session of sessions ?? []) if (session.archived !== true) group(session.project, session.dir).sessions.push(session);
 	for (const idea of ideas) group(idea.project, idea.dir).ideas.push(idea);
 	// A project with only ideas comes after every project with a session.
 	const rank = (g: Group) => Math.min(9, ...g.sessions.map((s) => URGENCY[s.state]));
@@ -81,33 +85,49 @@ export function Drawer() {
 						{!isFolded && <ul className="rows">
 							{list
 								.sort((a, b) => URGENCY[a.state] - URGENCY[b.state] || b.updatedAt - a.updatedAt)
-								.map((session) => (
-									<li key={session.id}>
-										<Link
-											to="/s/$id"
-											params={{ id: String(session.id) }}
-											className="session-row"
-											data-state={session.state}
-											aria-current={session.id === current ? "page" : undefined}
-											onClick={() => setDrawer(false)}
-										>
-											<Mark state={session.state} />
-											<span>
-												<span className="title">{session.title}</span>
-												<span className="line">{session.line || "\u00a0"}</span>
-											</span>
-											<span className="age">{age(session.updatedAt, now)}</span>
-										</Link>
-									</li>
-								))}
+								.map((session) => <SessionRow key={session.id} session={session} current={current} now={now} />)}
 							{projectIdeas.map((idea) => <IdeaRow key={`idea-${idea.id}`} idea={idea} />)}
 						</ul>}
 					</section>
 					);
 				})}
+				{archived.length > 0 && (
+					<section className="dir archived" data-folded={!folded.has(ARCHIVED)}>
+						<button type="button" className="dir-head" aria-expanded={folded.has(ARCHIVED)} onClick={() => toggleFolded(ARCHIVED)}>
+							<span className="name">Archived</span>
+							<span className="folded-note">{archived.length}</span>
+							<Icon.chevron />
+						</button>
+						{folded.has(ARCHIVED) && <ul className="rows">{archived.map((session) => <SessionRow key={session.id} session={session} current={current} now={now} />)}</ul>}
+					</section>
+				)}
 			</div>
 			<div className="drawer-foot"><Notifications /></div>
 		</aside>
+	);
+}
+
+/** A session's row: its mark, title, latest activity and age, opening it. */
+function SessionRow({ session, current, now }: { session: SessionSummary; current: number | undefined; now: number }) {
+	const { setDrawer } = useUi();
+	return (
+		<li>
+			<Link
+				to="/s/$id"
+				params={{ id: String(session.id) }}
+				className="session-row"
+				data-state={session.state}
+				aria-current={session.id === current ? "page" : undefined}
+				onClick={() => setDrawer(false)}
+			>
+				<Mark state={session.state} />
+				<span>
+					<span className="title">{session.title}</span>
+					<span className="line">{session.line || "\u00a0"}</span>
+				</span>
+				<span className="age">{age(session.updatedAt, now)}</span>
+			</Link>
+		</li>
 	);
 }
 

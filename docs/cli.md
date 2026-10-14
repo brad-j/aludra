@@ -110,6 +110,10 @@ Stops a session's run.
 
 Has a model write titles for sessions that still have their first message's first line: ones from before titles were written, or whose title request failed. Sessions you renamed are left alone. Prints each new title beside the old one. Run it again any time; it only picks up sessions that still need one.
 
+### `aludra archive --session ID` and `aludra unarchive --session ID`
+
+Hides a session from the lists (the apps' drawers, `aludra sessions`, the terminal UI), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
+
 ### `aludra approvals`
 
 Lists calls waiting for approval, oldest first, with their IDs.

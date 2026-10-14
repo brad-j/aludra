@@ -7,7 +7,8 @@
 // - Approvals are aludra's (src/permissions.ts): pending requests become `approval.requested`, and a decision, expiry,
 //   stop or new message becomes `approval.resolved` (approve, deny, or cancelled).
 // - Spend is pi-durable's usage. On the subscription its cost is 0; token counts are real.
-// - Forks and archiving aren't aludra features; those methods answer `unsupported`.
+// - Forks aren't an aludra feature; that method answers `unsupported`. Archiving hides a session from the lists, as
+//   aludra's own apps do; host.watch carries archived sessions and the client filters.
 import { randomUUID } from "node:crypto";
 import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import type { WebSocket } from "ws";
@@ -123,7 +124,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			id: record.id,
 			title: record.title,
 			status: state === "waiting" ? "needsApproval" : state === "running" ? "busy" : "idle",
-			archived: false,
+			archived: record.archived === true,
 			parent: null,
 			model: agent?.model ?? host.model,
 			createdAt: record.createdAt,
@@ -156,11 +157,15 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		for (const id of ids) {
 			const record = await host.sessions.get(id);
 			if (record === undefined) continue;
-			const summary = await summaryOf(record, states.get(id) ?? "idle");
-			if (JSON.stringify(summary) === JSON.stringify(summaries.get(id))) continue;
-			summaries.set(id, summary);
-			for (const listener of summaryListeners) listener(summary);
+			publishSummary(await summaryOf(record, states.get(id) ?? "idle"));
 		}
+	}
+
+	/** Keeps `summary` for the list, and tells every watcher if it changed. */
+	function publishSummary(summary: Json) {
+		if (JSON.stringify(summary) === JSON.stringify(summaries.get(summary.id))) return;
+		summaries.set(summary.id, summary);
+		for (const listener of summaryListeners) listener(summary);
 	}
 
 	const stopCommits = harness.subscribeCommits((publication) => {
@@ -399,7 +404,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		await readInbox();
 		const translator = new DurableTranslator({
 			conversationId: id,
-			conversation: () => ({ id, title: summaries.get(id)?.title ?? record.title, archived: false, parent: null, ...(record.scratch === true ? {} : { project: record.project }), dir: record.dir }),
+			conversation: () => ({ id, title: summaries.get(id)?.title ?? record.title, archived: summaries.get(id)?.archived ?? record.archived === true, parent: null, ...(record.scratch === true ? {} : { project: record.project }), dir: record.dir }),
 			inboxExtra: (submission) => inbox.get(submission),
 			settings: (agent) => ({ ...settings, stored: Object.fromEntries(["model", "thinkingLevel", "cwd", "tools", "instructions"].filter((k) => agent?.[k] !== undefined).map((k) => [k, agent[k]])) }),
 			approvals: () => pending,
@@ -565,7 +570,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 					return hostInfo();
 				case "conversations.list":
 					await ready;
-					return { conversations: listSummaries() };
+					return { conversations: p?.includeArchived === true ? listSummaries() : listSummaries().filter((c) => c.archived !== true) };
 				case "conversations.create":
 					return create(p);
 				case "conversations.rename": {
@@ -577,11 +582,21 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 					} catch (error) {
 						throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
 					}
-					// Watchers hear of it from onUpdate, which compares with the summary they last had.
-					return { conversation: await summaryOf(renamed, (await host.sessions.states()).get(renamed.id) ?? "idle") };
+					// The list and watchers have it at once, rather than at the next flush.
+					const summary = await summaryOf(renamed, (await host.sessions.states()).get(renamed.id) ?? "idle");
+					publishSummary(summary);
+					return { conversation: summary };
+				}
+				case "conversations.archive": {
+					const { record } = await session(p.conversationId);
+					if (typeof p.archived !== "boolean") throw new ProtocolError("bad_request", "conversations.archive takes archived: true or false");
+					const archived = await host.sessions.archive(record.id, p.archived);
+					const summary = await summaryOf(archived, (await host.sessions.states()).get(archived.id) ?? "idle");
+					// The list and watchers have it at once, rather than at the next flush.
+					publishSummary(summary);
+					return { conversation: summary };
 				}
 				case "conversations.fork":
-				case "conversations.archive":
 					throw new ProtocolError("unsupported", `aludra doesn't support ${method}`);
 				case "submit":
 					return submit(p);

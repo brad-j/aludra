@@ -643,3 +643,6 @@ a.path { display: block; text-decoration: underline dotted var(--color-rule-2); 
 .images .thumb { display: block; padding: 0; border: var(--rule-hair) solid var(--color-rule-2); background: var(--color-paper); cursor: zoom-in; }
 .images .thumb img { display: block; max-width: min(100%, 320px); max-height: 200px; }
 .sheet img.full { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+
+/* Archived sessions: one gray group at the end of the drawer, folded until opened. */
+.dir.archived .name { color: var(--color-ink-3); font-size: var(--text-md); }

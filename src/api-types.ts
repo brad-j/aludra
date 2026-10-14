@@ -20,6 +20,8 @@ export type SessionSummary = {
 	line: string;
 	/** Dollars spent on providers that bill each request, if any of its answers came from one. */
 	cost?: number;
+	/** Hidden from the lists until brought back. */
+	archived?: boolean;
 };
 
 /** One thing in a session's transcript, in order. */

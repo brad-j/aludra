@@ -180,6 +180,19 @@ test("the model and thinking change per session, to a pinned model or any the pr
 	assert.equal((await (await host.conversation(id)).agent(undefined as never)).thinkingLevel, "xhigh");
 });
 
+test("a session is archived over the API: its summary says so everywhere, and it comes back the same way", async (t) => {
+	const { call, base } = await api(t, [fauxAssistantMessage("ok")]);
+	const client = await live(t, base);
+	const { id } = await (await call("/api/sessions", { project: "one", text: "hi" })).json();
+	client.follow(id);
+	assert.deepEqual(await (await call(`/api/sessions/${id}/archive`, { archived: true })).json(), { archived: true });
+	await client.until(() => client.state.sessions.some((s) => s.id === id && s.archived === true), "the list to mark it archived");
+	await client.until(() => client.state.meta?.summary.archived === true, "the meta to say so");
+	assert.deepEqual(await (await call(`/api/sessions/${id}/archive`, { archived: false })).json(), { archived: false });
+	await client.until(() => client.state.sessions.some((s) => s.id === id && s.archived === undefined), "it back in the list");
+	assert.equal((await call("/api/sessions/999/archive", { archived: true })).status, 404);
+});
+
 test("an approval shows in the session's meta and is answered over the API", async (t) => {
 	const { call, base } = await api(t, toolThenAnswer("ssh build-box uptime || true", "Result:"));
 	const client = await live(t, base);

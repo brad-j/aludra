@@ -27,6 +27,8 @@ const USAGE = `usage: aludra [--config FILE] [COMMAND]
   watch [--session ID]                   print what every session (or one) does, until Ctrl+C
   sessions                               list sessions by project, with their state
   stop --session ID                      stop a session's run
+  archive --session ID | unarchive --session ID
+                                         hide a session from the lists, or bring it back
   retitle                                have a model title sessions that still have their first line
   approvals                              list calls waiting for approval
   approve ID | deny ID                   answer one
@@ -143,6 +145,9 @@ switch (command) {
 		process.exit(await talk(config, { type: "stop", session: sessionId() }));
 	case "approvals":
 		process.exit(await talk(config, { type: "approvals" }));
+	case "archive":
+	case "unarchive":
+		process.exit(await talk(config, { type: "archive", session: sessionId(), archived: command === "archive" }));
 	case "retitle":
 		process.exit(await talk(config, { type: "retitle" }));
 	case "approve":

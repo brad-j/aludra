@@ -87,6 +87,12 @@ export function SessionView({ id }: { id: number }) {
 						<span className="sub">{meta?.model.name} · {meta?.thinking}</span>
 					</button>
 				</li>
+				<li>
+					<button className="pick" onClick={() => { close(); void actions.archive(id, meta?.summary.archived !== true); }}>
+						<span className="grow">{meta?.summary.archived === true ? "Bring back from the archive" : "Archive"}</span>
+						{meta?.summary.archived !== true && <span className="sub">hides it from the list</span>}
+					</button>
+				</li>
 				{running && (
 					<li>
 						<button className="pick danger" onClick={() => { close(); void actions.stop(id); }}>

@@ -78,6 +78,13 @@ test("colors follow the terminal: none when plain, the project's hue and the sta
 	assert.ok(renderSessions(sessions, {}, { depth: 4, width: 80 }, now).some((line) => line.includes("\x1b[31m⊘")));
 });
 
+test("archived sessions are left out of the list, with a count at the foot", () => {
+	const lines = renderSessions([session(1, "a", "done", 0), session(2, "a", "done", 0, { archived: true }), session(3, "b", "done", 0, { archived: true })], {}, { depth: 1, width: 60 }, now);
+	assert.equal(lines.some((l) => /session [23]/.test(l)), false);
+	assert.match(lines.at(-1)!, /^2 archived; aludra unarchive --session ID/);
+	assert.match(renderSessions([session(2, "a", "done", 0, { archived: true })], {}, { depth: 1, width: 60 }, now)[0]!, /every session is archived/);
+});
+
 test("OKLCH converts to sRGB as CSS does", () => {
 	assert.deepEqual(oklchToRgb([1, 0, 0]), [255, 255, 255]);
 	assert.deepEqual(oklchToRgb([0, 0, 0]), [0, 0, 0]);

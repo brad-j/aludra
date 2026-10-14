@@ -126,6 +126,10 @@ Brad asked for OpenRouter, signed in through the browser, and asked why models h
 - **Spend:** this reverses "No spend tracking" for billed providers only. A session's summary carries `cost`, the sum of pi-ai's priced answers from OpenRouter; the web app's model line, the terminal UI and `aludra sessions` show it, and `aludra sessions` adds the calendar month's total. Caps stay on OpenRouter's side (a credit limit on the key). Claude through OpenRouter is at Anthropic's API prices, so it's mainly for models the plans don't have.
 - **Not checked live:** no OpenRouter account was signed in during the work; the catalog, picking and cost counting are tested with a stored key and recorded answers.
 
+## Archiving (2026-10-13)
+
+A session whose project folder was gone kept its old project group in amyrlin's sidebar, with no way to clear it. amyrlin's protocol v1 already had `conversations.archive` (hide, don't delete, idempotent), and amyrlin hides archived sessions; aludra answered `unsupported`. Now the session record has `archived`; amyrlin's endpoint archives and unarchives and reports it in summaries; the web app archives from the session menu into a folded Archived group at the end of the drawer; `aludra archive`/`unarchive --session ID` do it from the terminal, and `aludra sessions` and the terminal UI leave archived sessions out. There's no delete: archiving is undoable, and nothing else needed one. amyrlin still needs an Archive item in its session menu (its other session offered to add it), and its `docs/protocol.md` still says aludra answers archiving with `unsupported`.
+
 ## Spike findings (2026-10-11)
 
 Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gaidin's `node_modules` symlinked in, so their paths need adjusting to run again.

@@ -7,6 +7,7 @@
 //   GET  /api/sessions/:id/images/:entry/:message/:block   an image in the transcript (src/images.ts)
 //   POST /api/sessions/:id/stop
 //   POST /api/sessions/:id/title          { title }
+//   POST /api/sessions/:id/archive        { archived }                                   hides it from the lists, or brings it back
 //   POST /api/sessions/:id/agent          { model?, thinking? }
 //   POST /api/sessions/:id/withdraw       { submission }
 //   GET  /api/sessions/:id/changes        what the session changed since it started (src/changes.ts)
@@ -123,6 +124,7 @@ const message = object({ text: string, images: optional(array(image)), mode: lit
 const agentChange = object({ model: optional(string), thinking: optional(thinking) });
 const withdrawal = object({ submission: integer });
 const newTitle = object({ title: string });
+const archiving = object({ archived: boolean });
 const decision = object({ allow: boolean });
 const clientEvent = object({ type: literal("follow", "visible"), session: optional(integer), visible: optional(boolean) });
 const newIdea = object({ project: string, text: string });
@@ -272,7 +274,7 @@ export function createApi(host: Host, options: ApiOptions) {
 			if (decided === undefined) throw new HttpError(409, "That approval isn't waiting any more");
 			return { status: decided.status };
 		}
-		const match = /^\/api\/sessions\/(\d+)\/(messages|stop|agent|withdraw|title)$/.exec(path);
+		const match = /^\/api\/sessions\/(\d+)\/(messages|stop|agent|withdraw|title|archive)$/.exec(path);
 		if (match === null) throw new HttpError(404, "Not found");
 		const id = Number(match[1]);
 		if ((await host.sessions.get(id)) === undefined) throw new HttpError(404, `No session ${id}`);
@@ -292,6 +294,8 @@ export function createApi(host: Host, options: ApiOptions) {
 				return {};
 			case "title":
 				return { title: (await host.sessions.rename(id, parseJson(body, newTitle, "the title").title)).title };
+			case "archive":
+				return { archived: (await host.sessions.archive(id, parseJson(body, archiving, "the archive").archived)).archived === true };
 			default:
 				return { result: await host.withdraw(id, parseJson(body, withdrawal, "the withdrawal").submission) };
 		}

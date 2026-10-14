@@ -219,7 +219,7 @@ test("settings change model and thinking only, and unsupported or unknown reques
 	await assert.rejects(mac.request("configure", { conversationId: id, changes: { cwd: "/tmp" } }), { code: "invalid_settings" });
 	await assert.rejects(mac.request("configure", { conversationId: id, changes: { model: { provider: "faux", modelId: "nope" } } }), { code: "invalid_settings" });
 	await assert.rejects(mac.request("conversations.create", { requestId: "x", project: "/not/a/project" }), { code: "invalid_settings" });
-	await assert.rejects(mac.request("conversations.archive", { conversationId: id, archived: true }), { code: "unsupported" });
+	await assert.rejects(mac.request("conversations.fork", { conversationId: id, requestId: "f" }), { code: "unsupported" });
 	await assert.rejects(mac.request("submit", { conversationId: 99_999, requestId: "x", text: "x" }), { code: "not_found" });
 	await assert.rejects(mac.request("no.such.method"), { code: "unknown_method" });
 });
@@ -277,6 +277,26 @@ test("a conversation is renamed from the Mac, and every watcher hears the new ti
 	await other.event(subscription, (e) => e.type === "conversation.updated" && e.conversation.title === "Renamed", "the new title");
 	await assert.rejects(mac.request("conversations.rename", { conversationId: conversation.id, title: "" }), { code: "bad_request" });
 	await assert.rejects(mac.request("conversations.rename", { conversationId: 999, title: "x" }), { code: "not_found" });
+});
+
+test("a conversation is archived from the Mac: hidden from conversations.list, still in host.watch marked archived, and brought back", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const other = await client(t, url);
+	const { conversation } = await mac.request("conversations.create", { requestId: "archive-1", project: project.dir, text: "hello" });
+	const { subscription } = await other.request("host.watch");
+	await other.event(subscription, type("host.snapshot"), "the snapshot");
+
+	const archived = await mac.request("conversations.archive", { conversationId: conversation.id, archived: true });
+	assert.equal(archived.conversation.archived, true);
+	await other.event(subscription, (e) => e.type === "conversation.updated" && e.conversation.archived === true, "the archived flag");
+	assert.equal((await mac.request("conversations.list", {})).conversations.some((c: Json) => c.id === conversation.id), false);
+	assert.equal((await mac.request("conversations.list", { includeArchived: true })).conversations.find((c: Json) => c.id === conversation.id)?.archived, true);
+	// Idempotent, and undone the same way.
+	await mac.request("conversations.archive", { conversationId: conversation.id, archived: true });
+	assert.equal((await mac.request("conversations.archive", { conversationId: conversation.id, archived: false })).conversation.archived, false);
+	assert.equal((await mac.request("conversations.list", {})).conversations.some((c: Json) => c.id === conversation.id), true);
+	await assert.rejects(mac.request("conversations.archive", { conversationId: conversation.id }), { code: "bad_request" });
 });
 
 test("an image sent from the Mac is in the transcript as a block, and conversation.image gives its bytes", async (t) => {

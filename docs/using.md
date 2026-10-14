@@ -64,6 +64,10 @@ The composer's model line shows the session's model, thinking level and how much
 
 Attach images with the image button (photos or the camera on a phone), or paste or drop them into the composer. A message takes up to 8. Each is scaled to at most 1568 px on its long side and sent as PNG or JPEG, which also converts a phone's HEIC photos. They show above your message in the transcript, and tap open full size. Images a tool returns, such as a screenshot the agent read, show under that call.
 
+### Archiving
+
+A session you're done with can be archived from its menu (`⋯`). It leaves its project in the drawer for a folded Archived group at the end, where you can still open it; the same menu brings it back. Nothing is deleted, and a run that's going carries on. A session whose project folder has gone away stays under the old project name until you archive it. In amyrlin, archive from a session's menu; on the command line, `aludra archive --session ID`.
+
 ## Ideas
 
 An idea is a first message kept for later, filed under its project. In the new-session screen, write it and tap Idea instead of sending. Ideas show under their project in the drawer and on the new-session screen. Tap one to read it whole, then Start (which runs it as a new session in its project) or Delete. Ideas are text only.
@@ -104,7 +108,7 @@ The host sends notifications through the browser maker's push service (Apple's, 
 
 ## amyrlin
 
-[amyrlin](https://github.com/brad-j/amyrlin) is an optional native macOS client. It connects to every machine you add and shows all their sessions together. Everything above works there too, plus picking project colors. Its README covers installing it. Forking and archiving sessions aren't aludra features; amyrlin gets "unsupported" for those.
+[amyrlin](https://github.com/brad-j/amyrlin) is an optional native macOS client. It connects to every machine you add and shows all their sessions together. Everything above works there too, plus picking project colors. Its README covers installing it. Forking sessions isn't an aludra feature; amyrlin gets "unsupported" for it.
 
 ## The CLI
 

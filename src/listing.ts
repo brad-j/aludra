@@ -125,8 +125,10 @@ export function money(dollars: number): string {
  * `spend` this month's spend on billed providers, shown at the foot when there's any.
  */
 export function renderSessions(sessions: readonly SessionSummary[], colors: Readonly<Record<string, number>>, style: ListingStyle, now = Date.now(), spend?: { month: number }): string[] {
-	if (sessions.length === 0) return ['no sessions yet; start one with aludra ask --project NAME "..."'];
+	const hidden = sessions.filter((s) => s.archived === true).length;
+	sessions = sessions.filter((s) => s.archived !== true);
 	const paint = pen(style.depth);
+	if (sessions.length === 0) return [hidden === 0 ? 'no sessions yet; start one with aludra ask --project NAME "..."' : `every session is archived (${hidden}); aludra unarchive --session ID brings one back`];
 	const width = Math.max(40, style.width);
 	// pi-tui's truncation ends what it cuts with a reset, which plain text mustn't carry.
 	const cut = (text: string, max: number) => (style.depth === 1 ? stripTerminalSequences(truncateToWidth(text, max, "…")) : truncateToWidth(text, max, "…"));
@@ -156,6 +158,7 @@ export function renderSessions(sessions: readonly SessionSummary[], colors: Read
 			lines.push(`${" ".repeat(indent)}${paint.ink(tone, cut(s.line, width - indent))}`);
 		}
 	}
-	if (spend !== undefined) lines.push("", paint.ink("dim", `OpenRouter this month: ${money(spend.month)}`));
+	if (hidden > 0) lines.push("", paint.ink("dim", `${hidden} archived; aludra unarchive --session ID brings one back`));
+	if (spend !== undefined) lines.push(...(hidden > 0 ? [] : [""]), paint.ink("dim", `OpenRouter this month: ${money(spend.month)}`));
 	return lines;
 }

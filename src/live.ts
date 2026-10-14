@@ -144,7 +144,7 @@ function summaryOf(record: SessionRecord, view: ConversationView, items: readonl
 	const state = stateOf(view, waiting);
 	const { id, workspace, project, dir, title, createdAt } = record;
 	const cost = spendOf(view);
-	return { id, workspace, project, dir, title, createdAt, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state), ...(cost === undefined ? {} : { cost }) };
+	return { id, workspace, project, dir, title, createdAt, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state), ...(cost === undefined ? {} : { cost }), ...(record.archived === true ? { archived: true } : {}) };
 }
 
 /** Session `id`'s summary as the drawer shows it, read from its view; undefined if there's no such session. */

@@ -4,7 +4,7 @@
 // client → server: {"type":"ask","content":"...","project":"aludra"} or {"type":"ask","content":"...","session":3},
 //                  {"type":"watch","session":3?}, {"type":"sessions","listing":true?}, {"type":"stop","session":3},
 //                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true}, {"type":"live"},
-//                  {"type":"retitle"}
+//                  {"type":"retitle"}, {"type":"archive","session":3,"archived":true}
 // server → client: {"type":"line","text":"..."}, for a sessions request with listing
 //                  {"type":"sessions","sessions":[SessionSummary...],"colors":{...}}, and, last, {"type":"done","status":"..."}
 //
@@ -41,7 +41,8 @@ export type ClientMessage =
 	| { type: "approvals" }
 	| { type: "decide"; id: string; allow: boolean }
 	| { type: "live" }
-	| { type: "retitle" };
+	| { type: "retitle" }
+	| { type: "archive"; session: number; archived: boolean };
 
 export type ServerMessage =
 	| { type: "line"; text: string }
@@ -51,7 +52,8 @@ export type ServerMessage =
 
 const followEvent = object({ type: literal("follow"), session: nullable(integer) });
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "live", "retitle"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "live", "retitle", "archive"),
+	archived: optional(boolean),
 	content: optional(string),
 	project: optional(string),
 	session: optional(integer),
@@ -101,6 +103,9 @@ export function parseClientMessage(line: string): ClientMessage {
 			return { type: "live" };
 		case "retitle":
 			return { type: "retitle" };
+		case "archive":
+			if (m.session === undefined) throw new ParseError("an archive needs a session");
+			return { type: "archive", session: m.session, archived: m.archived !== false };
 		case "decide":
 			if (m.id === undefined || m.allow === undefined) throw new ParseError("a decision needs an id and allow");
 			return { type: "decide", id: m.id, allow: m.allow };
@@ -331,6 +336,10 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 			case "approvals": {
 				const pending = await host.approvals.pending();
 				return finish(pending.length === 0 ? ["nothing waits for approval"] : pending.map((r) => `[${r.conversationId}] ${describeApproval(r)}`));
+			}
+			case "archive": {
+				const record = await host.sessions.archive(request.session, request.archived);
+				return finish([request.archived ? `archived session ${record.id}: ${record.title}` : `brought back session ${record.id}: ${record.title}`]);
 			}
 			case "retitle": {
 				let done = 0;

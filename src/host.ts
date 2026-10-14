@@ -39,6 +39,8 @@ export type SessionRecord = {
 	title: string;
 	/** Who wrote the title: a model, or someone by hand. Unset, it's the first message's first line. */
 	titled?: "model" | "user";
+	/** Hidden from the lists; nothing else changes, and running work goes on. */
+	archived?: boolean;
 	createdAt: number;
 	/** The project's files when it started, for its changes (src/changes.ts); or why there's no snapshot. */
 	base?: Snapshot;
@@ -403,6 +405,19 @@ export async function openHost(options: HostOptions) {
 		return record;
 	}
 
+	/** Archives session `id`, or brings it back with false; returns its record. Archiving only hides it from the lists. */
+	async function archive(id: number, archived: boolean): Promise<SessionRecord> {
+		const record = await root.commit(async (tx) => {
+			const found = (await tx.doc(Sessions)).sessions[String(id)];
+			if (found === undefined) throw new Error(`no session ${id}`);
+			if (archived) found.archived = true;
+			else delete found.archived;
+			return { ...found };
+		}, context);
+		updated.forEach((listener) => listener(record));
+		return record;
+	}
+
 	/** Hears of a session record that changed after it was made, such as a new title. */
 	function onUpdate(listener: (session: SessionRecord) => void): () => void {
 		updated.add(listener);
@@ -559,7 +574,7 @@ export async function openHost(options: HostOptions) {
 		catalog: () => catalog.list(),
 		modelInfo,
 		projects,
-		sessions: { list, get, create, createScratch, onCreate, rename, retitle, onUpdate, states },
+		sessions: { list, get, create, createScratch, onCreate, rename, retitle, archive, onUpdate, states },
 		scratchRoot,
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },

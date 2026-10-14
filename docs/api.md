@@ -21,6 +21,7 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 | `POST /api/sessions/:id/messages` | `{ text, images?, mode: "steer" \| "followUp", requestId? }` | `{ submission }`, for withdrawing it. |
 | `POST /api/sessions/:id/stop` | `{}` | `{}` |
 | `POST /api/sessions/:id/title` | `{ title }` | `{ title }`, whitespace folded, 1 to 200 characters. |
+| `POST /api/sessions/:id/archive` | `{ archived }` | `{ archived }`. Hides the session from the lists, or brings it back. Nothing else changes; a run goes on. |
 | `POST /api/sessions/:id/agent` | `{ model?, thinking? }` | `{}`. Applies from the next request. `model` is a pinned model's ID or `provider/id` for any model, here and when starting a session. |
 | `POST /api/sessions/:id/withdraw` | `{ submission }` | `{ result }`: `aborted`, `already_placed`, `settled` or `not_found`. |
 | `GET /api/sessions/:id/changes` | | `Changes`: totals and files, or `{ available: false, reason }`. |
@@ -75,7 +76,7 @@ How aludra maps onto the protocol:
 - `conversations.create` takes a project directory (or a `cwd` naming one) and the first message; without a project it makes a no-project session. The project can't change afterwards, so `configure` changes only the model and thinking.
 - `conversations.list`, `conversations.rename`, `submit`, `abort`, `compact`, `reset`, `approval.answer`, `conversation.history`, `conversation.image`, `conversation.watch`, `host.info` and `host.watch` are supported.
 - `projects.setColor` picks a project's color; `host.info` and the host snapshot carry the picked colors, and `host.projectColors` announces changes.
-- `conversations.fork` and `conversations.archive` answer `unsupported`.
+- `conversations.archive` hides a session from the lists, or brings it back with `archived: false`; running work goes on. `conversations.list` leaves archived sessions out unless `includeArchived` is set, and `host.watch` carries them marked `archived` for the client to filter. `conversations.fork` answers `unsupported`.
 - Pending approvals are `approval.requested`. Approved, denied, and expired, stopped or superseded requests are `approval.resolved` with `approve`, `deny` or `cancelled`.
 - Spend comes from Pi Durable's usage. On a subscription its cost is 0; the token counts are real.
 
@@ -97,6 +98,8 @@ Client to server, one of:
 { "type": "approvals" }
 { "type": "decide", "id": "3f9a1c", "allow": true }
 ```
+
+`{ "type": "archive", "session": 12, "archived": true }` archives a session, or brings it back with `false`.
 
 `{ "type": "retitle" }` writes titles for sessions that still have their first message's first line and sends a line for each.
 

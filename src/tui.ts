@@ -356,7 +356,8 @@ export async function runTui(config: Config, options: TuiOptions = {}): Promise<
 		switch (event.type) {
 			case "sessions": {
 				const first = tree.sessions.length === 0;
-				tree.sessions = event.sessions;
+				// Archived sessions are hidden, unless it's the one asked for.
+				tree.sessions = event.sessions.filter((s) => s.archived !== true || s.id === options.session);
 				if (first || (tree.selected !== undefined && !event.sessions.some((s) => s.id === tree.selected))) {
 					const wanted = event.sessions.find((s) => s.id === options.session) ?? tree.order()[0];
 					select(wanted?.id);

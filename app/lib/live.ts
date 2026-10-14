@@ -148,6 +148,7 @@ export const actions = {
 		post(`/api/sessions/${session}/messages`, { text, images: images.map(({ mimeType, data }) => ({ mimeType, data })), mode, requestId: requestId() }),
 	stop: (session: number) => post(`/api/sessions/${session}/stop`, {}),
 	rename: (session: number, title: string) => post<{ title: string }>(`/api/sessions/${session}/title`, { title }),
+	archive: (session: number, archived: boolean) => post<{ archived: boolean }>(`/api/sessions/${session}/archive`, { archived }),
 	configure: (session: number, change: { model?: string; thinking?: Thinking }) => post(`/api/sessions/${session}/agent`, change),
 	withdraw: (session: number, submission: number) => post(`/api/sessions/${session}/withdraw`, { submission }),
 	decide: (approval: string, allow: boolean) => post(`/api/approvals/${approval}`, { allow }),

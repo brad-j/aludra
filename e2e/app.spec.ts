@@ -95,6 +95,30 @@ test("a session is renamed from its menu, and the header and the drawer show the
 	await expect(page.locator(".session-row").filter({ hasText: name })).toHaveCount(1);
 });
 
+test("a session is archived from its menu into a folded group at the end of the drawer, and brought back", async ({ page }, info) => {
+	const name = `Archive me, ${info.project.name}`;
+	await start(page, "alpha", "Say something short");
+	await page.getByRole("button", { name: "Session menu" }).first().click();
+	await page.locator(".sheet").getByRole("button", { name: "Rename" }).click();
+	await page.locator(".sheet").getByLabel("Title").fill(name);
+	await page.locator(".sheet").getByRole("button", { name: "Rename" }).click();
+	await expect(page.locator("header h1")).toHaveText(name);
+
+	await page.getByRole("button", { name: "Session menu" }).first().click();
+	await page.locator(".sheet").getByRole("button", { name: /^Archive/ }).click();
+	if (phone(page)) await page.getByRole("button", { name: "Sessions" }).first().click();
+	const archived = page.locator(".dir.archived");
+	await expect(archived.locator(".session-row").filter({ hasText: name })).toHaveCount(0);
+	await expect(page.locator(".dir:not(.archived) .session-row").filter({ hasText: name })).toHaveCount(0);
+	await archived.locator(".dir-head").click();
+	await archived.locator(".session-row").filter({ hasText: name }).click();
+
+	await page.getByRole("button", { name: "Session menu" }).first().click();
+	await page.locator(".sheet").getByRole("button", { name: "Bring back from the archive" }).click();
+	if (phone(page)) await page.getByRole("button", { name: "Sessions" }).first().click();
+	await expect(page.locator(".dir:not(.archived) .session-row").filter({ hasText: name })).toHaveCount(1);
+});
+
 test("an image is attached, shown before sending, and in the transcript after, opening full size", async ({ page }) => {
 	await start(page, "alpha", "Say something short");
 	// 2×2 red PNG.
