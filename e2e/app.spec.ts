@@ -157,10 +157,14 @@ test("nothing scrolls sideways and no button wraps, from 320 px to the desk", as
 		await page.setViewportSize({ width, height: 760 });
 		for (const path of ["/", `/s/${id}`]) {
 			await page.goto(path);
+			if (path !== "/") await page.locator(".prose pre").waitFor();
 			await page.waitForTimeout(300);
 			const problems = await page.evaluate(() => {
 				const found: string[] = [];
 				if (document.documentElement.scrollWidth > document.documentElement.clientWidth) found.push("horizontal scroll");
+				// The transcript scrolls on its own, so a wide code line would widen it without widening the page.
+				const transcript = document.querySelector(".scroll");
+				if (transcript && transcript.scrollWidth > transcript.clientWidth) found.push("transcript scrolls sideways");
 				for (const el of document.querySelectorAll<HTMLElement>("button, .icon-btn, .mode")) {
 					if (el.offsetParent === null || el.closest(".session-row, .fold-row, .file-head, .pick, .path, .arg")) continue;
 					if (el.getBoundingClientRect().height > 52) found.push(`tall button: ${el.textContent?.trim().slice(0, 30)}`);

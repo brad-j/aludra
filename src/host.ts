@@ -96,6 +96,7 @@ const FAUX_MARKDOWN = [
 	"```ts",
 	"const server = createApi(host, { user });",
 	"server.listen(8724);",
+	"const routes = [\"/api/bootstrap\", \"/api/sessions\", \"/api/sessions/:id/changes\", \"/api/push/subscribe\"];",
 	"```",
 	"",
 	"| Check | Result |",

@@ -266,7 +266,7 @@ svg { flex: none; }
 	flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
 	padding: var(--space-md) max(var(--space-md), env(safe-area-inset-right)) var(--space-xl) max(var(--space-md), env(safe-area-inset-left));
 }
-.column { max-width: var(--measure); margin-inline: auto; display: grid; gap: var(--space-md); }
+.column { max-width: var(--measure); margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
 .user {
 	justify-self: end; max-width: 88%;
 	padding: var(--space-xs) var(--space-sm);
@@ -290,7 +290,7 @@ svg { flex: none; }
 .copy-row .icon-btn[data-state="success"] { color: var(--color-add); }
 
 /* Tool calls: one mono row each. A finished turn folds them into a summary. */
-.calls { display: grid; }
+.calls { display: grid; grid-template-columns: minmax(0, 1fr); }
 .call-row {
 	display: grid; grid-template-columns: 1rem 3.25rem minmax(0, 1fr) auto; column-gap: var(--space-xs); align-items: center;
 	min-height: 2.25rem; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-2);
