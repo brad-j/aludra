@@ -208,6 +208,36 @@ test("aludra's approvals reach the Mac: approve, deny, and a stop while one wait
 	assert.ok(stopped.some((e) => e.type === "submission" && e.submission.reason === "aborted"));
 });
 
+test("an approval answered always lets the session push without asking, until it's forgotten", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const list = (await mac.request("host.watch")).subscription;
+	const id = (await mac.request("conversations.create", { requestId: "a", project: project.dir })).conversation.id;
+	const watch = (await mac.request("conversation.watch", { conversationId: id })).subscription;
+	await mac.event(watch, type("snapshot"), "the snapshot");
+
+	let from = mac.count(watch);
+	await mac.request("submit", { conversationId: id, requestId: "s1", text: "push it" });
+	const approval = (await mac.event(watch, type("approval.requested"), "an approval", from)).find(type("approval.requested")).approval;
+	await assert.rejects(mac.request("approval.answer", { approvalId: approval.approvalId, decision: "deny", always: true }), { code: "bad_request" });
+	await mac.request("approval.answer", { approvalId: approval.approvalId, decision: "approve", always: true });
+	await mac.event(watch, type("run.ended"), "the approved run", from);
+	await mac.event(list, (e) => e.type === "conversation.updated" && e.conversation.id === id && e.conversation.alwaysAllowed?.[0] === "git push", "alwaysAllowed");
+
+	from = mac.count(watch);
+	await mac.request("submit", { conversationId: id, requestId: "s2", text: "push again" });
+	const again = await mac.event(watch, type("run.ended"), "the second run", from);
+	assert.ok(!again.some(type("approval.requested")), "the second push didn't ask");
+	assert.equal(again.find((e) => e.type === "item.added" && e.item.type === "toolResult").item.isError, false);
+
+	const forgotten = await mac.request("approval.forget", { conversationId: id, summary: "git push" });
+	assert.equal(forgotten.conversation.alwaysAllowed, undefined);
+	from = mac.count(watch);
+	await mac.request("submit", { conversationId: id, requestId: "s3", text: "push once more" });
+	await mac.event(watch, type("approval.requested"), "an approval after forgetting", from);
+	await mac.request("abort", { conversationId: id });
+});
+
 test("settings change model and thinking only, and unsupported or unknown requests say so", async (t) => {
 	const { url, project } = await api(t);
 	const mac = await client(t, url);

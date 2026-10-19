@@ -70,6 +70,30 @@ test("a git push waits for approval, and runs once the user approves", async (t)
 	assert.match(await lastText(host, session.id), /pushing/);
 });
 
+test("approved always, a session runs that summary without asking until it's forgotten; other sessions still ask", async (t) => {
+	const { host, dir } = await testHost(t, oneCommand("echo pushing; git push --dry-run"));
+	const project = makeProject(dir, "one");
+	const session = await host.sessions.create(project, "push it");
+	const first = await host.submit(session.id, "push it");
+	await host.approvals.decide((await pendingFor(host, session.id)).id, true, true);
+	assert.equal((await first.wait(context)).status, "done");
+	assert.deepEqual(await host.approvals.allowed(session.id), ["git push"]);
+
+	assert.equal((await (await host.submit(session.id, "push again")).wait(context)).status, "done");
+	assert.equal((await host.approvals.all()).length, 1, "the second push didn't ask");
+
+	const other = await host.sessions.create(project, "push it too");
+	const elsewhere = await host.submit(other.id, "push it too");
+	await host.approvals.decide((await pendingFor(host, other.id)).id, false);
+	await elsewhere.wait(context);
+
+	assert.equal(await host.approvals.forget(session.id, "git push"), true);
+	assert.deepEqual(await host.approvals.allowed(session.id), []);
+	const third = await host.submit(session.id, "and again");
+	await host.approvals.decide((await pendingFor(host, session.id)).id, true);
+	assert.equal((await third.wait(context)).status, "done");
+});
+
 test("a denied ssh to a listed host is blocked, and the model hears why", async (t) => {
 	const { host, dir } = await testHost(t, oneCommand("ssh build-box 'df -h'"));
 	const session = await host.sessions.create(makeProject(dir, "one"), "check vms");

@@ -82,6 +82,8 @@ You can answer from:
 - amyrlin;
 - a terminal: `aludra approvals` lists them with their IDs, then `aludra approve ID` or `aludra deny ID`.
 
+amyrlin can also allow one always: that session then runs the same kind of call (`git push`, or `ssh` to that host) without asking. Other sessions still ask. amyrlin's inspector lists a session's rules, and any can be taken back.
+
 A request expires after `approvals.waitHours` (default 24), and the call is refused. Stopping the run or sending a new message cancels it. A restart doesn't: the call waits on the same request when the host comes back.
 
 ## Changes

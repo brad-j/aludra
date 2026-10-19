@@ -45,6 +45,8 @@ These wait for you before they run:
 
 The request is stored, so a restart waits on the same one rather than asking again. It expires after `approvals.waitHours`. [using.md](using.md#approvals) covers answering them.
 
+Approving one "always" (from amyrlin) lets that session run the same kind of call, `git push` or `ssh to host`, without asking again. The rule covers only that session, other sessions still ask, and amyrlin can take it back. Rules are kept with the approvals, so they survive a restart.
+
 ### The protected-path gate
 
 Credentials, keys and agent logins are off limits. `read`, `write` and `edit` of these are blocked, and so is a shell command naming one:

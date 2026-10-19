@@ -74,11 +74,12 @@ amyrlin's protocol v1, documented in amyrlin's `docs/protocol.md`. aludra takes 
 How aludra maps onto the protocol:
 
 - `conversations.create` takes a project directory (or a `cwd` naming one) and the first message; without a project it makes a no-project session. The project can't change afterwards, so `configure` changes only the model and thinking.
-- `conversations.list`, `conversations.rename`, `submit`, `abort`, `compact`, `reset`, `approval.answer`, `conversation.history`, `conversation.image`, `conversation.watch`, `host.info` and `host.watch` are supported.
+- `conversations.list`, `conversations.rename`, `submit`, `abort`, `compact`, `reset`, `approval.answer`, `approval.forget`, `conversation.history`, `conversation.image`, `conversation.watch`, `host.info` and `host.watch` are supported.
 - `projects.setColor` picks a project's color; `host.info` and the host snapshot carry the picked colors, and `host.projectColors` announces changes.
 - Summaries carry `cost`, the dollars billed providers (OpenRouter) charged for the session, only when it used one. `spend` stays as the protocol defines it, Pi Durable's usage priced at API rates for every model, plan-paid ones (Claude Code, ChatGPT) included, so a client showing money should show `cost`. `host.info` and `host.snapshot` carry `monthCost`, this calendar month's charged total, when any session was charged.
 - `conversations.archive` hides a session from the lists, or brings it back with `archived: false`; running work goes on. `conversations.list` leaves archived sessions out unless `includeArchived` is set, and `host.watch` carries them marked `archived` for the client to filter. `conversations.fork` answers `unsupported`.
 - Pending approvals are `approval.requested`. Approved, denied, and expired, stopped or superseded requests are `approval.resolved` with `approve`, `deny` or `cancelled`.
+- `approval.answer` with `always: true` (only with `approve`) lets the session run the request's summary, `git push` or `ssh to host`, without asking again, and approves its other requests for it. Summaries list those as `alwaysAllowed`, present only when there are any; `approval.forget {conversationId, summary}` takes one back and returns `{conversation}`.
 - Spend comes from Pi Durable's usage. On a subscription its cost is 0; the token counts are real.
 
 `test/amyrlin.test.ts` checks the translation against amyrlin's recorded scenarios (`test/fixtures/amyrlin/`).

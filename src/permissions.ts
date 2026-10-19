@@ -7,6 +7,7 @@
 // - Approvals, a beforeTool hook: `git push`, and ssh, scp, rsync, sftp, mosh or sshfs naming one of the hosts in
 //   `approvals.hosts` (ones this machine's keys reach), wait for the user. The request is stored, the call waits for a decision, and a restart
 //   waits on the same request. The user answers in the app, the Mac app, or with `aludra approve` or `aludra deny`.
+//   Approving "always" (the Mac app) allows that summary, `git push` or `ssh to host`, for the rest of the session.
 //
 // Both read shell commands as text, so they're best effort: a command can always be spelled so neither sees it.
 import { randomBytes } from "node:crypto";
@@ -35,7 +36,11 @@ export type ApprovalRequest = {
 	decidedAt?: number;
 };
 
-type ApprovalState = { requests: Record<string, ApprovalRequest> };
+type ApprovalState = {
+	requests: Record<string, ApprovalRequest>;
+	/** Summaries each session runs without asking, by conversation id. Missing from documents written before it. */
+	allowed?: Record<string, string[]>;
+};
 
 export const Approvals = defineDoc<ApprovalState>({
 	kind: "aludra.approvals",
@@ -112,6 +117,13 @@ export function protectedTarget(tool: string, args: { readonly path?: unknown; r
 		return match === undefined ? undefined : `bash target ${JSON.stringify(match.target)} (rule: ${match.kind})`;
 	}
 	return undefined;
+}
+
+/** Assigns whole values: the document keeps a copy of what's assigned, so a change made to it afterwards is lost. */
+function allowIn(doc: ApprovalState, conversationId: number, summary: string) {
+	const allowed = doc.allowed?.[conversationId] ?? [];
+	if (allowed.includes(summary)) return;
+	doc.allowed = { ...doc.allowed, [conversationId]: [...allowed, summary] };
 }
 
 /** A copy that outlives the commit. */
@@ -193,17 +205,52 @@ export class ApprovalService {
 		return request;
 	}
 
-	/** The user's answer. Returns the request, or nothing if there's no pending one with that id. */
-	async decide(id: string, allow: boolean): Promise<ApprovalRequest | undefined> {
-		const decided = await this.#commit((doc) => {
+	/** The user's answer. Returns the request, or nothing if there's no pending one with that id. Approved `always`, its
+	 * summary runs without asking for the rest of the session, and the session's other requests for it are approved too. */
+	async decide(id: string, allow: boolean, always = false): Promise<ApprovalRequest | undefined> {
+		const settled = await this.#commit((doc) => {
 			const request = doc.requests[id];
-			if (request === undefined || request.status !== "pending") return undefined;
-			request.status = request.expiresAt <= Date.now() ? "expired" : allow ? "approved" : "denied";
-			request.decidedAt = Date.now();
-			return plain(request);
+			if (request === undefined || request.status !== "pending") return [];
+			const now = Date.now();
+			request.status = request.expiresAt <= now ? "expired" : allow ? "approved" : "denied";
+			request.decidedAt = now;
+			const done = [request];
+			if (always && request.status === "approved") {
+				allowIn(doc, request.conversationId, request.summary);
+				for (const other of Object.values(doc.requests)) {
+					if (other.status !== "pending" || other.conversationId !== request.conversationId || other.summary !== request.summary || other.expiresAt <= now) continue;
+					other.status = "approved";
+					other.decidedAt = now;
+					done.push(other);
+				}
+			}
+			return done.map(plain);
 		});
-		if (decided !== undefined) this.#settled(decided);
-		return decided;
+		for (const request of settled) this.#settled(request);
+		return settled[0];
+	}
+
+	/** What the session runs without asking: summaries approved `always`. */
+	async allowed(conversationId: number): Promise<string[]> {
+		const state = await this.#harness.snapshot(Approvals, background);
+		return [...(state?.allowed?.[conversationId] ?? [])];
+	}
+
+	/** Lets the session run `summary` without asking, as an `always` answer does. */
+	async allow(conversationId: number, summary: string): Promise<void> {
+		await this.#commit((doc) => allowIn(doc, conversationId, summary));
+	}
+
+	/** Asks again before the session runs `summary`. Returns whether it was allowed. */
+	async forget(conversationId: number, summary: string): Promise<boolean> {
+		return this.#commit((doc) => {
+			const allowed = doc.allowed?.[conversationId];
+			if (allowed === undefined || !allowed.includes(summary)) return false;
+			const { [conversationId]: _, ...others } = doc.allowed!;
+			const rest = allowed.filter((s) => s !== summary);
+			doc.allowed = rest.length > 0 ? { ...others, [conversationId]: rest } : others;
+			return true;
+		});
 	}
 
 	/** Ends a pending request without an answer. */
@@ -309,6 +356,7 @@ export function permissionsExtension(options: PermissionOptions) {
 		const summary = approvalFor(command, options.hosts);
 		if (summary === undefined) return undefined;
 		const approvals = options.approvals();
+		if ((await approvals.allowed(api.conversationId)).includes(summary)) return undefined;
 		// The same id for every run of this call's phase, so a restart doesn't ask twice.
 		const id = await api.memo<string>("aludra.approval", randomBytes(3).toString("hex"), context);
 		const request = await approvals.open(id, { conversationId: api.conversationId, taskId: api.taskId }, summary, command);

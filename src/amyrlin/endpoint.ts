@@ -5,7 +5,9 @@
 // - A conversation is an aludra session; its project is fixed when it's made (`conversations.create` takes a project
 //   directory, or a `cwd` naming one), so `configure` changes only the model and thinking.
 // - Approvals are aludra's (src/permissions.ts): pending requests become `approval.requested`, and a decision, expiry,
-//   stop or new message becomes `approval.resolved` (approve, deny, or cancelled).
+//   stop or new message becomes `approval.resolved` (approve, deny, or cancelled). `approval.answer` with `always`
+//   allows the request's summary for the rest of the session; summaries list those as `alwaysAllowed`, and
+//   `approval.forget` takes one back.
 // - Spend is pi-durable's usage. On the subscription its cost is 0; token counts are real.
 // - Forks aren't an aludra feature; that method answers `unsupported`. Archiving hides a session from the lists, as
 //   aludra's own apps do; host.watch carries archived sessions and the client filters.
@@ -115,10 +117,11 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 
 	async function summaryOf(record: SessionRecord, state: "running" | "waiting" | "idle"): Promise<Json> {
 		const id = conversationId(record.id);
-		const [agent, usage, conversation] = await Promise.all([
+		const [agent, usage, conversation, allowed] = await Promise.all([
 			harness.snapshot(AgentDoc, id, context),
 			harness.snapshot(UsageDoc, id, context),
 			harness.conversation(id, context),
+			approvals.allowed(record.id),
 		]);
 		const newest = conversation === undefined ? undefined : (await conversation.entries({}, 1, undefined, context)).items[0];
 		const pending = state === "waiting" ? (await approvals.pending()).filter((r) => r.conversationId === record.id).length : 0;
@@ -139,6 +142,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			// A no-project session has no `project`; its `dir` is its scratch directory.
 			...(record.scratch === true ? {} : { project: record.project }),
 			dir: record.dir,
+			...(allowed.length > 0 ? { alwaysAllowed: allowed } : {}),
 		};
 	}
 
@@ -318,14 +322,21 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 
 	async function answer(p: Json): Promise<Json> {
 		if (!["approve", "deny"].includes(p.decision)) throw new ProtocolError("bad_request", `decision ${p.decision}`);
+		const always = p.always === true;
+		if (always && p.decision !== "approve") throw new ProtocolError("bad_request", "Only an approve can be always");
 		const id = String(p.approvalId);
-		const decided = await approvals.decide(id, p.decision === "approve");
+		const decided = await approvals.decide(id, p.decision === "approve", always);
 		const request = decided ?? (await approvals.all()).find((r) => r.id === id);
 		if (request === undefined) throw new ProtocolError("not_found", `No approval ${id}`);
 		const decision = DECISIONS[request.status];
 		const resolution = { ...(await wireApproval(request)), decision };
 		if (decided === undefined && decision !== p.decision) {
 			throw new ProtocolError("already_resolved", `Approval ${id} was already ${request.status}`, resolution);
+		}
+		// A retried answer that the first one already approved still leaves the summary allowed.
+		if (decided === undefined && always) {
+			await approvals.allow(request.conversationId, request.summary);
+			markDirty(request.conversationId);
 		}
 		return { approval: resolution };
 	}
@@ -627,6 +638,15 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 					return {};
 				case "approval.answer":
 					return answer(p);
+				case "approval.forget": {
+					const { record } = await session(p.conversationId);
+					if (typeof p.summary !== "string") throw new ProtocolError("bad_request", "approval.forget takes a summary");
+					await approvals.forget(record.id, p.summary);
+					// The list and watchers have it at once, rather than at the next flush.
+					const summary = await summaryOf(record, (await host.sessions.states()).get(record.id) ?? "idle");
+					publishSummary(summary);
+					return { conversation: summary };
+				}
 				case "projects.setColor": {
 					if (typeof p.project !== "string" || !(p.color === null || typeof p.color === "number")) throw new ProtocolError("bad_request", "projects.setColor takes a project name and a color, or null");
 					try {
