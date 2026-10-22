@@ -71,7 +71,7 @@ pnpm test
 
 - Use pnpm. Add and remove packages with `pnpm add` and `pnpm remove`.
 - Every version is exact. pnpm resolves only versions at least three days old (`minimumReleaseAge: 4320` in `pnpm-workspace.yaml`).
-- Pi's packages move in lockstep and are pinned together at 1.1.0, with pi-claude-bridge at 0.9.2. Upgrading either is deliberate: see [operations.md](operations.md#upgrading-pi-durable-or-the-bridge).
+- Pi's packages move in lockstep and are pinned together at 1.3.0, with pi-claude-bridge at 0.9.3. Upgrading either is deliberate: see [operations.md](operations.md#upgrading-pi-durable-or-the-bridge).
 - React, TanStack, Vite and the fonts are dev dependencies: the package ships the built app, not its sources.
 
 ## Conventions

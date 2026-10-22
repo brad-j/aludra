@@ -28,7 +28,7 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
 
 ## The host
 
-`src/host.ts` opens a Pi Durable 1.1.0 `Harness` over `aludra.sqlite` in the data directory and calls `harness.resume()` at start, which continues whatever the last process left unfinished.
+`src/host.ts` opens a Pi Durable 1.3.0 `Harness` over `aludra.sqlite` in the data directory and calls `harness.resume()` at start, which continues whatever the last process left unfinished.
 
 - **A session is a Pi Durable conversation**: ownerless, with its agent's `cwd` set to the project's directory, and its own model and thinking level. Session IDs are the conversation IDs, so they start at 7 rather than 1.
 - **A no-project session** gets `scratch/<id>` in the data directory as its `cwd`, set in the same commit that creates the conversation.
@@ -61,13 +61,13 @@ Pi Durable gets one pi-ai `Models` collection: the bridge when `model.choices` n
 
 ### The bridge
 
-`src/bridge.ts` loads [pi-claude-bridge](https://www.npmjs.com/package/pi-claude-bridge) 0.9.2, a pi extension that drives Claude Code through the Agent SDK. The bridge was written for the pi coding agent's loop, so it loads through jiti with a stand-in for pi's `ExtensionAPI` that keeps its provider and event handlers. Its `streamSimple` is wrapped with five fixes Pi Durable needs:
+`src/bridge.ts` loads [pi-claude-bridge](https://www.npmjs.com/package/pi-claude-bridge) 0.9.3, a pi extension that drives Claude Code through the Agent SDK. The bridge was written for the pi coding agent's loop, so it loads through jiti with a stand-in for pi's `ExtensionAPI` that keeps its provider and event handlers. Its `streamSimple` is wrapped with five fixes Pi Durable needs:
 
 - **Signals.** Pi Durable aborts each request's signal when that request is done; the bridge ties one long-lived Claude Code query to the first. The wrapper keeps one controller per session and forwards an abort only while a stream runs.
 - **Restarts.** After a restart the bridge has no live query, and a transcript ending in a tool result would end the turn empty. The wrapper adds a short note to that one request, which sends the bridge down its rebuild path.
 - **Compaction and reset.** These replace the head of the history. The wrapper notices and calls the bridge's own `session_compact` handler so it rebuilds Claude Code's session from the summary.
 - **The system prompt.** Each request's prompt is recorded with the bridge as a custom prompt, so Claude Code gets all of it after its own preset.
-- **The working directory.** The bridge runs Claude Code in `process.cwd()`. The wrapper changes into the conversation's directory around the call, so Claude Code's session files land per project and show in `claude --resume` there.
+- **The working directory.** The bridge runs Claude Code in the directory its `session_start` recorded for the pi session, or else `process.cwd()`. aludra fires `session_start` once, at startup, so conversations get `process.cwd()`. The wrapper changes into the conversation's directory around the call, so Claude Code's session files land per project and show in `claude --resume` there.
 
 The bridge runs the user's own Claude Code (`claude.path`), not the Agent SDK's bundled copy. It reads that path only from its settings in pi's agent directory, so aludra gives it a directory of its own (`bridge/` in the data directory) by aliasing its pi-coding-agent import to a module there whose `getAgentDir()` answers with it.
 
@@ -118,7 +118,7 @@ Messages may carry PNG, JPEG, GIF or WebP images, at most 8 of at most 5 MB each
 
 | Package | Version | Why pinned |
 | --- | --- | --- |
-| `@earendil-works/pi-durable` and its lockstep packages | 1.1.0 | The bridge glue was checked against it. An unpinned install once took pi-codemode 1.2.0, which satisfies 1.1's range and breaks it. |
-| `pi-claude-bridge` | 0.9.2 | The glue depends on its internals. |
+| `@earendil-works/pi-durable` and its lockstep packages | 1.3.0 | The bridge glue was checked against it. An unpinned install once took pi-codemode 1.2.0, which satisfies 1.1's range and broke 1.1. |
+| `pi-claude-bridge` | 0.9.3 | The glue depends on its internals. |
 
 Every dependency is an exact version. pnpm resolves only versions at least three days old (`minimumReleaseAge` in `pnpm-workspace.yaml`).

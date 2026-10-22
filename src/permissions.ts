@@ -311,7 +311,7 @@ export class ApprovalService {
 }
 
 /**
- * Fires when the call is stopped and when the Harness closes. Pi Durable 1.1.0's tool runtime carries the second as
+ * Fires when the call is stopped and when the Harness closes. Pi Durable's tool runtime carries the second as
  * `signal`, which HookApi's type doesn't declare (as in gaidin).
  */
 function signalOf(api: HookApi, context: Context): AbortSignal {
@@ -344,8 +344,8 @@ export function permissionsExtension(options: PermissionOptions) {
 				const count = seen !== undefined && seen.run === run ? seen.count + 1 : 1;
 				blocks.set(api.conversationId, { run, count });
 				const message = `Protected-path gate blocked ${target}`;
-				if (count === 1) return { content: [{ type: "text", text: `${message}. ${WARNING}` }], isError: true };
-				return { content: [{ type: "text", text: `${message}. Second block this run; stopping.` }], isError: true, control: { terminate: true } };
+				if (count === 1) return { output: [{ type: "text", text: `${message}. ${WARNING}` }], isError: true };
+				return { output: [{ type: "text", text: `${message}. Second block this run; stopping.` }], isError: true, control: { terminate: true } };
 			},
 		}));
 	}

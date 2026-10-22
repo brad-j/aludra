@@ -69,7 +69,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			doc.hostId ??= randomUUID();
 			return doc.hostId;
 		}, context);
-		return { hostId, name: options.name, serverVersion: "aludra", durableVersion: "1.1.0" };
+		return { hostId, name: options.name, serverVersion: "aludra", durableVersion: "1.3.0" };
 	}
 
 	// Approvals (protocol section 8)

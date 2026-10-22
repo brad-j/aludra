@@ -8,7 +8,7 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 - **Runs on egwene.** The working copies, the Claude Code login, the toolchain, git identity and SSH keys are all there, and egwene runs around the clock (sleep, suspend and hibernate are masked). Edits land in `~/westwood` directly.
 - **Subscription, not API.** The model provider is `pi-claude-bridge`, which drives Claude Code through the Agent SDK and uses the subscription quota (its README, line 11). Anthropic announced and then withdrew a billing change for Agent SDK tools; if it returns, this breaks, and so does terminal pi. Opus at API prices isn't affordable for this.
-- **Pi Durable 1.1.0**, pinned, with the bridge pinned beside it. The glue depends on bridge internals (see Spike findings), so upgrade either one deliberately.
+- **Pi Durable 1.3.0**, pinned, with the bridge pinned beside it. The glue depends on bridge internals (see Spike findings), so upgrade either one deliberately.
 - **Workspaces in config.** One settings file, checked at start:
 
   ```json
@@ -52,9 +52,17 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 3. **App.** Done 2026-10-11 (see "Milestone 3"); running on Brad's phone over Tailscale. TanStack Start on the host's API: sessions, transcript, steer, stop, follow-up, new session, model and thinking. Checked with Playwright at phone sizes and on the phone over Tailscale.
 4. **Ideas, approvals and push.** Done 2026-10-11 (see "Milestone 4"); notifications reach Brad's iPhone.
 5. **Changes view:** the session's diff since it started. Built 2026-10-11 (see "Milestone 5").
-6. **Subagents:** deferred 2026-10-12. An `agent` tool on Pi Durable's documented subagent pattern (README, "Abort and Subagents"), children shown under the call. Brad's terminal pi has no subagents either, Opus 5.5 has a 1M window with compaction working, and each child spends the same five-hour window, which aludra can't show yet. Mario's durable codemode isn't in Pi Durable 1.1.0; script fan-out waits for it. Before this: the systemd unit for the host, the subscription meter, and a live run of the app on the real bridge.
+6. **Subagents:** deferred 2026-10-12. An `agent` tool on Pi Durable's documented subagent pattern (README, "Abort and Subagents"), children shown under the call. Brad's terminal pi has no subagents either, Opus 5.5 has a 1M window with compaction working, and each child spends the same five-hour window, which aludra can't show yet. Mario's durable codemode wasn't in Pi Durable 1.1.0; it arrived in 1.2.0 (`@earendil-works/pi-durable/codemode`), so script fan-out no longer waits on Pi. Before this: the systemd unit for the host, the subscription meter, and a live run of the app on the real bridge.
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces.
+
+## Pi Durable 1.3.0 (2026-10-22)
+
+Pi Durable and its lockstep packages moved from 1.1.0 to 1.3.0, and pi-claude-bridge from 0.9.2 to 0.9.3.
+
+- 1.2.0 renamed `ToolExecutionResult.content` to `output`; the protected-path gate's results follow.
+- The bridge now records a cwd per pi session from `session_start` (`ctx.cwd`, `ctx.sessionManager.getSessionId()`). The stand-in's startup call passes both under the id `aludra-startup`; conversations never fire `session_start`, so the bridge falls back to `process.cwd()` and the wrapper's change of directory still decides where Claude Code runs.
+- Checked with `pnpm check`, the e2e suite, the live check, and an `/amyrlin` capture (`scripts/amyrlin-capture.ts`) on both versions: the frames match apart from token counts and ids. The amyrlin fixtures are still the 1.1.0 recordings.
 
 ## Release: aludra on any machine (2026-10-13)
 

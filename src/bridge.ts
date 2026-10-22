@@ -140,7 +140,9 @@ async function load(options: BridgeOptions, notify: (notice: Notice) => void): P
 	if (provider === undefined) throw new Error("pi-claude-bridge registered no provider");
 	// Gives the bridge somewhere to send its notices. "rpc" keeps its startup notice for pi's terminal UI.
 	const ui = { notify: (message: string, level = "info") => notify({ message, level }) };
-	for (const handler of handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, { ui, mode: "rpc" });
+	// The bridge files a cwd under the session id; this startup session is no conversation's, so its one-off summaries fall back to process.cwd() as before.
+	const startup = { ui, mode: "rpc", cwd: process.cwd(), sessionManager: { getSessionId: () => "aludra-startup" } };
+	for (const handler of handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, startup);
 
 	const shared = captures.sharedPromptCaptures();
 	return {

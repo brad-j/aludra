@@ -18,7 +18,7 @@ import { servesPort, tailnetSelf, tailscaleFor } from "./tailscale.ts";
 export type Check = { status: "ok" | "warn" | "fail" | "skip"; area: string; detail: string };
 
 /** The versions the bridge glue was checked against (docs/plan.md); anything else needs scripts/live-check.ts again. */
-const PINNED = { "@earendil-works/pi-durable": "1.1.0", "pi-claude-bridge": "0.9.2" };
+const PINNED = { "@earendil-works/pi-durable": "1.3.0", "pi-claude-bridge": "0.9.3" };
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 

@@ -1,4 +1,4 @@
-// Protocol v1 translation (amyrlin's docs/protocol.md, sections 4, 6.1 and 7): pi-durable 1.1.0 watchEvents() output
+// Protocol v1 translation (amyrlin's docs/protocol.md, sections 4, 6.1 and 7): pi-durable watchEvents() output
 // into the frames the amyrlin Mac app reads. Ported from amyrlin's server/src/translate.mjs; test/amyrlin.test.ts checks
 // it against amyrlin's recorded fixtures and their expected translation, frame by frame.
 //

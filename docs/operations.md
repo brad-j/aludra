@@ -76,7 +76,7 @@ Pull and run `sh scripts/install.sh` ([setup.md](setup.md#update)). The lockfile
 
 ### Upgrading Pi Durable or the bridge
 
-aludra's glue around pi-claude-bridge depends on the bridge's internals, and on how Pi Durable calls a provider. Both are pinned: Pi Durable and its lockstep packages at 1.1.0, the bridge at 0.9.2. Doctor fails when either differs. To move either one:
+aludra's glue around pi-claude-bridge depends on the bridge's internals, and on how Pi Durable calls a provider. Both are pinned: Pi Durable and its lockstep packages at 1.3.0, the bridge at 0.9.3. Doctor fails when either differs. To move either one:
 
 1. Change the version in a branch. Pi's packages move together: `chord`, `pi-agent-core`, `pi-ai`, `pi-codemode`, `pi-coding-agent`, `pi-durable`, `pi-mcp`, `pi-telemetry` and `pi-tui` should all be the same exact version.
 2. `pnpm check`. `test/bridge.test.ts` has a test for each fix in `src/bridge.ts`.
