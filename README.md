@@ -51,7 +51,9 @@ required; `aludra init` writes `workspaces` and `api.users`.
 }
 ```
 
-[docs/configuration.md](docs/configuration.md) explains each setting, the environment variables and the data directory.
+The web app's Settings sheet, `aludra config` and amyrlin change most of them while the host runs; the logins, port,
+Claude Code's path and data directory change only in the file. [docs/configuration.md](docs/configuration.md) explains
+each setting, the environment variables and the data directory.
 
 ## How it's kept safe
 

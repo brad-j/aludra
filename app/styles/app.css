@@ -546,6 +546,26 @@ a.session-row { color: var(--color-ink); }
 .notifications-row .grow { flex: 1; min-width: 0; }
 .notifications-note { margin: 0; color: var(--color-ink-2); overflow-wrap: anywhere; }
 
+/* Settings: one field per setting, scrolling inside the sheet, with the actions kept below. */
+.settings { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: var(--space-sm); }
+.settings-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 calc(var(--space-xs) * -1); padding: 0 var(--space-xs); }
+.setting { padding: var(--space-sm) 0; border-bottom: var(--rule-hair) solid var(--color-rule); }
+.setting-head { display: flex; align-items: baseline; gap: var(--space-xs); margin-bottom: var(--space-2xs); }
+.setting-head label { flex: 1; font-size: var(--text-sm); font-weight: 500; }
+.setting-tag { font-size: var(--text-2xs); color: var(--color-ink-3); white-space: nowrap; }
+.setting-tag[data-pending] { color: var(--color-wait); }
+.setting-reset { padding: 0; border: 0; background: transparent; font-size: var(--text-2xs); color: var(--color-accent); text-decoration: underline dotted; text-underline-offset: 3px; white-space: nowrap; }
+.setting .field { margin-bottom: var(--space-2xs); font-family: var(--font-mono); font-size: max(16px, var(--text-sm)); }
+.setting textarea.field { display: block; padding: var(--space-xs) var(--space-sm); resize: vertical; line-height: 1.4; }
+.setting-help { margin: 0; font-size: var(--text-2xs); color: var(--color-ink-3); line-height: 1.4; }
+.setting-fixed { margin: 0 0 var(--space-2xs); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-2); overflow-wrap: anywhere; }
+.workspaces { display: grid; gap: var(--space-xs); justify-items: start; margin-bottom: var(--space-2xs); }
+.workspace { display: grid; gap: 0; width: 100%; margin: 0; padding: 0; border: 0; }
+.workspace .setting-reset { justify-self: start; margin-bottom: var(--space-2xs); }
+.settings-file { margin: var(--space-sm) 0 0; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-3); overflow-wrap: anywhere; }
+.settings-note { margin: 0; font-size: var(--text-xs); color: var(--color-ink-2); overflow-wrap: anywhere; white-space: pre-line; }
+.settings-note[data-bad] { color: var(--color-bad); }
+
 /* Changes (milestone 5). */
 .files .block pre.patch { padding: var(--space-xs) 0; white-space: pre; overflow-x: auto; }
 .files .block pre.patch span { display: block; min-width: max-content; padding: 0 var(--space-sm); }

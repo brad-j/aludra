@@ -97,6 +97,9 @@ function receive(event: ServerEvent) {
 			return set({ ideas: event.ideas });
 		case "colors":
 			return set({ colors: event.colors });
+		case "settings":
+			// Projects, models and defaults come in the bootstrap.
+			return void loadBootstrap();
 		case "items":
 			if (event.session !== state.followed) return;
 			return set({ items: [...state.items.slice(0, event.start), ...event.items].slice(0, event.length) });

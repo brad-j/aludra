@@ -62,10 +62,18 @@ export function fakeBridge(responses: FauxResponseStep[]) {
 	return { bridge, faux, seen, prompts, rewritten };
 }
 
-/** A host on a temp data directory with `options`, closed after the test. */
-export async function testHost(t: TestContext, options: Omit<HostOptions, "config"> & { approvalHosts?: string[] } = {}) {
+/**
+ * A host on a temp data directory with `options`, closed after the test. With `settingsFile`, its settings are read from
+ * config.json in the temp directory, so they can be changed.
+ */
+export async function testHost(t: TestContext, options: Omit<HostOptions, "config"> & { approvalHosts?: string[]; settingsFile?: boolean } = {}) {
 	const dir = tempDir(t);
-	const { config } = configFor(JSON.stringify({ dataDir: join(dir, "data"), workspaces: [{ name: "test", roots: [join(dir, "Projects", "*", "*")] }], approvals: { hosts: options.approvalHosts ?? ["build-box"] } }), {});
+	const text = JSON.stringify({ dataDir: join(dir, "data"), workspaces: [{ name: "test", roots: [join(dir, "Projects", "*", "*")] }], approvals: { hosts: options.approvalHosts ?? ["build-box"] } }, null, "\t");
+	const { config } = configFor(text, {});
+	if (options.settingsFile === true) {
+		config.file = join(dir, "config.json");
+		writeFileSync(config.file, text);
+	}
 	const agentDir = join(dir, "agent");
 	mkdirSync(agentDir, { recursive: true });
 	const host = await openHost({ agentDir, onNotice: () => {}, ...options, config });

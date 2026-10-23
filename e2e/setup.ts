@@ -1,7 +1,8 @@
 // Before the e2e host starts: a scratch git project, gamma, for the changes view, in e2e/results (which git ignores) as
-// its own repository; and loose, a project outside any repository, in /tmp.
+// its own repository; loose, a project outside any repository, in /tmp; the settings, copied into e2e/results so the
+// settings test saves there; and a project for each Playwright project that only a root added in that test finds.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const results = join(import.meta.dirname, "results");
@@ -19,3 +20,6 @@ git("commit", "-qm", "start");
 const loose = "/tmp/aludra-e2e/loose";
 rmSync("/tmp/aludra-e2e", { recursive: true, force: true });
 mkdirSync(loose, { recursive: true });
+
+copyFileSync(join(import.meta.dirname, "aludra.json"), join(results, "aludra.json"));
+for (const name of ["phone", "desk"]) mkdirSync(join(results, `extra-${name}`, `zeta-${name}`), { recursive: true });

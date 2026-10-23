@@ -13,7 +13,7 @@ import { type CompactionPolicy, configure as configureAgent, type ConversationId
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
-import type { ModelChoice } from "./api-types.ts";
+import type { ModelChoice, Settings } from "./api-types.ts";
 import { type Bridge, bridgeProvider, loadBridge, type Notice, PROVIDER } from "./bridge.ts";
 import { choiceOf, createCatalog, displayName } from "./catalog.ts";
 import { credentialsFile, fileCredentialStore } from "./credentials.ts";
@@ -24,7 +24,8 @@ import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
 import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
-import { ParseError } from "./parse.ts";
+import { type Json, ParseError } from "./parse.ts";
+import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
 import { modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
 
@@ -156,14 +157,13 @@ export type HostOptions = {
 export async function openHost(options: HostOptions) {
 	const { config } = options;
 	mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
-	const thinkingLevel: Thinking = config.model.thinking;
 	const notify = options.onNotice ?? ((notice: Notice) => console.error(`[bridge ${notice.level}] ${notice.message}`));
 
 	let models: Models;
 	let model: ModelRef;
 	const agentDir = options.agentDir ?? AGENT_DIR;
 	// What a no-project session is told about this machine: each workspace's directory, and where agent histories are.
-	const places: Place[] = [
+	const places = (): Place[] => [
 		...config.workspaces.flatMap((w) => w.roots.map((root) => ({ path: expandHome(root.split("/*")[0]!), what: `projects in the ${w.name} workspace (${root.replace(/^.*?\/\*/, "*")})` }))),
 		{ path: resolve(agentDir, "sessions"), what: "terminal pi's session history (JSONL)" },
 		{ path: resolve(homedir(), ".claude", "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
@@ -205,7 +205,7 @@ export async function openHost(options: HostOptions) {
 	const registry = createRegistry();
 	for (const extension of extensions) registry.install(extension);
 	// Last, so it wraps the tools the others bring, and other hooks see a call before it waits for the user.
-	registry.install(permissionsExtension({ approvals: () => approvals!, hosts: config.approvals.hosts }));
+	registry.install(permissionsExtension({ approvals: () => approvals!, hosts: () => config.approvals.hosts }));
 
 	const harness = await Harness.open(
 		await openNodeSqliteStorage(resolve(config.dataDir, "aludra.sqlite")),
@@ -218,7 +218,7 @@ export async function openHost(options: HostOptions) {
 		},
 		context,
 	);
-	approvals = new ApprovalService(harness, config.approvals.waitHours * 3_600_000);
+	approvals = new ApprovalService(harness, () => config.approvals.waitHours * 3_600_000);
 	const root = await harness.root(context);
 	const created = new Set<(session: SessionRecord) => void>();
 
@@ -275,7 +275,7 @@ export async function openHost(options: HostOptions) {
 		const base = await snapshot(project.dir);
 		await harness.createConversation({
 			ownership: { kind: "ownerless" },
-			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? thinkingLevel, cwd: project.dir },
+			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? config.model.thinking, cwd: project.dir },
 			init: async (tx, id) => {
 				record = {
 					id,
@@ -303,7 +303,7 @@ export async function openHost(options: HostOptions) {
 		let record: SessionRecord | undefined;
 		await harness.createConversation({
 			ownership: { kind: "ownerless" },
-			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? thinkingLevel },
+			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? config.model.thinking },
 			init: async (tx, id) => {
 				const dir = resolve(scratchRoot, String(id));
 				// The conversation's ID names its directory, so the working directory is set in the creating commit.
@@ -553,6 +553,43 @@ export async function openHost(options: HostOptions) {
 		if (session !== undefined) bridged?.abort(session.sessionId);
 	}
 
+	const settingListeners = new Set<() => void>();
+
+	/** The settings as clients see them (src/settings.ts). */
+	const readSettings = (): Settings => describeSettings(config.file, config);
+
+	/**
+	 * Saves `changes` to the settings file and applies what this host can take while it runs: everything clients can
+	 * change, except a default or pinned model of a provider it didn't load (Claude Code when no Claude model was pinned
+	 * at start), which waits for a restart. A model of a loaded provider has to be one it has.
+	 */
+	function saveSettings(changes: { readonly [key: string]: Json }): Settings {
+		const { text, config: next } = changeSettings(config.file, changes);
+		const loaded = (provider: string) => models.getProvider(provider) !== undefined;
+		const { provider, id } = next.model;
+		const moved = provider !== config.model.provider || id !== config.model.id;
+		if (moved && loaded(provider) && models.getModel(provider, id) === undefined) throw new SettingsError([`${provider}/${id} isn't a model this host has; the model picker lists them`]);
+		writeSettings(config.file!, text);
+		config.workspaces = next.workspaces;
+		config.approvals = next.approvals;
+		config.backup = next.backup;
+		config.model.thinking = next.model.thinking;
+		if (moved && loaded(provider)) {
+			config.model.provider = provider;
+			config.model.id = id;
+			model = { provider, modelId: id };
+		}
+		if (next.model.choices.every((c) => loaded(c.provider))) config.model.choices = next.model.choices;
+		settingListeners.forEach((listener) => listener());
+		return readSettings();
+	}
+
+	/** Hears of every saved change to the settings. */
+	function onSettings(listener: () => void): () => void {
+		settingListeners.add(listener);
+		return () => settingListeners.delete(listener);
+	}
+
 	/** Each session's state: running while a task of it is live, waiting while a call of it waits for the user. */
 	async function states(): Promise<Map<number, "running" | "waiting" | "idle">> {
 		const live = new Set((await harness.inspect(context)).tasks.map((t) => Number(t.record.conversationId)));
@@ -566,8 +603,14 @@ export async function openHost(options: HostOptions) {
 		harness,
 		root,
 		approvals,
-		model,
-		thinking: thinkingLevel,
+		/** The default model and thinking of new sessions; the settings can change them while the host runs. */
+		get model(): ModelRef {
+			return model;
+		},
+		get thinking(): Thinking {
+			return config.model.thinking;
+		},
+		settings: { get: readSettings, set: saveSettings, onChange: onSettings },
 		choices,
 		/** Whether `provider` has model `id`. */
 		hasModel: (provider: string, id: string) => models.getProvider(provider) !== undefined && models.getModel(provider, id) !== undefined,

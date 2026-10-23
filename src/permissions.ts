@@ -135,11 +135,12 @@ function plain(request: ApprovalRequest): ApprovalRequest {
 /** Requests and decisions, kept in a session document. Hooks can't write documents, so this does the writing. After gaidin's ApprovalService. */
 export class ApprovalService {
 	readonly #harness: Harness;
-	readonly #waitMs: number;
+	/** How long a new request waits, read as it's made: the setting can change while the host runs. */
+	readonly #waitMs: () => number;
 	readonly #waiters = new Map<string, Set<(request: ApprovalRequest) => void>>();
 	readonly #listeners = new Set<(request: ApprovalRequest) => void>();
 
-	constructor(harness: Harness, waitMs: number) {
+	constructor(harness: Harness, waitMs: () => number) {
 		this.#harness = harness;
 		this.#waitMs = waitMs;
 	}
@@ -197,7 +198,7 @@ export class ApprovalService {
 			}
 			const existing = doc.requests[key];
 			if (existing !== undefined) return { request: plain(existing), created: false };
-			const fresh: ApprovalRequest = { id: key, ...at, summary, command, createdAt: now, expiresAt: now + this.#waitMs, status: "pending" };
+			const fresh: ApprovalRequest = { id: key, ...at, summary, command, createdAt: now, expiresAt: now + this.#waitMs(), status: "pending" };
 			doc.requests[key] = fresh;
 			return { request: plain(fresh), created: true };
 		});
@@ -322,7 +323,8 @@ function signalOf(api: HookApi, context: Context): AbortSignal {
 export type PermissionOptions = {
 	/** Read lazily: the service needs the Harness, which is opened after the registry. */
 	approvals: () => ApprovalService;
-	hosts: readonly string[];
+	/** Read at each call: the setting can change while the host runs. */
+	hosts: () => readonly string[];
 };
 
 export function permissionsExtension(options: PermissionOptions) {
@@ -353,7 +355,7 @@ export function permissionsExtension(options: PermissionOptions) {
 	async function approve(call: ToolCall, api: HookApi, context: Context) {
 		const command = call.arguments.command;
 		if (call.name !== "bash" || typeof command !== "string") return undefined;
-		const summary = approvalFor(command, options.hosts);
+		const summary = approvalFor(command, options.hosts());
 		if (summary === undefined) return undefined;
 		const approvals = options.approvals();
 		if ((await approvals.allowed(api.conversationId)).includes(summary)) return undefined;

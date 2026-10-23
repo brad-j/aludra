@@ -26,6 +26,7 @@ export function createLive(host: Host) {
 		sendIdeas();
 		const stopColors = host.colors.onChange((colors) => send({ type: "colors", colors }));
 		void host.colors.list().then((colors) => send({ type: "colors", colors }), (error) => console.error("[live]", error));
+		const stopSettings = host.settings.onChange(() => send({ type: "settings" }));
 		let following: Promise<(() => void) | undefined> = Promise.resolve(undefined);
 		let closed = false;
 		return {
@@ -44,6 +45,7 @@ export function createLive(host: Host) {
 				closed = true;
 				stopIdeas();
 				stopColors();
+				stopSettings();
 				stopFeed();
 				void following.then((stop) => stop?.());
 			},

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { backupNow } from "./backup.ts";
-import { talk } from "./cli.ts";
+import { configCommand, talk } from "./cli.ts";
 import { expandHome, loadConfig } from "./config.ts";
 import { printChecks, runChecks } from "./doctor.ts";
 import { findProjects } from "./projects.ts";
@@ -33,6 +33,8 @@ const USAGE = `usage: aludra [--config FILE] [COMMAND]
   approvals                              list calls waiting for approval
   approve ID | deny ID                   answer one
   projects                               list the projects the workspaces' roots match
+  config                                 list the settings and where they come from
+  config set KEY VALUE... | unset KEY    change one, at once if the host runs (a list takes each VALUE as an entry)
   backup                                 copy the database into the backup directory now
   login openai | openrouter              sign in with ChatGPT (OpenAI on your plan) or to OpenRouter (billed per request)
   logout openai | openrouter             forget that sign-in on this machine
@@ -157,6 +159,8 @@ switch (command) {
 	case "projects":
 		for (const project of findProjects(config.workspaces)) console.log(`${project.name.padEnd(24)} ${project.workspace.padEnd(8)} ${project.dir}`);
 		process.exit(0);
+	case "config":
+		process.exit(await configCommand(config, rest));
 	case "backup":
 		try {
 			console.log(`wrote ${await backupNow(config)}`);

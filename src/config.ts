@@ -21,6 +21,9 @@
 // `model.id`. OpenAI's models run on the ChatGPT sign-in `aludra login openai` keeps, OpenRouter's on the key `aludra login openrouter` gets (src/login.ts). `claude.path` is the Claude Code the bridge runs, the user's own install and login;
 // a bare name is looked up on PATH. `backup` copies the database while the host runs (src/backup.ts); its directory is
 // backups/ in the data directory unless it names another disk or a synced folder.
+//
+// The apps and `aludra config` change most settings while the host runs (src/settings.ts), so the host reads them from
+// its Config each time rather than keeping copies.
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";

@@ -89,6 +89,8 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 - **The sessions feed** in `src/live.ts` keeps every session's summary current by watching the task graph: a session is running while it has a generation or tool task, and when those end, its summary is read again. A run that ends done or failed triggers a notification once.
 - **amyrlin's endpoint** (`src/amyrlin/`) speaks amyrlin's protocol v1. `translate.ts` turns `watchEvents()` into v1 frames; `endpoint.ts` handles commands, the session list and approvals.
 
+- **Settings** (`src/settings.ts`) describe themselves for every client: the web API, the CLI's socket and amyrlin's endpoint all serve the same `Settings`. A change is written to the file and checked as at start, then the host applies what it can (`host.settings.set`). The host reads its workspaces, approval hosts and wait, default model and thinking, and backup schedule from its running settings each time it needs them, so nothing holds a stale copy.
+
 [api.md](api.md) documents all three.
 
 ## The app

@@ -100,6 +100,10 @@ Each project has a color hashed from its name. When two clash, pick another in a
 
 On a narrow screen the app opens on the drawer. From 60rem wide it's a column beside the session.
 
+## Settings
+
+The sliders button at the top of the drawer opens the host's settings: workspaces and their roots, the default model and thinking, pinned models, approval hosts and backups. Change any of them and Save. Most apply at once, so a new root's projects are in the picker straight away; any that need a restart say so. The Tailscale logins, the port, Claude Code's path and the data directory are shown but change only in the settings file. [configuration.md](configuration.md#changing-settings-while-the-host-runs) has the details.
+
 ## Notifications
 
 The host notifies your devices when a call waits for approval (after 2 seconds, if it still waits), and when a run ends done or failed. Nothing is sent about a session an app has on screen. Tapping a notification opens the session, with any approval above the composer.
@@ -110,7 +114,7 @@ The host sends notifications through the browser maker's push service (Apple's, 
 
 ## amyrlin
 
-[amyrlin](https://github.com/brad-j/amyrlin) is an optional native macOS client. It connects to every machine you add and shows all their sessions together. Everything above works there too, plus picking project colors. Its README covers installing it. Forking sessions isn't an aludra feature; amyrlin gets "unsupported" for it.
+[amyrlin](https://github.com/brad-j/amyrlin) is an optional native macOS client. It connects to every machine you add and shows all their sessions together. Everything above works there too, plus picking project colors. Its settings screen, when it has one, uses the same settings as the web app. Its README covers installing it. Forking sessions isn't an aludra feature; amyrlin gets "unsupported" for it.
 
 ## The CLI
 

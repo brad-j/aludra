@@ -17,6 +17,8 @@
 //   POST /api/ideas/:id/start                                                          → { id } of the session
 //   POST /api/ideas/:id/delete
 //   POST /api/projects/color              { project, color: 0-10 | null }                 a picked color, or the hashed one again
+//   GET  /api/settings                    every setting, described for a form (Settings in src/api-types.ts)
+//   POST /api/settings                    { changes: { key: value | null } } → Settings     saved, and applied where it can be
 //   GET  /api/push                        the key devices sign up with, and the devices
 //   POST /api/push/subscribe              { endpoint, keys: { p256dh, auth }, label }
 //   POST /api/push/unsubscribe            { endpoint }
@@ -37,7 +39,7 @@ import type { Bootstrap, ClientEvent, PushState, ServerEvent, Thinking } from ".
 import { PACKAGE_DIR, THINKING } from "./config.ts";
 import { IMAGE_TYPES, messageContent, titleOf } from "./images.ts";
 import type { Host } from "./host.ts";
-import { array, boolean, integer, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
+import { array, boolean, integer, jsonObject, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
 import type { ApprovalRequest } from "./permissions.ts";
 import type { Push, PushMessage } from "./push.ts";
@@ -131,6 +133,7 @@ const newIdea = object({ project: string, text: string });
 const projectColor = object({ project: string, color: nullable(integer) });
 const subscription = object({ endpoint: string, keys: object({ p256dh: string, auth: string }), label: optional(string) });
 const endpointBody = object({ endpoint: string });
+const settingsChange = object({ changes: jsonObject });
 
 export type ApiOptions = {
 	/** The live feed to share; one of its own otherwise. */
@@ -215,6 +218,7 @@ export function createApi(host: Host, options: ApiOptions) {
 	}
 
 	async function post(path: string, body: string, origin: string): Promise<unknown> {
+		if (path === "/api/settings") return host.settings.set(parseJson(body, settingsChange, "the settings").changes);
 		if (path === "/api/projects/color") {
 			const request = parseJson(body, projectColor, "the color");
 			return { colors: await host.colors.set(request.project, request.color ?? null) };
@@ -343,6 +347,7 @@ export function createApi(host: Host, options: ApiOptions) {
 			const changed = /^\/api\/sessions\/(\d+)\/changes(\/diff)?$/.exec(path);
 			if (changed !== null) return json(response, await changes(Number(changed[1]), changed[2] === undefined ? null : url.searchParams.get("path") ?? ""));
 			if (path === "/api/push") return json(response, await pushState());
+			if (path === "/api/settings") return json(response, host.settings.get());
 			const picture = /^\/api\/sessions\/(\d+)\/images\/(\d+)\/(\d+)\/(\d+)$/.exec(path);
 			if (picture !== null) {
 				const [id, entry, message, block] = picture.slice(1).map(Number) as [number, number, number, number];

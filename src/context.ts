@@ -38,12 +38,12 @@ export function noProjectSection(cwd: string, places: readonly Place[]): string 
 	].join("\n");
 }
 
-export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot: string; places: readonly Place[] }) {
+export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot: string; places: () => readonly Place[] }) {
 	const inScratch = (cwd: string | undefined) => noProject !== undefined && cwd !== undefined && cwd.startsWith(noProject.scratchRoot + "/");
 	return defineExtension({
 		name: "project-context",
 		sections: [
-			section("no_project", ({ agent }) => (inScratch(agent.cwd) ? noProjectSection(agent.cwd!, noProject!.places) : undefined)),
+			section("no_project", ({ agent }) => (inScratch(agent.cwd) ? noProjectSection(agent.cwd!, noProject!.places()) : undefined)),
 			section("project_context", ({ agent }) => (agent.cwd === undefined ? undefined : projectContext(agent.cwd, agentDir)), { tag: false }),
 			section("skills", ({ agent }) => (agent.cwd === undefined ? undefined : skills(agent.cwd, agentDir)), { tag: false }),
 		],

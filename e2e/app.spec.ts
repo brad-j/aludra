@@ -245,3 +245,24 @@ test("a no-project session runs in its own scratch directory and is listed under
 	await expect(group.locator(".where")).toHaveText("scratch");
 	await expect(group.locator(".session-row").first()).toContainText("No project here. Run pwd.");
 });
+
+test("settings: a root added in the sheet finds a new project at once, and a file-only setting can't be changed", async ({ page }) => {
+	const name = test.info().project.name;
+	await page.goto("/");
+	await page.getByRole("button", { name: "Settings" }).click();
+	const sheet = page.getByRole("dialog", { name: "Settings" });
+	await expect(sheet.locator('[data-key="api.users"] .setting-fixed')).toHaveText("you@example.com");
+	await expect(sheet.locator('[data-key="api.users"]')).toContainText("settings file only");
+	await expect(sheet.locator('[data-key="api.users"] input, [data-key="api.users"] textarea')).toHaveCount(0);
+	const roots = sheet.getByLabel("test roots, one per line");
+	await roots.fill(`${await roots.inputValue()}\ne2e/results/extra-${name}/*`);
+	await sheet.getByRole("button", { name: "Save" }).click();
+	await expect(sheet.getByRole("status")).toHaveText("Saved.");
+	await expect(sheet.getByRole("button", { name: "Save" })).toBeDisabled();
+	await page.screenshot({ path: `e2e/results/settings-${name}.png` });
+	await sheet.getByRole("button", { name: "Close" }).click();
+	if (phone(page)) await page.locator(".scrim").click({ position: { x: page.viewportSize()!.width - 20, y: 300 } });
+	await page.locator(".who .path").click();
+	await page.getByLabel("Find a project").fill(`zeta-${name}`);
+	await expect(page.locator(".sheet .pick").filter({ hasText: `zeta-${name}` })).toBeVisible();
+});

@@ -9,6 +9,7 @@ import { useLive } from "../lib/live.ts";
 import { type PushHere, pushHere, sendTest, turnOff, turnOn } from "../lib/push.ts";
 import { Icon, Mark } from "./icons.tsx";
 import { IdeaRow } from "./Ideas.tsx";
+import { SettingsSheet } from "./Settings.tsx";
 import { useTick, useUi } from "./Shell.tsx";
 
 const FOLDED = "aludra.folded";
@@ -35,7 +36,7 @@ export function Drawer() {
 	const colors = useLive((s) => s.colors);
 	const machine = useLive((s) => s.bootstrap?.machine);
 	const connection = useLive((s) => s.connection);
-	const { setDrawer } = useUi();
+	const { setDrawer, sheet } = useUi();
 	const params = useParams({ strict: false });
 	const current = params.id === undefined ? undefined : Number(params.id);
 	const now = useTick();
@@ -59,6 +60,9 @@ export function Drawer() {
 		<aside className="drawer" aria-label="Sessions">
 			<div className="drawer-head">
 				<h2>Sessions</h2>
+				<button type="button" className="icon-btn" aria-label="Settings" onClick={() => sheet("Settings", (close) => <SettingsSheet close={close} />)}>
+					<Icon.settings />
+				</button>
 				<Link to="/" className="icon-btn" aria-label="New session" onClick={() => setDrawer(false)}>
 					<Icon.plus />
 				</Link>

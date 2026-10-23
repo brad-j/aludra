@@ -23,6 +23,7 @@ export const Icon = {
 		</Svg>
 	),
 	plus: () => <Svg><path d="M12 5v14M5 12h14" /></Svg>,
+	settings: () => <Svg><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></Svg>,
 	image: () => <Svg><rect x="4" y="5" width="16" height="14" rx="1" /><path d="m4 16 4.5-4.5 3 3 2.5-2.5L20 18" /><circle cx="15.5" cy="9.5" r="1.5" /></Svg>,
 	files: () => <Svg><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" /></Svg>,
 	send: () => <Svg><path d="M12 19V5M6 11l6-6 6 6" /></Svg>,

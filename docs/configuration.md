@@ -1,6 +1,6 @@
 # Configuration
 
-aludra reads one JSON file at start. The host has to be restarted to pick up a change: `aludra service install` rewrites the unit and restarts it, or restart it with `launchctl kickstart -k gui/$(id -u)/io.bradjohnson.aludra` on macOS and `systemctl --user restart aludra` on Linux.
+aludra reads one JSON file at start. Most settings can also be changed from the apps or `aludra config` while the host runs ([below](#changing-settings-while-the-host-runs)). A change made by hand in the file needs a restart: `aludra service install` rewrites the unit and restarts it, or restart it with `launchctl kickstart -k gui/$(id -u)/io.bradjohnson.aludra` on macOS and `systemctl --user restart aludra` on Linux.
 
 ## Where the file is
 
@@ -33,6 +33,24 @@ The first of these that's set:
 ```
 
 Only `workspaces` is required. `aludra serve` and `aludra service install` refuse to start while a setting is wrong, and `aludra doctor` lists every problem.
+
+## Changing settings while the host runs
+
+The web app's Settings sheet (the sliders button at the top of the drawer), `aludra config set` and amyrlin's `settings.set` change these settings and save them to the file:
+
+| Setting | Takes effect |
+| --- | --- |
+| `workspaces` | At once: projects are read from the new roots the next time they're listed. |
+| `model.id`, `model.thinking` | For sessions started after the change. A default model has to be one the host has, unless its provider isn't loaded (Claude Code, when no Claude model was pinned at start), in which case it waits for a restart. |
+| `model.choices` | At once, unless a choice's provider isn't loaded; then the whole list waits for a restart. |
+| `approvals.hosts`, `approvals.waitHours` | At once, for calls made after the change. |
+| `backup.dir`, `backup.everyHours`, `backup.keep` | At the next hourly check. |
+
+`api.users`, `api.port`, `claude.path` and `dataDir` change only in the file, followed by a restart. A wrong login or port would lock every app out with no way back in from an app, a new data directory would strand the database, and `claude.path` picks the program the host runs.
+
+A change is checked the way the host checks the file at start, and refused whole if anything is wrong. The file is rewritten as formatted JSON with tab indents: every setting and any key aludra doesn't know stay, but your own formatting doesn't. If the file is a link, the file it points to is written.
+
+A setting that's saved but not yet in effect is marked "after a restart" in the apps and in `aludra config`. That also covers a change made by hand in the file since the host started.
 
 ## Settings
 

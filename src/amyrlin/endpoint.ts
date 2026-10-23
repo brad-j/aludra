@@ -11,6 +11,8 @@
 // - Spend is pi-durable's usage. On the subscription its cost is 0; token counts are real.
 // - Forks aren't an aludra feature; that method answers `unsupported`. Archiving hides a session from the lists, as
 //   aludra's own apps do; host.watch carries archived sessions and the client filters.
+// - `settings.get` and `settings.set` are aludra's own, not in protocol v1: the host's settings, each described for a
+//   form (src/settings.ts). A host without them answers `unknown_method`.
 import { randomUUID } from "node:crypto";
 import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import type { WebSocket } from "ws";
@@ -19,6 +21,7 @@ import { context, conversationId, type Host, type SessionRecord } from "../host.
 import { type ImageInput, messageContent, titleOf } from "../images.ts";
 import type { ApprovalRequest } from "../permissions.ts";
 import { monthSpend } from "../live.ts";
+import { SettingsError } from "../settings.ts";
 import { billedCost } from "../transcript.ts";
 import { DurableTranslator, entryItem, type Json, text, usageState } from "./translate.ts";
 
@@ -653,6 +656,17 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 						return { projectColors: await host.colors.set(p.project, p.color) };
 					} catch (error) {
 						throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+					}
+				}
+				case "settings.get":
+					return { settings: host.settings.get() };
+				case "settings.set": {
+					if (p.changes === null || typeof p.changes !== "object" || Array.isArray(p.changes)) throw new ProtocolError("bad_request", "settings.set takes changes: { key: value or null }");
+					try {
+						return { settings: host.settings.set(p.changes) };
+					} catch (error) {
+						if (error instanceof SettingsError) throw new ProtocolError("invalid_settings", error.message, { errors: error.errors });
+						throw error;
 					}
 				}
 				case "conversation.history":

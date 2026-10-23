@@ -6,7 +6,8 @@ aludra gives whoever reaches it an agent that runs commands as you, on a machine
 
 - **Loopback only.** The host listens on `127.0.0.1`. Nothing on the network reaches it directly. `tailscale serve` is the way in.
 - **Tailscale identity.** `tailscale serve` adds a `Tailscale-User-Login` header to each request from a person's device. aludra lets in only the logins in `api.users`; anything else, including tagged devices and requests with no header, gets 403. There are no passwords or tokens. Without `api.users`, the app, its API and amyrlin's endpoint don't start.
-- **Everyone listed is equal.** Every listed login sees and runs every session on the machine. There are no per-user permissions.
+- **Everyone listed is equal.** Every listed login sees and runs every session on the machine, and can change the settings the apps can change, approval hosts included. There are no per-user permissions.
+- **Some settings are file-only.** The apps can't change `api.users`, `api.port`, `claude.path` or `dataDir`. The first two decide who gets in, the third is the program the host runs, and the fourth is where its data is. Only someone who can edit the settings file changes them.
 - **The CLI socket** is `aludra.sock` in the data directory, readable and writable by you only. Anyone who can use it is already you.
 
 Anything else on the machine that can open connections to `127.0.0.1:8724` and set a header could pretend to be a listed login. That includes other local users and any process running as you. On a shared machine, keep that in mind.

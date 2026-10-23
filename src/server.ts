@@ -4,9 +4,11 @@
 // client → server: {"type":"ask","content":"...","project":"aludra"} or {"type":"ask","content":"...","session":3},
 //                  {"type":"watch","session":3?}, {"type":"sessions","listing":true?}, {"type":"stop","session":3},
 //                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true}, {"type":"live"},
-//                  {"type":"retitle"}, {"type":"archive","session":3,"archived":true}
+//                  {"type":"retitle"}, {"type":"archive","session":3,"archived":true},
+//                  {"type":"settings","changes":{"approvals.hosts":["db"]}?}
 // server → client: {"type":"line","text":"..."}, for a sessions request with listing
-//                  {"type":"sessions","sessions":[SessionSummary...],"colors":{...}}, and, last, {"type":"done","status":"..."}
+//                  {"type":"sessions","sessions":[SessionSummary...],"colors":{...}}, for a settings request
+//                  {"type":"settings","settings":Settings}, and, last, {"type":"done","status":"..."}
 //
 // `listing` asks for the sessions as data, which the CLI lays out for its terminal (src/listing.ts); a host from before
 // it ignores the field and sends lines, which the CLI prints as they are.
@@ -20,14 +22,14 @@ import { connect, createServer, type Socket } from "node:net";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchEvents } from "@earendil-works/pi-durable";
-import type { ServerEvent, SessionSummary } from "./api-types.ts";
+import type { ServerEvent, SessionSummary, Settings } from "./api-types.ts";
 import { createApi } from "./api.ts";
 import { createLive, type Live, monthSpend, readSummary } from "./live.ts";
 import { scheduleBackups } from "./backup.ts";
 import { createPush, loadPushKeys } from "./push.ts";
 import type { Config } from "./config.ts";
 import { context, conversationId, type Host, openHost, type SessionRecord } from "./host.ts";
-import { array, boolean, dictionary, integer, jsonObject, literal, nullable, number, object, optional, ParseError, parseJson, string } from "./parse.ts";
+import { array, boolean, dictionary, integer, type Json, jsonObject, literal, nullable, number, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import type { ApprovalRequest } from "./permissions.ts";
 import { findProject } from "./projects.ts";
 
@@ -42,17 +44,21 @@ export type ClientMessage =
 	| { type: "decide"; id: string; allow: boolean }
 	| { type: "live" }
 	| { type: "retitle" }
-	| { type: "archive"; session: number; archived: boolean };
+	| { type: "archive"; session: number; archived: boolean }
+	/** The settings, after making `changes` if there are any (src/settings.ts). */
+	| { type: "settings"; changes?: { readonly [key: string]: Json } };
 
 export type ServerMessage =
 	| { type: "line"; text: string }
 	| { type: "sessions"; sessions: SessionSummary[]; colors: Record<string, number>; spend?: { month: number } }
+	| { type: "settings"; settings: Settings }
 	| { type: "event"; event: ServerEvent }
 	| { type: "done"; status: string };
 
 const followEvent = object({ type: literal("follow"), session: nullable(integer) });
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "live", "retitle", "archive"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "live", "retitle", "archive", "settings"),
+	changes: optional(jsonObject),
 	archived: optional(boolean),
 	content: optional(string),
 	project: optional(string),
@@ -76,8 +82,9 @@ const summary = object({
 	cost: optional(number),
 });
 const serverMessage = object({
-	type: literal("line", "sessions", "event", "done"),
+	type: literal("line", "sessions", "settings", "event", "done"),
 	event: optional(jsonObject),
+	settings: optional(jsonObject),
 	text: optional(string),
 	status: optional(string),
 	sessions: optional(array(summary)),
@@ -106,6 +113,8 @@ export function parseClientMessage(line: string): ClientMessage {
 		case "archive":
 			if (m.session === undefined) throw new ParseError("an archive needs a session");
 			return { type: "archive", session: m.session, archived: m.archived !== false };
+		case "settings":
+			return m.changes === undefined ? { type: "settings" } : { type: "settings", changes: m.changes };
 		case "decide":
 			if (m.id === undefined || m.allow === undefined) throw new ParseError("a decision needs an id and allow");
 			return { type: "decide", id: m.id, allow: m.allow };
@@ -118,6 +127,8 @@ export function parseServerMessage(line: string): ServerMessage {
 	const m = parseJson(line, serverMessage, "the server's message");
 	// SAFETY: the host on our own socket sends the ServerEvents src/live.ts makes.
 	if (m.type === "event") return { type: "event", event: m.event as unknown as ServerEvent };
+	// SAFETY: the host on our own socket sends the Settings src/settings.ts makes.
+	if (m.type === "settings") return { type: "settings", settings: m.settings as unknown as Settings };
 	if (m.type === "sessions") return { type: "sessions", sessions: m.sessions ?? [], colors: Object.fromEntries(m.colors ?? []), ...(m.spend === undefined ? {} : { spend: m.spend }) };
 	return m.type === "line" ? { type: "line", text: m.text ?? "" } : { type: "done", status: m.status ?? "" };
 }
@@ -360,6 +371,9 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				});
 				return;
 			}
+			case "settings":
+				send(socket, { type: "settings", settings: request.changes === undefined ? host.settings.get() : host.settings.set(request.changes) });
+				return finish([]);
 			case "decide": {
 				const decided = await host.approvals.decide(request.id, request.allow);
 				return decided === undefined ? finish([`no pending approval ${request.id}`], "failed") : finish([describeApproval(decided)]);

@@ -97,9 +97,51 @@ export type Bootstrap = {
 	defaults: { model: ModelChoice; thinking: Thinking };
 };
 
+/**
+ * How a setting's value is shaped, for drawing its control: `text` and `path` are strings, `number` and `integer`
+ * numbers, `list` a list of strings, `model` a model as `provider/id` (bootstrap's catalog lists them), `models` a list
+ * of those, `choice` one of `options`, and `workspaces` a list of `{ name, roots }`.
+ */
+export type SettingKind = "text" | "path" | "number" | "integer" | "list" | "model" | "models" | "choice" | "workspaces";
+
+export type SettingValue = string | number | string[] | { name: string; roots: string[] }[];
+
+/** One setting, described well enough for any client to show and change it without knowing aludra's settings. */
+export type Setting = {
+	/** Its place in the settings file, such as `approvals.hosts`. */
+	key: string;
+	label: string;
+	help: string;
+	kind: SettingKind;
+	/** What the settings file says, with defaults filled in. */
+	value: SettingValue;
+	/** What it is when the file doesn't say; absent for a setting with no default. */
+	default?: SettingValue;
+	/** Whether the file sets it, rather than leaving the default. */
+	set: boolean;
+	options?: string[];
+	/** Whether the apps may change it. The rest change only in the file: a mistake there could lock every app out. */
+	editable: boolean;
+	/** Whether a change reaches the running host at once, rather than at its next restart. */
+	live: boolean;
+};
+
+/** GET /api/settings and what a change answers with. */
+export type Settings = {
+	/** The settings file; null when the host started without one. */
+	file: string | null;
+	settings: Setting[];
+	/** Keys whose saved value the running host doesn't have yet; a restart brings them in. */
+	restart: string[];
+	/** What's wrong in the file, if anything; the host wouldn't start with it like this. */
+	errors: string[];
+};
+
 /** Over the WebSocket, server to app. */
 export type ServerEvent =
 	| { type: "sessions"; sessions: SessionSummary[] }
+	/** The settings changed: the projects, models or defaults in the bootstrap may have too. */
+	| { type: "settings" }
 	| { type: "ideas"; ideas: Idea[] }
 	/** Projects whose color was picked: name to hue index (app/lib/projects.ts). */
 	| { type: "colors"; colors: Record<string, number> }

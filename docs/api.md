@@ -32,6 +32,8 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 | `POST /api/ideas/:id/start` | `{}` | `{ id }` of the new session. |
 | `POST /api/ideas/:id/delete` | `{}` | `{}` |
 | `POST /api/projects/color` | `{ project, color }` | `{ colors }`. `color` is a hue index 0 to 10, or `null` for the hashed one. |
+| `GET /api/settings` | | `Settings`: every setting, described for a form (see "Settings" below). |
+| `POST /api/settings` | `{ changes: { key: value \| null } }` | `Settings` after the change. `null` puts a setting back to its default. A refused change is 400 with one reason per line, and nothing is saved. |
 | `GET /api/push` | | `PushState`: the public key devices sign up with, and the devices. |
 | `POST /api/push/subscribe` | `{ endpoint, keys: { p256dh, auth }, label? }` | `PushState` |
 | `POST /api/push/unsubscribe` | `{ endpoint }` | `PushState` |
@@ -42,6 +44,31 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 `requestId` makes a send safe to retry: the same ID finds the message already sent rather than sending it twice.
 
 Any other `GET` outside `/api/` serves the built app: a file from `dist/client` if one matches, else the app's shell.
+
+### Settings
+
+Each setting describes itself, so a client can draw a settings screen from the list without knowing aludra's settings. `Settings` is `{ file, settings, restart, errors }`:
+
+- `file`: the settings file's path, or null when the host started without one (then nothing can be saved).
+- `settings`: a `Setting` for each, in a sensible order for a form.
+- `restart`: the keys whose saved value the running host doesn't have yet.
+- `errors`: what's wrong in the file, such as a hand edit the host wouldn't start with.
+
+A `Setting` is:
+
+| Field | Meaning |
+| --- | --- |
+| `key` | Its place in the file, such as `approvals.hosts`. The key to change it by. |
+| `label`, `help` | A name and one line of help, for the form. |
+| `kind` | The value's shape: `text` or `path` (a string), `number`, `integer`, `list` (strings), `model` (`provider/id`; bootstrap's `catalog` lists them), `models` (a list of those), `choice` (one of `options`), or `workspaces` (a list of `{ name, roots }`). |
+| `value` | What the host makes of the file: defaults filled in, `~` expanded in paths, and `ALUDRA_DATA_DIR` or `ALUDRA_MODEL` applied. |
+| `default` | The value when the file doesn't name it; absent for `workspaces`. |
+| `set` | Whether the file names it. |
+| `options` | A `choice`'s values. |
+| `editable` | Whether clients can change it. `api.users`, `api.port`, `claude.path` and `dataDir` aren't editable. |
+| `live` | Whether a change reaches the running host without a restart. |
+
+[configuration.md](configuration.md#changing-settings-while-the-host-runs) says when each change takes effect.
 
 ### The live socket: `WS /api/live`
 
@@ -54,6 +81,7 @@ On connect, the server sends `sessions`, `ideas` and `colors`, then keeps each c
 | `{ type: "sessions", sessions: SessionSummary[] }` | Any session's state, title, latest line or age changed. Newest first. |
 | `{ type: "ideas", ideas: Idea[] }` | An idea was added, started or deleted. |
 | `{ type: "colors", colors }` | A project's color was picked or reset. |
+| `{ type: "settings" }` | The settings were changed. The bootstrap's projects, models and defaults may have changed too; fetch it again. |
 | `{ type: "items", session, start, items, length }` | The followed session's transcript, from `start` on. Items before `start` are unchanged; drop any after `length`. |
 | `{ type: "meta", session, meta: SessionMeta }` | The followed session's state, model, thinking, context use, queued messages, pending approval and retry. |
 | `{ type: "error", message }` | A client event couldn't be handled. |
@@ -77,6 +105,7 @@ How aludra maps onto the protocol:
 - `conversations.list`, `conversations.rename`, `submit`, `abort`, `compact`, `reset`, `approval.answer`, `approval.forget`, `conversation.history`, `conversation.image`, `conversation.watch`, `host.info` and `host.watch` are supported.
 - `projects.setColor` picks a project's color; `host.info` and the host snapshot carry the picked colors, and `host.projectColors` announces changes.
 - Summaries carry `cost`, the dollars billed providers (OpenRouter) charged for the session, only when it used one. `spend` stays as the protocol defines it, Pi Durable's usage priced at API rates for every model, plan-paid ones (Claude Code, ChatGPT) included, so a client showing money should show `cost`. `host.info` and `host.snapshot` carry `monthCost`, this calendar month's charged total, when any session was charged.
+- `settings.get` and `settings.set { changes }` are aludra's own additions to the protocol, each answering `{ settings }` with the same `Settings` as the web API. A refused change is `invalid_settings` with `data.errors`, one reason each. A host from before them answers `unknown_method`, which is how a client can tell whether to offer settings.
 - `conversations.archive` hides a session from the lists, or brings it back with `archived: false`; running work goes on. `conversations.list` leaves archived sessions out unless `includeArchived` is set, and `host.watch` carries them marked `archived` for the client to filter. `conversations.fork` answers `unsupported`.
 - Pending approvals are `approval.requested`. Approved, denied, and expired, stopped or superseded requests are `approval.resolved` with `approve`, `deny` or `cancelled`.
 - `approval.answer` with `always: true` (only with `approve`) lets the session run the request's summary, `git push` or `ssh to host`, without asking again, and approves its other requests for it. Summaries list those as `alwaysAllowed`, present only when there are any; `approval.forget {conversationId, summary}` takes one back and returns `{conversation}`.
@@ -102,6 +131,8 @@ Client to server, one of:
 ```
 
 `{ "type": "archive", "session": 12, "archived": true }` archives a session, or brings it back with `false`.
+
+`{ "type": "settings" }` answers with one `{ "type": "settings", "settings": Settings }`. With `"changes": { key: value | null }` it makes them first, as `POST /api/settings` does; a refused change is a `! ` line with the reasons and a `failed` status.
 
 `{ "type": "retitle" }` writes titles for sessions that still have their first message's first line and sends a line for each.
 

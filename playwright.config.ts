@@ -17,7 +17,7 @@ export default defineConfig({
 	],
 	webServer: {
 		command: "node --no-warnings e2e/setup.ts && node --no-warnings src/main.ts serve",
-		env: { ALUDRA_CONFIG: "e2e/aludra.json", ALUDRA_DATA_DIR: "e2e/results/data", ALUDRA_MODEL: "faux" },
+		env: { ALUDRA_CONFIG: "e2e/results/aludra.json", ALUDRA_DATA_DIR: "e2e/results/data", ALUDRA_MODEL: "faux" },
 		url: "http://127.0.0.1:8726/api/bootstrap",
 		reuseExistingServer: false,
 		stdout: "ignore",

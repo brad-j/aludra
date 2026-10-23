@@ -6,7 +6,7 @@ aludra [--config FILE] COMMAND
 
 `--config` names the settings file for any command ([configuration.md](configuration.md#where-the-file-is)). `aludra --help` prints the summary.
 
-Commands fall into two groups. `init`, `service`, `serve`, `login`, `logout`, `projects`, `backup` and `doctor` work on their own. The rest talk to the running host over its Unix socket in the data directory, and print "can't reach the aludra server" if it isn't running.
+Commands fall into two groups. `init`, `service`, `serve`, `login`, `logout`, `projects`, `config`, `backup` and `doctor` work on their own. The rest talk to the running host over its Unix socket in the data directory, and print "can't reach the aludra server" if it isn't running.
 
 ## Setting up
 
@@ -127,6 +127,26 @@ Answers one. Exits 1 if nothing with that ID is waiting (it was answered, expire
 ### `aludra projects`
 
 Lists what the workspace roots match: each project's name, workspace and directory.
+
+### `aludra config`
+
+```
+aludra config
+aludra config set KEY VALUE...
+aludra config unset KEY
+```
+
+With no arguments, lists every setting, its value and where the settings came from. Each is marked `default` when the file doesn't name it, `file only` when it can't be changed here, and `after a restart` when the running host doesn't have the saved value yet.
+
+`set` changes one setting and `unset` puts it back to its default. A list takes each word as an entry (`aludra config set approvals.hosts db router`), or JSON; `workspaces` takes JSON:
+
+```sh
+aludra config set workspaces '[{"name": "code", "roots": ["~/code/*", "~/work/*/*"]}]'
+aludra config set model.thinking medium
+aludra config unset backup.dir
+```
+
+When the host is running, the change goes through it and takes effect at once where it can. Otherwise it's written straight to the file for the next start. The settings it can change, and when each takes effect, are in [configuration.md](configuration.md#changing-settings-while-the-host-runs).
 
 ### `aludra backup`
 
