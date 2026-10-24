@@ -1,11 +1,10 @@
 // `aludra doctor`: checks the settings and everything the host depends on, without starting it and without spending
 // anything (after gaidin's doctor.ts). Loading the bridge starts no Claude Code query.
 import { spawnSync } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { accessSync, constants, mkdirSync, readFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { APP_DIR } from "./api.ts";
 import { listBackups } from "./backup.ts";
 import { claudeExecutable, loadBridge, PROVIDER } from "./bridge.ts";
 import type { Config, Loaded, ProviderId } from "./config.ts";
@@ -25,7 +24,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), openrouter(config), app(config), push(), service(config), backups(config)];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), openrouter(config), api(config), push(), service(config), backups(config)];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -144,24 +143,20 @@ async function openai(config: Config): Promise<Check[]> {
 	return checks;
 }
 
-/** The app: its API needs a login to let in, the build to serve, and tailscale serve in front. */
-async function app(config: Config): Promise<Check[]> {
-	if (config.api.users.length === 0) return [{ status: "warn", area: "app", detail: 'no api.users in the settings, so the app and its API are off; list your Tailscale login: "users": ["you@example.com"]' }];
-	const built = existsSync(join(APP_DIR, "_shell.html"));
-	const checks: Check[] = [
-		{ status: "ok", area: "app", detail: `API on 127.0.0.1:${config.api.port} for ${config.api.users.join(", ")}` },
-		{ status: built ? "ok" : "fail", area: "app", detail: built ? "built" : "not built; run pnpm build in a checkout, or sh scripts/install.sh" },
-	];
+/** The API: it needs a login to let in, and tailscale serve in front. */
+async function api(config: Config): Promise<Check[]> {
+	if (config.api.users.length === 0) return [{ status: "warn", area: "api", detail: 'no api.users in the settings, so the API is off; list your Tailscale login: "users": ["you@example.com"]' }];
+	const checks: Check[] = [{ status: "ok", area: "api", detail: `API on 127.0.0.1:${config.api.port} for ${config.api.users.join(", ")}` }];
 	const tailscale = tailscaleFor(config);
 	const serve = tailscale.run("serve", "status", "--json");
 	const fix = tailscale.command("serve", "--bg", String(config.api.port));
-	if (serve === undefined) return [...checks, { status: "warn", area: "app", detail: "tailscale isn't installed, so the apps have no way in; install it from tailscale.com" }];
+	if (serve === undefined) return [...checks, { status: "warn", area: "api", detail: "tailscale isn't installed, so the API has no way in; install it from tailscale.com" }];
 	const self = tailnetSelf(tailscale);
-	if (self === undefined) return [...checks, { status: "warn", area: "app", detail: `tailscale isn't logged in; run: ${tailscale.command("up")}` }];
-	if (!servesPort(serve.stdout, config.api.port)) return [...checks, { status: "warn", area: "app", detail: `tailscale serve isn't sending anything to port ${config.api.port}; run: ${fix}` }];
+	if (self === undefined) return [...checks, { status: "warn", area: "api", detail: `tailscale isn't logged in; run: ${tailscale.command("up")}` }];
+	if (!servesPort(serve.stdout, config.api.port)) return [...checks, { status: "warn", area: "api", detail: `tailscale serve isn't sending anything to port ${config.api.port}; run: ${fix}` }];
 	return [
 		...checks,
-		{ status: "ok", area: "app", detail: `https://${self.dnsName}/ is the app; the Mac app adds wss://${self.dnsName}/amyrlin` },
+		{ status: "ok", area: "api", detail: `https://${self.dnsName}/api is the API; the Mac app adds wss://${self.dnsName}/amyrlin` },
 	];
 }
 
@@ -179,7 +174,7 @@ async function push(): Promise<Check[]> {
 	const services = ["web.push.apple.com", "fcm.googleapis.com"];
 	const unreachable = (await Promise.all(services.map(async (host) => ((await fetch(`https://${host}/`, { signal: AbortSignal.timeout(10_000) }).then(() => true, () => false)) ? [] : [host])))).flat();
 	if (unreachable.length > 0) return [{ status: "fail", area: "push", detail: `can't reach ${unreachable.join(" or ")}, so notifications to those devices won't arrive` }];
-	return [{ status: "ok", area: "push", detail: "push services reachable; turn notifications on from the drawer in the app" }];
+	return [{ status: "ok", area: "push", detail: "push services reachable; a device signs up through /api/push/subscribe" }];
 }
 
 async function service(config: Config): Promise<Check[]> {

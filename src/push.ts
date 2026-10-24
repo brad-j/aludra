@@ -1,5 +1,5 @@
-// Web Push: notifications from aludra to the app installed on a phone or computer (from gaidin's src/push.ts).
-// The app signs a device up (app/lib/push.ts) and its service worker (app/public/sw.js) shows what arrives. A push goes to the browser maker's push service (Apple's, Google's, Mozilla's), which hands it to
+// Web Push: notifications from aludra to a device a client signed up (from gaidin's src/push.ts). aludra serves no page
+// or service worker of its own; a client's service worker signs the device up through /api/push and shows what arrives. A push goes to the browser maker's push service (Apple's, Google's, Mozilla's), which hands it to
 // the device; it's encrypted to the device (RFC 8291), so the push service can't read it, and signed with
 // aludra's own key (VAPID, RFC 8292), so the push service takes it only from aludra.
 //

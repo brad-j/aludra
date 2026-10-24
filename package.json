@@ -2,13 +2,12 @@
   "name": "aludra",
   "version": "0.1.0",
   "private": true,
-  "description": "Run coding agents on your own machines and reach them from your phone and your Mac, over Tailscale",
+  "description": "Run coding agents on your own machines and reach them from your Mac and the terminal, over Tailscale",
   "bin": {
     "aludra": "dist/host/main.js"
   },
   "files": [
-    "dist/host",
-    "dist/client"
+    "dist/host"
   ],
   "engines": {
     "node": ">=22.18"
@@ -17,12 +16,10 @@
     "aludra": "node --no-warnings src/main.ts",
     "serve": "node --no-warnings src/main.ts serve",
     "doctor": "node --no-warnings src/main.ts doctor",
-    "dev": "vite dev",
-    "build": "vite build && tsc -p tsconfig.build.json",
-    "check": "tsc && tsc -p app && pnpm lint && pnpm test",
-    "lint": "oxlint --deny-warnings src test scripts app e2e",
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc && pnpm lint && pnpm test",
+    "lint": "oxlint --deny-warnings src test scripts",
     "test": "node --no-warnings --test test/*.test.ts",
-    "e2e": "pnpm build && playwright test",
     "prepack": "pnpm build"
   },
   "devEngines": {
@@ -49,20 +46,9 @@
     "ws": "8.22.0"
   },
   "devDependencies": {
-    "@fontsource/ibm-plex-mono": "5.3.0",
-    "@fontsource/ibm-plex-sans": "5.3.0",
-    "@playwright/test": "1.64.1",
-    "@tanstack/react-router": "1.170.45",
-    "@tanstack/react-start": "1.169.3",
     "@types/node": "26.6.5",
-    "@types/react": "19.3.0",
-    "@types/react-dom": "19.3.0",
     "@types/ws": "8.18.2",
-    "@vitejs/plugin-react": "6.1.2",
     "oxlint": "1.88.0",
-    "react": "19.3.1",
-    "react-dom": "19.3.1",
-    "typescript": "7.0.2",
-    "vite": "8.3.4"
+    "typescript": "7.0.2"
   }
 }

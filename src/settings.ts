@@ -57,7 +57,7 @@ const SPECS: readonly Spec[] = [
 	{ key: "api.users", label: "Logins", kind: "list", editable: false, get: (c) => [...c.api.users], default: () => [],
 		help: "The Tailscale logins the apps let in." },
 	{ key: "api.port", label: "Port", kind: "integer", editable: false, get: (c) => c.api.port, default: () => 8724,
-		help: "The loopback port of the web app, its API and amyrlin's endpoint; tailscale serve points at it." },
+		help: "The loopback port of the API and amyrlin's endpoint; tailscale serve points at it." },
 	{ key: "claude.path", label: "Claude Code", kind: "path", editable: false, get: (c) => c.claude.path, default: () => "claude",
 		help: "The Claude Code program the bridge runs; a bare name is looked up on PATH." },
 	{ key: "dataDir", label: "Data folder", kind: "path", editable: false, get: (c) => c.dataDir, default: () => defaultDataDir(),

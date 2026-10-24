@@ -5,7 +5,7 @@ How aludra works today. [plan.md](plan.md) has the history: what was decided, wh
 ## The pieces
 
 ```
- browser (phone or computer)   amyrlin (macOS)             terminal
+ an API client                 amyrlin (macOS)             terminal
         │ HTTPS + WS /api/live        │ WSS /amyrlin             │
         └──────────────┬──────────────┘                          │
                tailscale serve  (adds Tailscale-User-Login)      │
@@ -13,7 +13,7 @@ How aludra works today. [plan.md](plan.md) has the history: what was decided, wh
                127.0.0.1:8724                          aludra.sock (Unix socket)
                        │                                         │
  ┌─────────────────────┴─────────────── aludra serve ────────────┴──────┐
- │  src/api.ts  ── web API, the built app, the /amyrlin endpoint         │
+ │  src/api.ts  ── the HTTP API and the /amyrlin endpoint                │
  │  src/server.ts ── the CLI's socket                                    │
  │  src/live.ts ── the live feed both sockets share                      │
  │  src/host.ts ── Pi Durable Harness over aludra.sqlite                 │
@@ -24,7 +24,7 @@ How aludra works today. [plan.md](plan.md) has the history: what was decided, wh
                        Claude Code (claude.path), the user's own login
 ```
 
-One long-lived Node process, `aludra serve`, owns the SQLite file and runs every session. The apps and the CLI are clients; none of them hold state that matters. Because the host is separate from the app's build, rebuilding or reloading the app never touches running work.
+One long-lived Node process, `aludra serve`, owns the SQLite file and runs every session. amyrlin, the CLI and anything else on the API are clients; none of them hold state that matters, and none is served by the host: there's no web app.
 
 ## The host
 
@@ -83,38 +83,23 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 
 ## Clients
 
-- **The CLI** (`src/cli.ts`, `src/server.ts`) sends one JSON request per connection over `aludra.sock` and prints the lines that come back. Live output comes from Pi Durable's `watchEvents()`. `aludra sessions` gets the drawer's session summaries as data instead and lays them out for the terminal (`src/listing.ts`), with pi-tui's width handling.
-- **The terminal UI** (`src/tui.ts`, `aludra` with no command) keeps a `live` connection open on the same socket and gets the web app's live events. It's built with pi-tui, terminal pi's own library: an alternate-screen layout of a session tree, a header and a scrolling transcript, with pi-tui's Markdown for answers.
-- **The web app's API** (`src/api.ts`) serves HTTP for actions and one WebSocket, `/api/live`, for everything live, from the feed in `src/live.ts` that the terminal UI shares. A followed session's transcript is built from Pi Durable's conversation view (`src/transcript.ts`) as a list of items, and only the items from the first change on are resent. Updates go out at most every 50 ms.
+- **The CLI** (`src/cli.ts`, `src/server.ts`) sends one JSON request per connection over `aludra.sock` and prints the lines that come back. Live output comes from Pi Durable's `watchEvents()`. `aludra sessions` gets the session summaries as data instead and lays them out for the terminal (`src/listing.ts`), with pi-tui's width handling.
+- **The terminal UI** (`src/tui.ts`, `aludra` with no command) keeps a `live` connection open on the same socket and gets the same live events as `/api/live`. It's built with pi-tui, terminal pi's own library: an alternate-screen layout of a session tree, a header and a scrolling transcript, with pi-tui's Markdown for answers.
+- **The HTTP API** (`src/api.ts`) serves HTTP for actions and one WebSocket, `/api/live`, for everything live, from the feed in `src/live.ts` that the terminal UI shares. A followed session's transcript is built from Pi Durable's conversation view (`src/transcript.ts`) as a list of items, and only the items from the first change on are resent. Updates go out at most every 50 ms.
 - **The sessions feed** in `src/live.ts` keeps every session's summary current by watching the task graph: a session is running while it has a generation or tool task, and when those end, its summary is read again. A run that ends done or failed triggers a notification once.
 - **amyrlin's endpoint** (`src/amyrlin/`) speaks amyrlin's protocol v1. `translate.ts` turns `watchEvents()` into v1 frames; `endpoint.ts` handles commands, the session list and approvals.
 
-- **Settings** (`src/settings.ts`) describe themselves for every client: the web API, the CLI's socket and amyrlin's endpoint all serve the same `Settings`. A change is written to the file and checked as at start, then the host applies what it can (`host.settings.set`). The host reads its workspaces, approval hosts and wait, default model and thinking, and backup schedule from its running settings each time it needs them, so nothing holds a stale copy.
+- **Settings** (`src/settings.ts`) describe themselves for every client: the HTTP API, the CLI's socket and amyrlin's endpoint all serve the same `Settings`. A change is written to the file and checked as at start, then the host applies what it can (`host.settings.set`). The host reads its workspaces, approval hosts and wait, default model and thinking, and backup schedule from its running settings each time it needs them, so nothing holds a stale copy.
 
 [api.md](api.md) documents all three.
 
-## The app
-
-`app/` is a TanStack Start app built in SPA mode: the UI is all client-side over the WebSocket, so there's no server rendering and no second process. `pnpm build` writes `dist/client`, which the host serves and reads at start. It's an installable PWA: a manifest, a service worker (`app/public/sw.js`) that shows notifications and an offline page, and Web Push.
-
-| Path | What |
-| --- | --- |
-| `app/routes/` | `/` (new session), `/s/:id` (a session), `/s/:id/changes`. |
-| `app/components/` | The shell and drawer, the session screen, the composer, pickers, ideas, the changes view. |
-| `app/lib/live.ts` | The WebSocket and the app's state. |
-| `app/lib/projects.ts` | Project colors (from `src/project-colors.ts`: an FNV hash into eleven OKLCH hues, shared with amyrlin and the CLI) and the project picker's ordering. |
-| `app/lib/images.ts` | Scaling and re-encoding attached images. |
-| `app/lib/markdown.ts` | A DOM-building Markdown renderer, so no model text goes through `innerHTML`. |
-| `app/styles/app.css` | All styles. The "Console" layer at the end is the current look. |
-| `design/` | The approved prototype and its tokens. |
-
 ## Changes snapshots
 
-When a project session is created, `src/changes.ts` writes the project's working tree as a git tree through a temporary copy of the index, so untracked files count and ignored ones don't. Only objects are added to the repository; its index, branches and refs are untouched. The tree's hash goes in the session's record. The changes view diffs that tree against a fresh one, limited to the project's directory.
+When a project session is created, `src/changes.ts` writes the project's working tree as a git tree through a temporary copy of the index, so untracked files count and ignored ones don't. Only objects are added to the repository; its index, branches and refs are untouched. The tree's hash goes in the session's record. `GET /api/sessions/:id/changes` diffs that tree against a fresh one, limited to the project's directory.
 
 ## Images
 
-Messages may carry PNG, JPEG, GIF or WebP images, at most 8 of at most 5 MB each, checked against their magic bytes. They're stored in the conversation as base64 blocks, and the bridge hands them to Claude Code. Transcripts carry only where each image is (entry, message, block); the apps fetch the bytes separately, and cache them for good since stored images never change.
+Messages may carry PNG, JPEG, GIF or WebP images, at most 8 of at most 5 MB each, checked against their magic bytes. They're stored in the conversation as base64 blocks, and the bridge hands them to Claude Code. Transcripts carry only where each image is (entry, message, block); clients fetch the bytes separately, and cache them for good since stored images never change.
 
 ## Versions
 

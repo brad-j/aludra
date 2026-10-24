@@ -57,8 +57,7 @@ export type Config = {
 
 export type Loaded = { config: Config; errors: string[] };
 
-/** aludra's own directory, where package.json and the built app (dist/client) are: the parent of src/ when run from
- * source, of dist/host/ when built. */
+/** aludra's own directory, where package.json is: the parent of src/ when run from source, of dist/host/ when built. */
 export const PACKAGE_DIR = ((): string => {
 	for (let dir = import.meta.dirname; dir !== dirname(dir); dir = dirname(dir)) {
 		if (existsSync(join(dir, "package.json"))) return dir;

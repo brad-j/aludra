@@ -1,5 +1,5 @@
-// The app's API: loopback HTTP for actions, a WebSocket for everything live, and the built app itself. tailscale serve
-// puts HTTPS in front and adds Tailscale-User-Login; only the logins in `users` get in (after gaidin's web view).
+// The HTTP API: loopback HTTP for actions and a WebSocket for everything live; there's no web app. tailscale serve puts
+// HTTPS in front and adds Tailscale-User-Login; only the logins in `users` get in (after gaidin's).
 //
 //   GET  /api/bootstrap                   projects, models, thinking levels, defaults
 //   POST /api/sessions                    { project, text, images?, model?, thinking? } → { id }
@@ -25,18 +25,16 @@
 //   POST /api/push/test
 //   WS   /api/live                        ServerEvent out, ClientEvent in (src/api-types.ts)
 //
-// Notifications (src/push.ts) go out when a call waits for approval and when a run ends done or failed, except for a
-// session the app is showing on screen.
-//   GET  anything else                    the app: a built file, or the app's shell
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+//   WS   /amyrlin                         the amyrlin Mac app's protocol (src/amyrlin/endpoint.ts)
+//
+// Anything else is a 404. Notifications (src/push.ts) go out when a call waits for approval and when a run ends done or
+// failed, except for a session a client on /api/live says it's showing on screen.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
-import { extname, join, normalize } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createAmyrlinEndpoint } from "./amyrlin/endpoint.ts";
 import type { Bootstrap, ClientEvent, PushState, ServerEvent, Thinking } from "./api-types.ts";
-import { PACKAGE_DIR, THINKING } from "./config.ts";
+import { THINKING } from "./config.ts";
 import { IMAGE_TYPES, messageContent, titleOf } from "./images.ts";
 import type { Host } from "./host.ts";
 import { array, boolean, integer, jsonObject, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
@@ -45,22 +43,6 @@ import type { ApprovalRequest } from "./permissions.ts";
 import type { Push, PushMessage } from "./push.ts";
 import { createLive, type Live } from "./live.ts";
 import { changesSince, fileDiff } from "./changes.ts";
-
-/** Where `pnpm build` puts the app. */
-export const APP_DIR = join(PACKAGE_DIR, "dist", "client");
-const SHELL = "_shell.html";
-
-const TYPES: Record<string, string> = {
-	".html": "text/html; charset=utf-8",
-	".js": "text/javascript; charset=utf-8",
-	".css": "text/css; charset=utf-8",
-	".json": "application/json",
-	".webmanifest": "application/manifest+json",
-	".svg": "image/svg+xml",
-	".png": "image/png",
-	".woff2": "font/woff2",
-	".ico": "image/x-icon",
-};
 
 class HttpError extends Error {
 	readonly status: number;
@@ -71,31 +53,15 @@ class HttpError extends Error {
 }
 
 /**
- * On every response. Another site can't frame the app, which would carry the user's tailnet identity, and the app runs only
- * its own scripts: the shell's inline scripts are allowed by hash, so nothing a model writes can run.
+ * On every response. Nothing here is a page: another site can't frame an answer, which would carry the user's tailnet
+ * identity, and a browser runs no script from one.
  */
-function securityHeaders(scriptHashes: readonly string[]) {
-	const scripts = ["'self'", ...scriptHashes.map((h) => `'sha256-${h}'`)].join(" ");
-	return {
-		"Content-Security-Policy":
-			`default-src 'self'; script-src ${scripts}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; ` +
-			"worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-		"X-Frame-Options": "DENY",
-		"X-Content-Type-Options": "nosniff",
-		"Referrer-Policy": "no-referrer",
-	};
-}
-
-/**
- * The sha256 of each inline script in `html`, for the CSP. Browsers hash the script as parsed, which turns NUL into
- * U+FFFD (TanStack's shell has one) and CRLF into LF.
- */
-export function inlineScriptHashes(html: string): string[] {
-	return [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => {
-		const parsed = m[1]!.replace(/\r\n?/g, "\n").replaceAll("\u0000", "\uFFFD");
-		return createHash("sha256").update(parsed).digest("base64");
-	});
-}
+const SECURITY_HEADERS = {
+	"Content-Security-Policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+	"X-Frame-Options": "DENY",
+	"X-Content-Type-Options": "nosniff",
+	"Referrer-Policy": "no-referrer",
+};
 
 /**
  * Another site open in the user's browser could post here with their tailnet identity. A JSON body forces a CORS preflight,
@@ -140,8 +106,6 @@ export type ApiOptions = {
 	live?: Live;
 	/** The Tailscale logins let in. */
 	users: readonly string[];
-	/** Where the built app is; without one, only the API is served. */
-	appDir?: string;
 	/** Notifications to devices; without it, none are sent. */
 	push?: Push;
 	/** The host's name in the apps. Default: this machine's name. */
@@ -149,10 +113,6 @@ export type ApiOptions = {
 };
 
 export function createApi(host: Host, options: ApiOptions) {
-	const appDir = options.appDir ?? APP_DIR;
-	const shellPath = join(appDir, SHELL);
-	const shell = existsSync(shellPath) ? readFileSync(shellPath, "utf8") : undefined;
-	const headers = securityHeaders(shell === undefined ? [] : inlineScriptHashes(shell));
 	const { push } = options;
 	/** What each open socket follows, and whether its app is on screen. */
 	const watchers = new Map<WebSocket, { session: number | null; visible: boolean }>();
@@ -193,7 +153,7 @@ export function createApi(host: Host, options: ApiOptions) {
 
 
 	function reply(response: ServerResponse, status: number, body: string | Buffer, type: string, cache = "no-store") {
-		response.writeHead(status, { ...headers, "Content-Type": type, "Cache-Control": cache });
+		response.writeHead(status, { ...SECURITY_HEADERS, "Content-Type": type, "Cache-Control": cache });
 		response.end(body);
 	}
 	const json = (response: ServerResponse, value: unknown) => reply(response, 200, JSON.stringify(value), "application/json");
@@ -305,18 +265,6 @@ export function createApi(host: Host, options: ApiOptions) {
 		}
 	}
 
-	/** A file of the built app, or the shell for any other page. */
-	function serveApp(path: string, response: ServerResponse) {
-		const file = normalize(join(appDir, decodeURIComponent(path)));
-		if (file.startsWith(appDir) && file !== appDir && existsSync(file) && statSync(file).isFile()) {
-			// Vite names built assets by content, so they never change.
-			const cache = path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache";
-			return reply(response, 200, readFileSync(file), TYPES[extname(file)] ?? "application/octet-stream", cache);
-		}
-		if (shell === undefined) throw new HttpError(404, "The app isn't built; run pnpm build");
-		return reply(response, 200, shell, TYPES[".html"]!, "no-cache");
-	}
-
 	/** Session `id`'s changes, or one file's diff when `file` is given. Only a file in its changes has a diff. */
 	async function changes(id: number, file: string | null): Promise<unknown> {
 		const record = await host.sessions.get(id);
@@ -357,8 +305,7 @@ export function createApi(host: Host, options: ApiOptions) {
 				// Stored images never change, so the app can keep them.
 				return reply(response, 200, Buffer.from(found.data, "base64"), found.mimeType, "private, max-age=31536000, immutable");
 			}
-			if (path.startsWith("/api/")) throw new HttpError(404, "Not found");
-			return serveApp(path, response);
+			throw new HttpError(404, "Not found");
 		}
 		if (request.method !== "POST") throw new HttpError(405, "Method not allowed");
 		// The app's address, which push services are given as aludra's contact: tailscale serve sets the host and is HTTPS.

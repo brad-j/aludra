@@ -45,7 +45,7 @@ async function api(t: TestContext) {
 	models.setProvider(faux.provider);
 	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" } });
 	const project = makeProject(dir, "one");
-	const server = createApi(host, { users: [USER], appDir: join(dir, "no-app"), name: "test-host" });
+	const server = createApi(host, { users: [USER], name: "test-host" });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
 	return { host, project, prompts, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin` };

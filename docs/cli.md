@@ -28,7 +28,7 @@ Runs the host in the background and at login: a launchd agent on macOS, a system
 
 ### `aludra serve`
 
-Runs the host in the foreground: the sessions, the CLI's socket, and (with `api.users` set) the app and its API on `127.0.0.1:<api.port>`. Ctrl+C stops it; running sessions continue at the next start. The service runs this command. Use it directly to watch the host's log in a terminal, or on a platform without launchd or systemd.
+Runs the host in the foreground: the sessions, the CLI's socket, and (with `api.users` set) the API and amyrlin's endpoint on `127.0.0.1:<api.port>`. Ctrl+C stops it; running sessions continue at the next start. The service runs this command. Use it directly to watch the host's log in a terminal, or on a platform without launchd or systemd.
 
 ### `aludra login openai | openrouter` and `aludra logout openai | openrouter`
 
@@ -48,7 +48,7 @@ Checks the settings and everything the host needs, without starting it or spendi
 aludra [--session ID]
 ```
 
-With no command, in a terminal, opens a read-only view of the host: every session on the left, grouped and ordered as in the app's drawer, and the selected session's transcript on the right, following new output as it streams. The line at the foot has the session's state, model, thinking level and context use, and its cost if it used OpenRouter. A session waiting for approval shows the call and the `approve` and `deny` commands.
+With no command, in a terminal, opens a read-only view of the host: every session on the left, grouped by project with the project that most needs you first, and the selected session's transcript on the right, following new output as it streams. The line at the foot has the session's state, model, thinking level and context use, and its cost if it used OpenRouter. A session waiting for approval shows the call and the `approve` and `deny` commands.
 
 | Key | Does |
 | --- | --- |
@@ -57,7 +57,7 @@ With no command, in a terminal, opens a read-only view of the host: every sessio
 | `Home` or `g` | The start of the transcript. |
 | `q` or `Ctrl+C` | Quit. |
 
-`--session` opens that session first; otherwise the one that most needs you. Nothing here changes a session: answer approvals, steer and stop from the app or the commands below. If the host restarts, the view reconnects on its own. Piped, `aludra` prints the usage instead. `NO_COLOR` turns color off.
+`--session` opens that session first; otherwise the one that most needs you. Nothing here changes a session: answer approvals, steer and stop from amyrlin or the commands below. If the host restarts, the view reconnects on its own. Piped, `aludra` prints the usage instead. `NO_COLOR` turns color off.
 
 ### `aludra ask`
 
@@ -87,7 +87,7 @@ Prints what every session does, prefixed `[id project]`, until Ctrl+C. New sessi
 
 ### `aludra sessions`
 
-Lists sessions the way the app's drawer does: grouped by project, the project that most needs you first, and within each, sessions waiting for you, then running, then the rest, newest first. Each session has its state mark, ID, title and how long since it last did something, with its latest activity under it (the running command, the answer's first line, or the failure).
+Lists sessions grouped by project, the project that most needs you first, and within each, sessions waiting for you, then running, then the rest, newest first. Each session has its state mark, ID, title and how long since it last did something, with its latest activity under it (the running command, the answer's first line, or the failure).
 
 | Mark | State |
 | --- | --- |
@@ -100,7 +100,7 @@ Lists sessions the way the app's drawer does: grouped by project, the project th
 
 A session that used OpenRouter shows what it cost before its age, and the month's OpenRouter total is at the foot.
 
-In a terminal, project names are in their project color (the same one the apps show, including a picked one), waiting is amber, running violet and failed red, and long titles are cut to the terminal's width. Piped, the output is plain text at 100 columns. `NO_COLOR` turns color off, and `FORCE_COLOR` turns it on when piped.
+In a terminal, project names are in their project color (the same one amyrlin shows, including a picked one), waiting is amber, running violet and failed red, and long titles are cut to the terminal's width. Piped, the output is plain text at 100 columns. `NO_COLOR` turns color off, and `FORCE_COLOR` turns it on when piped.
 
 ### `aludra stop --session ID`
 
@@ -112,7 +112,7 @@ Has a model write titles for sessions that still have their first message's firs
 
 ### `aludra archive --session ID` and `aludra unarchive --session ID`
 
-Hides a session from the lists (the apps' drawers, `aludra sessions`, the terminal UI), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
+Hides a session from the lists (amyrlin's, `aludra sessions`, the terminal UI), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
 
 ### `aludra approvals`
 

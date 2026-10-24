@@ -1,6 +1,5 @@
-// Each project's color: an OKLCH hue from its name, or one picked for it. The web app (app/lib/projects.ts), the CLI
-// (src/listing.ts) and the amyrlin Mac app (its AmyrlinCore ProjectColor) share these rules, so a project is one color
-// everywhere.
+// Each project's color: an OKLCH hue from its name, or one picked for it. The CLI (src/listing.ts) and the amyrlin Mac
+// app (its AmyrlinCore ProjectColor) share these rules, so a project is one color everywhere.
 
 /** OKLCH hues, ordered so neighbors differ. Red and amber are left out: they mean failed and waiting. */
 export const HUES = [300, 165, 50, 240, 330, 110, 190, 355, 265, 140, 215];

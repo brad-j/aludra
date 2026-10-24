@@ -14,7 +14,7 @@
 // it ignores the field and sends lines, which the CLI prints as they are.
 //
 // `live` keeps the connection open for the terminal UI (src/tui.ts): the server sends {"type":"event","event":...} with
-// each ServerEvent the web app gets over /api/live (src/live.ts), and the client may send ClientEvent follows on the
+// each ServerEvent an API client gets over /api/live (src/live.ts), and the client may send ClientEvent follows on the
 // same connection, one per line: {"type":"follow","session":3} or {"type":"follow","session":null}.
 import { randomUUID } from "node:crypto";
 import { chmodSync, rmSync } from "node:fs";
@@ -223,7 +223,7 @@ export async function serve(config: Config) {
 		},
 	});
 	host.resume();
-	// One live feed for the app's socket and the terminal UI's.
+	// One live feed for the API's socket and the terminal UI's.
 	const live = createLive(host);
 	const server = listen(host, socketPath, watchers, live);
 	console.error(`aludra listening on ${socketPath}, model ${host.model.provider}/${host.model.modelId}`);
@@ -231,9 +231,9 @@ export async function serve(config: Config) {
 	const push = createPush({ harness: host.harness, keys: loadPushKeys(config.dataDir) });
 	const { users } = config.api;
 	const api = users.length === 0 ? undefined : createApi(host, { users, push, live });
-	if (api === undefined) console.error("no api.users in the settings, so the app's API is off");
+	if (api === undefined) console.error("no api.users in the settings, so the API is off");
 	// Loopback only: tailscale serve is the way in, and it vouches for who's asking.
-	else api.listen(config.api.port, () => console.error(`aludra app and API on 127.0.0.1:${config.api.port}, for ${users.join(", ")}`));
+	else api.listen(config.api.port, () => console.error(`aludra API on 127.0.0.1:${config.api.port}, for ${users.join(", ")}`));
 
 	async function shutdown() {
 		stopBackups();

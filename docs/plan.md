@@ -22,7 +22,7 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
   Each root is a glob; each match is a project in the picker. Not `Writing/` or `Notes/`. Every session stores its workspace and directory, and the UI groups by them. Only the local workspace works at first; a remote one later is a Pi Durable remote execution environment and a new entry here.
 - **Permissions: open, with a short exception list.** Inside a project everything runs without asking: edits, builds, tests, installs, commits. Two things wait for one tap from a push: `git push`, and anything reaching homelab hosts (`ssh`, `scp`, `rsync` to think-1, think-2, monitor-01), because egwene's keys reach them. Secrets stay unreadable through a port of `~/.pi/agent/extensions/protected-path-gate.ts` (pi extensions don't load in Pi Durable). Approvals are a `beforeTool` hook; the gate wraps the four tools instead, because ending a run on the second block takes a tool result (`control.terminate`), which a hook can't return. Both read shell commands as text, so they're best effort. Since 2026-10-19 amyrlin can approve one always, which allows its summary (`git push`, `ssh to think-1`) for that session only and can be taken back; a rule wider than a session would turn the gate off without anyone seeing it.
-- **TanStack Start, as an installable PWA.** One app for phone and desk. The mobile feel is the priority. The Pi Durable host is a separate long-lived process that owns the SQLite file; the app talks to it over a WebSocket, so Vite's reloads never touch durable work, and a native client could later use the same API. Native (share sheet into ideas, Live Activities) is a possible small companion later, not a second full app.
+- **No web app, since 2026-10-24** (see "No web app"). Before then: **TanStack Start, as an installable PWA.** One app for phone and desk. The mobile feel is the priority. The Pi Durable host is a separate long-lived process that owns the SQLite file; the app talks to it over a WebSocket, so Vite's reloads never touch durable work, and a native client could later use the same API. Native (share sheet into ideas, Live Activities) is a possible small companion later, not a second full app.
 - **Sessions are separate from terminal pi sessions** for now. Different storage formats.
 - **No spend tracking.** Cost is $0 on the subscription. The UI shows context used and the subscription windows instead, from the bridge's `rate_limit_event` (`five_hour`, `resetsAt`, `overageStatus`).
 - **Monitoring:** a systemd user service with `Restart=always`, `aludra doctor`, and a push when a run fails. Hooking egwene into the homelab's failed-unit ntfy alerts or a monitor-01 health check waits until it's missed.
@@ -38,7 +38,7 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 - **CLI:** talks to the host over a Unix socket in the data directory, one JSON object per line (gaidin's pattern). The app's API below is separate.
 - **API:** loopback HTTP and WebSocket, exposed through Tailscale Serve, trusting its identity header the way gaidin's web view does (`gaidin/docs/security.md`). Live state from `conversation.watch()`.
 - **Mac app:** the amyrlin Mac app's protocol v1 at `/amyrlin` on the same server (see "The amyrlin Mac app").
-- **App:** TanStack Start, built as a PWA (manifest, service worker, Web Push, safe areas). Gaidin's `src/push.ts` and `web/sw.js` are the starting point for push.
+- **App:** none since 2026-10-24. It was TanStack Start, built as a PWA (manifest, service worker, Web Push, safe areas).
 
 ## Milestones
 
@@ -55,6 +55,16 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 6. **Subagents:** deferred 2026-10-12. An `agent` tool on Pi Durable's documented subagent pattern (README, "Abort and Subagents"), children shown under the call. Brad's terminal pi has no subagents either, Opus 5.5 has a 1M window with compaction working, and each child spends the same five-hour window, which aludra can't show yet. Mario's durable codemode wasn't in Pi Durable 1.1.0; it arrived in 1.2.0 (`@earendil-works/pi-durable/codemode`), so script fan-out no longer waits on Pi. Before this: the systemd unit for the host, the subscription meter, and a live run of the app on the real bridge.
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces.
+
+## No web app (2026-10-24)
+
+Brad decided aludra should be its API and nothing else: no web app or web interface, the same for gaidin. The API stays as it was, for amyrlin, the CLI and any client he makes.
+
+- **Gone:** `app/` (the TanStack Start PWA), `design/` and the design brief, the Playwright suite in `e2e/`, `vite.config.ts` and `playwright.config.ts`, and the dev dependencies only they used (React, TanStack, Vite, the Plex fonts, Playwright). `pnpm build` builds the host alone and the package ships `dist/host` only. A `dist/client` left from an older build is ignored.
+- **The server:** every path that isn't `/api/` or `/amyrlin` is a 404, and every response's Content-Security-Policy is `default-src 'none'`, since nothing served is a page. The routes, `/api/live` and the amyrlin endpoint are unchanged.
+- **Kept:** Web Push and `/api/push`, for a client with a service worker of its own; nothing signs a device up until one exists. `test/projects.test.ts` became `test/project-colors.test.ts`, pinning the hash against amyrlin's values on `src/project-colors.ts` now that the app's copy is gone.
+- **Strings:** doctor's `app` line is `api`; `aludra init` prints the Mac app's and the API's addresses; the terminal UI says to answer approvals in amyrlin.
+- **The site:** `scripts/site-images.ts` makes the terminal picture only. aludra-site's home page still has the phone screenshot and its copy about the web app.
 
 ## Pi Durable 1.3.0 (2026-10-22)
 

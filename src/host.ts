@@ -63,7 +63,7 @@ export const Ideas = defineDoc<{ next: number; ideas: Record<string, IdeaRecord>
 	initial: () => ({ next: 1, ideas: {} }),
 });
 
-/** How many project hues the apps have (app/lib/projects.ts, amyrlin's ProjectColor); a color is an index into them. */
+/** How many project hues there are (src/project-colors.ts, amyrlin's ProjectColor); a color is an index into them. */
 export const PROJECT_HUES = HUES.length;
 
 /** Projects whose color was picked rather than hashed from the name: name to hue index. */
@@ -90,7 +90,7 @@ export function conversationId(id: number): ConversationId {
 const FAUX_MARKDOWN = [
 	"Here's what changed, in **three** parts:",
 	"",
-	"1. `src/api.ts` serves the app and its API.",
+	"1. `src/api.ts` serves the API.",
 	"2. The socket sends each session's transcript as it grows.",
 	"3. Approvals answer over HTTP.",
 	"",

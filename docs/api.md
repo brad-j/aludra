@@ -1,10 +1,10 @@
 # API
 
-The host has three ways in: the web app's HTTP and WebSocket API, amyrlin's protocol at `/amyrlin`, and the CLI's Unix socket. All three reach the same sessions. The types below are in `src/api-types.ts`, which the app imports.
+The host has three ways in: the HTTP and WebSocket API, amyrlin's protocol at `/amyrlin`, and the CLI's Unix socket. All three reach the same sessions. There's no web app. The types below are in `src/api-types.ts`, which a client in TypeScript can import.
 
-## The web API
+## The HTTP API
 
-Served on `127.0.0.1:<api.port>` beside the built app, and reached through `tailscale serve`.
+Served on `127.0.0.1:<api.port>`, and reached through `tailscale serve`.
 
 ### Requests
 
@@ -39,11 +39,11 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 | `POST /api/push/unsubscribe` | `{ endpoint }` | `PushState` |
 | `POST /api/push/test` | `{}` | `{ devices, inSeconds }`. Sends a test notification after 5 seconds. |
 
-`images` is a list of `{ mimeType, data }`, with `data` base64: PNG, JPEG, GIF or WebP, at most 8, each at most 5 MB, and the bytes must match the type. The apps scale images to 1568 px on the long side before sending.
+`images` is a list of `{ mimeType, data }`, with `data` base64: PNG, JPEG, GIF or WebP, at most 8, each at most 5 MB, and the bytes must match the type. Scale images to 1568 px on the long side before sending; the model sees no more than that.
 
 `requestId` makes a send safe to retry: the same ID finds the message already sent rather than sending it twice.
 
-Any other `GET` outside `/api/` serves the built app: a file from `dist/client` if one matches, else the app's shell.
+Any other path is a 404.
 
 ### Settings
 
@@ -91,13 +91,13 @@ The client sends:
 | Event | Effect |
 | --- | --- |
 | `{ type: "follow", session }` | Follow one session's transcript (`null` for none). The server sends its whole transcript and meta, then changes. |
-| `{ type: "visible", visible }` | Whether the app is on screen. A session followed on screen gets no notifications. |
+| `{ type: "visible", visible }` | Whether the client is on screen. A session followed on screen gets no notifications. |
 
 Transcript items are `user`, `answer`, `call`, `failure` and `compacted` (see `Item` in `src/api-types.ts`). Long call arguments and outputs are cut to 6,000 characters: arguments keep their start, outputs their end.
 
 ## amyrlin's endpoint: `WS /amyrlin`
 
-amyrlin's protocol v1, documented in amyrlin's `docs/protocol.md`. aludra takes the same `Tailscale-User-Login` check as the web API, and refuses any upgrade with an `Origin` header, so browsers can't open it.
+amyrlin's protocol v1, documented in amyrlin's `docs/protocol.md`. aludra takes the same `Tailscale-User-Login` check as the HTTP API, and refuses any upgrade with an `Origin` header, so browsers can't open it.
 
 How aludra maps onto the protocol:
 
@@ -136,7 +136,7 @@ Client to server, one of:
 
 `{ "type": "retitle" }` writes titles for sessions that still have their first message's first line and sends a line for each.
 
-`{ "type": "live" }` is the terminal UI's: the connection stays open and the server sends `{ "type": "event", "event": ServerEvent }` for each event the web app gets over `/api/live`. The client may then send one `ClientEvent` follow per line, `{ "type": "follow", "session": 12 }` or `{ "session": null }`, to change which transcript it gets. A host from before `live` answers it as an unknown request.
+`{ "type": "live" }` is the terminal UI's: the connection stays open and the server sends `{ "type": "event", "event": ServerEvent }` for each event an API client gets over `/api/live`. The client may then send one `ClientEvent` follow per line, `{ "type": "follow", "session": 12 }` or `{ "session": null }`, to change which transcript it gets. A host from before `live` answers it as an unknown request.
 
 `{ "type": "sessions", "listing": true }` asks for the sessions as data: the server answers with one `{ "type": "sessions", "sessions": SessionSummary[], "colors": { name: hue } }`, which the CLI lays out for its terminal, and `spend: { month }`, this calendar month's OpenRouter spend, when any session used OpenRouter. A summary's `cost` is that session's total. Without `listing`, the server sends them as text lines. A host from before `listing` ignores it and sends lines, which the CLI prints as they are.
 

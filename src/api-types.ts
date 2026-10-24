@@ -1,5 +1,5 @@
-// What the host's API sends and takes (src/api.ts), shared with the app (app/). Plain types only: the app imports this
-// file, so it must not import anything that runs in Node.
+// What the host's API sends and takes (src/api.ts). Plain types only: a client can import this file, so it must not
+// import anything that runs in Node.
 
 export type SessionState = "running" | "waiting" | "failed" | "stopped" | "done" | "idle";
 
@@ -143,7 +143,7 @@ export type ServerEvent =
 	/** The settings changed: the projects, models or defaults in the bootstrap may have too. */
 	| { type: "settings" }
 	| { type: "ideas"; ideas: Idea[] }
-	/** Projects whose color was picked: name to hue index (app/lib/projects.ts). */
+	/** Projects whose color was picked: name to hue index (src/project-colors.ts). */
 	| { type: "colors"; colors: Record<string, number> }
 	/** The transcript from `start` on; items before it are unchanged, and the transcript is `length` long. */
 	| { type: "items"; session: number; start: number; items: Item[]; length: number }

@@ -164,8 +164,8 @@ test("a running host takes saved changes at once: new projects, approval hosts, 
 });
 
 test("the API serves and saves the settings, refuses what only the file changes, and tells every app", async (t) => {
-	const { host, dir, config } = await testHost(t, { ...oneCommand("true"), settingsFile: true });
-	const server = createApi(host, { users: [USER], appDir: join(dir, "no-app") });
+	const { host, config } = await testHost(t, { ...oneCommand("true"), settingsFile: true });
+	const server = createApi(host, { users: [USER] });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
 	const base = `http://127.0.0.1:${(server.server.address() as AddressInfo).port}`;
@@ -196,8 +196,8 @@ test("the API serves and saves the settings, refuses what only the file changes,
 });
 
 test("amyrlin's endpoint has settings.get and settings.set, and a refused change is invalid_settings with every reason", async (t) => {
-	const { host, dir } = await testHost(t, { ...oneCommand("true"), settingsFile: true });
-	const server = createApi(host, { users: [USER], appDir: join(dir, "no-app"), name: "test-host" });
+	const { host } = await testHost(t, { ...oneCommand("true"), settingsFile: true });
+	const server = createApi(host, { users: [USER], name: "test-host" });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
 	const ws = new WebSocket(`ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin`, { headers: { "tailscale-user-login": USER } });

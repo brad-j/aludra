@@ -1,20 +1,17 @@
-// The pictures on aludra-site's home page, made from aludra itself with sample sessions and a scripted model: a frame
-// of the terminal UI as HTML, and the web app on a phone as a PNG. Rerun after the UI or the app changes:
+// The picture on aludra-site's home page, made from aludra itself with sample sessions and a scripted model: a frame
+// of the terminal UI as HTML. Rerun after the UI changes:
 //
-//   pnpm build && node --no-warnings scripts/site-images.ts ../aludra-site
+//   node --no-warnings scripts/site-images.ts ../aludra-site
 //
-// It writes src/generated/tui.html and public/phone.png there. The sample projects live in ~/code for the run, so their
+// It writes src/generated/tui.html there. The sample projects live in ~/code for the run, so their
 // paths read as ~/code/...; it stops if ~/code already exists rather than touch it.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import type { AddressInfo } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { type FauxResponseStep, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { Terminal } from "@earendil-works/pi-tui";
-import { chromium, devices } from "@playwright/test";
-import { createApi } from "../src/api.ts";
 import { configFor } from "../src/config.ts";
 import { context, openHost } from "../src/host.ts";
 import { listen, socketPathFor } from "../src/server.ts";
@@ -87,10 +84,7 @@ try {
 	const host = await openHost({ config, models, model: { provider: "claude-bridge", modelId: "claude-opus-5-5" }, agentDir: join(data, "agent"), onNotice: () => {} });
 	host.resume();
 	const server = listen(host, socketPathFor(config));
-	const api = createApi(host, { users: ["you@example.com"], name: "devbox" });
-	await new Promise<void>((done) => api.listen(0, done));
 	close = async () => {
-		await api.close();
 		server.close();
 		for (const s of await host.sessions.list()) await host.stop(s.id).catch(() => {});
 		await host.close();
@@ -121,18 +115,7 @@ try {
 	await running;
 	mkdirSync(join(site, "src", "generated"), { recursive: true });
 	writeFileSync(join(site, "src", "generated", "tui.html"), `<!-- Made by aludra's scripts/site-images.ts; don't edit. -->\n${frame.map(ansiToHtml).join("\n")}\n`);
-
-	// The web app on a phone, open on the same session.
-	const browser = await chromium.launch();
-	const { defaultBrowserType: _, ...iphone } = devices["iPhone 15"];
-	const page = await browser.newPage({ ...iphone, extraHTTPHeaders: { "tailscale-user-login": "you@example.com" }, serviceWorkers: "block" });
-	await page.goto(`http://127.0.0.1:${(api.server.address() as AddressInfo).port}/s/${main.id}`);
-	await page.getByText("Want me to make it and rerun the suite?").waitFor();
-	await page.waitForTimeout(500);
-	mkdirSync(join(site, "public"), { recursive: true });
-	await page.screenshot({ path: join(site, "public", "phone.png") });
-	await browser.close();
-	console.log(`wrote ${join(site, "src/generated/tui.html")} and ${join(site, "public/phone.png")}`);
+	console.log(`wrote ${join(site, "src/generated/tui.html")}`);
 } finally {
 	await close();
 	rmSync(code, { recursive: true, force: true });

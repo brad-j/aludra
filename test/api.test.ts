@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -7,11 +6,11 @@ import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, type FauxResponseStep, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { WebSocket } from "ws";
-import { createApi, inlineScriptHashes } from "../src/api.ts";
+import { createApi } from "../src/api.ts";
 import { context } from "../src/host.ts";
 import type { Idea, Item, ServerEvent, SessionMeta, SessionSummary } from "../src/api-types.ts";
 import { createPush, loadPushKeys } from "../src/push.ts";
-import { decrypt, device, makeProject, PNG, tempDir, testHost } from "./helpers.ts";
+import { decrypt, device, makeProject, PNG, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
 const PARTNER = "partner@example.com";
@@ -23,7 +22,7 @@ type Pushed = { title: string; body: string; tag?: string; url?: string; urgency
  * A host with a faux model answering `responses`, and its API on a free port. Its notifications go to a fake push
  * service; `pushed` gets what the signed-up device decrypts, once one has.
  */
-async function api(t: TestContext, responses: FauxResponseStep[], appDir?: string) {
+async function api(t: TestContext, responses: FauxResponseStep[]) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000 }, { id: "faux-2", name: "Faux 2" }] });
 	faux.setResponses(responses);
 	const models = createModels();
@@ -37,7 +36,7 @@ async function api(t: TestContext, responses: FauxResponseStep[], appDir?: strin
 		return new Response(null, { status: 201 });
 	}) as typeof fetch;
 	const push = createPush({ harness: host.harness, keys: loadPushKeys(join(dir, "data")), fetch: pushFetch });
-	const server = createApi(host, { users: [USER, PARTNER], appDir: appDir ?? join(dir, "no-app"), push });
+	const server = createApi(host, { users: [USER, PARTNER], push });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
 	const base = `http://127.0.0.1:${(server.server.address() as AddressInfo).port}`;
@@ -208,23 +207,14 @@ test("an approval shows in the session's meta and is answered over the API", asy
 	assert.equal((await call(`/api/approvals/${approval!.id}`, { allow: true })).status, 409);
 });
 
-test("the app is served from its build: files as they are, other pages get the shell, its inline scripts allowed by hash", async (t) => {
-	const appDir = tempDir(t);
-	const script = "window.__boot = 1;";
-	writeFileSync(join(appDir, "_shell.html"), `<!doctype html><html><head><script>${script}</script><script src="/assets/app-1.js"></script></head></html>`);
-	mkdirSync(join(appDir, "assets"));
-	writeFileSync(join(appDir, "assets", "app-1.js"), "console.log(1)");
-	const { call } = await api(t, [], appDir);
-	const page = await call("/s/7");
-	assert.equal(page.status, 200);
-	assert.match(await page.text(), /__boot/);
-	assert.ok(page.headers.get("content-security-policy")!.includes(`'sha256-${inlineScriptHashes(`<script>${script}</script>`)[0]}'`));
-	const asset = await call("/assets/app-1.js");
-	assert.equal(asset.headers.get("content-type"), "text/javascript; charset=utf-8");
-	assert.match(asset.headers.get("cache-control")!, /immutable/);
-	assert.equal((await call("/../package.json")).status, 200, "a path out of the build gets the shell, not the file");
-	assert.doesNotMatch(await (await call("/%2e%2e/package.json")).text(), /"name": "aludra"/);
-	assert.equal((await call("/api/nothing")).status, 404);
+test("there's no web app: every path that isn't the API is a 404, and no response runs a script", async (t) => {
+	const { call } = await api(t, []);
+	for (const path of ["/", "/s/7", "/assets/app-1.js", "/sw.js", "/manifest.webmanifest", "/../package.json", "/api/nothing"]) {
+		const response = await call(path);
+		assert.equal(response.status, 404, path);
+		assert.match(response.headers.get("content-security-policy")!, /default-src 'none'/, path);
+	}
+	assert.match((await call("/api/bootstrap")).headers.get("content-security-policy")!, /frame-ancestors 'none'/);
 });
 
 test("an idea is saved under its project, shows on the socket, and starts as a session", async (t) => {

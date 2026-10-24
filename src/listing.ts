@@ -1,5 +1,5 @@
-// `aludra sessions` for a terminal, after the app's sessions drawer: sessions by project, the project that most needs
-// you first, each session with the app's state mark, its latest activity and how long ago. Project colors and state
+// `aludra sessions` for a terminal: sessions by project, the project that most needs
+// you first, each session with its state mark, its latest activity and how long ago. Project colors and state
 // colors where the terminal shows color; marks of different shapes, so color is never the only cue.
 import { stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { SessionState, SessionSummary } from "./api-types.ts";
@@ -8,10 +8,10 @@ import { hueOf } from "./project-colors.ts";
 /** The project name of no-project sessions (src/host.ts NO_PROJECT); they're gray, under one heading. */
 export const NO_PROJECT = "no project";
 
-/** Which needs you most, as the app's drawer orders them (app/lib/format.ts). */
+/** Which needs you most: waiting first, idle last. */
 export const URGENCY: Record<SessionState, number> = { waiting: 0, running: 1, failed: 2, stopped: 3, done: 4, idle: 5 };
 
-/** The app's marks (app/components/icons.tsx) as characters. */
+/** Each state's mark, as a character. */
 export const MARKS: Record<SessionState, string> = { running: "◐", waiting: "◆", failed: "⊘", done: "✓", stopped: "□", idle: "·" };
 
 /** How much color the terminal shows: none, the 16 named colors, the 256-color palette, or 24-bit. */
@@ -28,7 +28,7 @@ export function terminalStyle(stream: NodeJS.WriteStream = process.stdout): List
 
 type Oklch = readonly [lightness: number, chroma: number, hue: number];
 
-/** The app's colors (app/styles/app.css), with the named color a 16-color terminal shows instead. */
+/** The ink colors, with the named color a 16-color terminal shows instead. */
 export const INK: Record<"accent" | "wait" | "bad" | "dim", { oklch: Oklch; named: number }> = {
 	accent: { oklch: [0.8, 0.13, 300], named: 35 },
 	wait: { oklch: [0.84, 0.13, 82], named: 33 },

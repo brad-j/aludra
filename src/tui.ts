@@ -1,7 +1,7 @@
-// `aludra` with no command: a read-only terminal UI. Sessions by project on the left, as the app's drawer orders them;
+// `aludra` with no command: a read-only terminal UI. Sessions by project on the left, the one that most needs you first;
 // the selected session's transcript on the right, following new output as it streams; its state, model and context in
-// the line at the foot. It's a client of the host's live feed (src/live.ts) over the CLI's socket, so it shows what the
-// web app shows, and nothing it does changes a session.
+// the line at the foot. It's a client of the host's live feed (src/live.ts) over the CLI's socket, so it shows what a
+// client of /api/live gets, and nothing it does changes a session.
 import { connect, type Socket } from "node:net";
 import { createInterface } from "node:readline";
 import { type Component, Container, getTerminalColorMode, HStack, Key, Markdown, type MarkdownTheme, matchesKey, ProcessTerminal, ScrollView, type Terminal, truncateToWidth, TuiAltScreen, visibleWidth, VStack, wrapTextWithAnsi } from "@earendil-works/pi-tui";
@@ -193,7 +193,7 @@ class Transcript extends Container {
 		}
 		for (const queued of meta?.queued ?? []) children.push(new Lines(["", this.paint.ink("dim", `queued ${queued.mode === "steer" ? "steer" : "follow-up"}: ${queued.text}`)]));
 		if (meta?.approval !== undefined) {
-			children.push(new Lines(["", this.paint.ink("wait", `◆ Wants to run ${meta.approval.summary}: ${meta.approval.command}`), this.paint.ink("dim", "  Answer in the app, or run:"), this.paint.ink("dim", `  aludra approve ${meta.approval.id}   or   aludra deny ${meta.approval.id}`)]));
+			children.push(new Lines(["", this.paint.ink("wait", `◆ Wants to run ${meta.approval.summary}: ${meta.approval.command}`), this.paint.ink("dim", "  Answer in amyrlin, or run:"), this.paint.ink("dim", `  aludra approve ${meta.approval.id}   or   aludra deny ${meta.approval.id}`)]));
 		}
 		this.made = next;
 		this.clear();

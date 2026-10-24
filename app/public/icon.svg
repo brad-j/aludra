@@ -1,6 +1,0 @@
-<!-- The Flame of Tar Valon, shared with the amyrlin Mac app (amyrlin/design/logo/amyrlin-mark.svg): the violet accent on
-     the app's paper. Replaced the four-point star of milestone 3 on 2026-10-12. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-	<rect width="512" height="512" rx="112" fill="#0e0e10"/>
-	<g transform="translate(256 262) scale(0.72) translate(-632 -514)"><path d="M664 286 C 690 352, 712 400, 740 452 C 776 506, 786 556, 776 606 C 760 690, 690 742, 620 742 C 540 742, 478 684, 478 604 C 478 548, 504 508, 534 476 C 540 520, 556 548, 582 562 C 572 500, 590 452, 618 410 C 640 376, 664 336, 664 286 Z" fill="#cbaaff"/><path d="M624 556 C 640 592, 690 616, 690 664 C 690 700, 660 724, 626 724 C 590 724, 564 698, 564 666 C 564 630, 596 604, 624 556 Z" fill="#0e0e10"/></g>
-</svg>

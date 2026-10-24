@@ -22,7 +22,7 @@ The host writes to stderr, which the service sends to the log above. Lines worth
 | Prefix | What |
 | --- | --- |
 | `aludra listening on …` | Started, with the model in use. |
-| `aludra app and API on 127.0.0.1:8724, for …` | The app is up, for these logins. |
+| `aludra API on 127.0.0.1:8724, for …` | The API is up, for these logins. |
 | `[bridge info]`, `[bridge warning]` | Notices from the bridge, such as rate-limit warnings. |
 | `[backup]` | A backup made, or why it failed. |
 | `[push]` | A notification that couldn't be sent. |
@@ -43,10 +43,10 @@ For the bridge's detail on how it drives Claude Code, set `CLAUDE_BRIDGE_DEBUG=1
 | workspaces | Each root matches at least one project. | Fix the pattern; `aludra projects` shows the matches. |
 | versions | Pi Durable and pi-claude-bridge are the pinned versions. | See [Upgrading Pi Durable or the bridge](#upgrading-pi-durable-or-the-bridge). |
 | claude | `claude.path` runs, and Claude Code is logged in to a subscription. Skipped when no choice is a Claude model. | `claude auth login`. A login that isn't a subscription is a warning: runs would be billed. |
-| model | The default model's provider has it (the bridge loads, for Claude). Each choice its provider lacks is a warning, since the apps leave it out. | Lists the models the provider has. |
+| model | The default model's provider has it (the bridge loads, for Claude). Each choice its provider lacks is a warning, since clients get it left out. | Lists the models the provider has. |
 | openrouter | When a choice is an OpenRouter model or the machine is signed in: there's a key. | `aludra login openrouter`. |
 | openai | Only when a choice is an OpenAI model: signed in with ChatGPT, and the account offers each one. | `aludra login openai`. An `OPENAI_API_KEY` with no sign-in is a warning: requests would be billed per token. |
-| app | `api.users` is set, the app is built, Tailscale is installed and logged in, and `tailscale serve` points at `api.port`. | Prints the command to run, then the app's addresses once it's all there. |
+| api | `api.users` is set, Tailscale is installed and logged in, and `tailscale serve` points at `api.port`. | Prints the command to run, then the API's and amyrlin's addresses once it's all there. |
 | push | Apple's and Google's push services are reachable. | Notifications to those devices won't arrive. |
 | service | Installed, running, and the unit matches this aludra, Node and settings file. On Linux, lingering is on. | Prints the command to run. |
 | backup | The newest backup's age, and whether it's on the database's disk. | Warns when it's more than twice `backup.everyHours` old. |
@@ -89,11 +89,9 @@ aludra's glue around pi-claude-bridge depends on the bridge's internals, and on 
 
 **amyrlin says 502.** `tailscale serve` has nothing behind it: the host isn't running, or `tailscale serve` points at another port. `aludra doctor` says which.
 
-**The browser shows "Forbidden".** As for 403. If you're on the right login, check you're using the `https://…ts.net/` address and not `127.0.0.1` directly, which has no Tailscale header.
+**A request gets "Forbidden".** As for 403. If you're on the right login, check you're using the `https://…ts.net/` address and not `127.0.0.1` directly, which has no Tailscale header.
 
-**"The app isn't built; run pnpm build".** The host found no `dist/client`. Reinstall with `sh scripts/install.sh`, which builds it.
-
-**The app shows an old version after an update.** The host reads the built app at start; restart it. In a home screen app, close it fully and reopen it.
+**A browser gets a 404 at the machine's address.** aludra has no web app; only `/api/` and `/amyrlin` answer.
 
 **The host stopped after I logged out (Linux).** `loginctl enable-linger "$USER"`.
 
@@ -101,12 +99,10 @@ aludra's glue around pi-claude-bridge depends on the bridge's internals, and on 
 
 **A session says "Refused by the model's safeguards".** The model's classifier refused the request. They're sometimes false positives, triggered by file names or wording that sound like an attack. Send a reworded follow-up. The request ID is there to copy if you want to report it.
 
-**A session says "Rate limited".** The subscription's usage window is spent. It resets on its own; tap Retry or send a follow-up after that.
+**A session says "Rate limited".** The subscription's usage window is spent. It resets on its own; send a follow-up after that.
 
 **A session can't find `pnpm`, `cargo` or similar.** The service's PATH doesn't have it. Install the service again from a shell where `command -v` finds the tool.
 
-**Notifications don't arrive.** Each device has to turn them on. Use Test, then lock the device or switch away within five seconds: iOS, at least, shows no banner for the web app while it's on screen. Check Focus and Do Not Disturb. `aludra doctor` checks the push services are reachable. On iOS, notifications only work in the app added to the Home Screen, and must be turned on there.
+**Notifications don't arrive.** A device has to be signed up through `/api/push/subscribe` by a client with a service worker; aludra serves none. `POST /api/push/test` sends a test five seconds later. Check Focus and Do Not Disturb. `aludra doctor` checks the push services are reachable.
 
-**The home screen app shows an old icon.** iOS keeps a Home Screen app's icon until you remove it and add it again.
-
-**An old session's changes view shows a git error.** Git keeps the starting snapshot for two weeks at least; after a `git gc` an older session can lose it.
+**An old session's changes give a git error.** Git keeps the starting snapshot for two weeks at least; after a `git gc` an older session can lose it.

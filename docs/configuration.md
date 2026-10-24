@@ -1,6 +1,6 @@
 # Configuration
 
-aludra reads one JSON file at start. Most settings can also be changed from the apps or `aludra config` while the host runs ([below](#changing-settings-while-the-host-runs)). A change made by hand in the file needs a restart: `aludra service install` rewrites the unit and restarts it, or restart it with `launchctl kickstart -k gui/$(id -u)/io.bradjohnson.aludra` on macOS and `systemctl --user restart aludra` on Linux.
+aludra reads one JSON file at start. Most settings can also be changed from amyrlin, the API or `aludra config` while the host runs ([below](#changing-settings-while-the-host-runs)). A change made by hand in the file needs a restart: `aludra service install` rewrites the unit and restarts it, or restart it with `launchctl kickstart -k gui/$(id -u)/io.bradjohnson.aludra` on macOS and `systemctl --user restart aludra` on Linux.
 
 ## Where the file is
 
@@ -36,7 +36,7 @@ Only `workspaces` is required. `aludra serve` and `aludra service install` refus
 
 ## Changing settings while the host runs
 
-The web app's Settings sheet (the sliders button at the top of the drawer), `aludra config set` and amyrlin's `settings.set` change these settings and save them to the file:
+`POST /api/settings`, `aludra config set` and amyrlin's `settings.set` change these settings and save them to the file:
 
 | Setting | Takes effect |
 | --- | --- |
@@ -46,11 +46,11 @@ The web app's Settings sheet (the sliders button at the top of the drawer), `alu
 | `approvals.hosts`, `approvals.waitHours` | At once, for calls made after the change. |
 | `backup.dir`, `backup.everyHours`, `backup.keep` | At the next hourly check. |
 
-`api.users`, `api.port`, `claude.path` and `dataDir` change only in the file, followed by a restart. A wrong login or port would lock every app out with no way back in from an app, a new data directory would strand the database, and `claude.path` picks the program the host runs.
+`api.users`, `api.port`, `claude.path` and `dataDir` change only in the file, followed by a restart. A wrong login or port would lock every client out with no way back in from one, a new data directory would strand the database, and `claude.path` picks the program the host runs.
 
 A change is checked the way the host checks the file at start, and refused whole if anything is wrong. The file is rewritten as formatted JSON with tab indents: every setting and any key aludra doesn't know stay, but your own formatting doesn't. If the file is a link, the file it points to is written.
 
-A setting that's saved but not yet in effect is marked "after a restart" in the apps and in `aludra config`. That also covers a change made by hand in the file since the host started.
+A setting that's saved but not yet in effect is marked "after a restart" in the settings every client gets and in `aludra config`. That also covers a change made by hand in the file since the host started.
 
 ## Settings
 
@@ -58,7 +58,7 @@ A setting that's saved but not yet in effect is marked "after a restart" in the 
 
 A list of `{ "name", "roots" }`. Every directory a root matches is a project.
 
-- `name` is the machine's name in the apps. Names must be unique.
+- `name` is the machine's name in amyrlin. Names must be unique.
 - `roots` are path patterns. `~` is your home directory, and `*` matches any name within one path segment. Only directories match, never hidden ones. `~/code/*` makes each folder in `~/code` a project; `~/work/*/*` goes one level deeper.
 
 A directory matched by two roots is one project. On the command line, `--project` takes a project's folder name, its parent and name (`clients/site`) when two share a name, or its full path. `aludra projects` lists what the roots match.
@@ -67,8 +67,8 @@ Projects are read from disk each time they're listed, so a new folder under a ro
 
 ### `api`
 
-- `users`: the Tailscale logins let in, such as `["you@example.com"]`. Default: none, and with none the web app, its API and amyrlin's endpoint stay off. Everyone listed sees and runs every session on this machine.
-- `port`: the loopback port the app and API listen on. Default `8724`. Point `tailscale serve` at the same port.
+- `users`: the Tailscale logins let in, such as `["you@example.com"]`. Default: none, and with none the API and amyrlin's endpoint stay off. Everyone listed sees and runs every session on this machine.
+- `port`: the loopback port the API and amyrlin's endpoint listen on. Default `8724`. Point `tailscale serve` at the same port.
 
 An old single `api.user` is an error rather than being ignored, since ignoring it would quietly turn the API off.
 
@@ -76,7 +76,7 @@ An old single `api.user` is an error rather than being ignored, since ignoring i
 
 - `id`: the default model for new sessions. Default `claude-opus-5-5`.
 - `thinking`: the default thinking level: `off`, `minimal`, `low`, `medium`, `high` or `xhigh`. Default `high`.
-- `choices`: the models pinned at the top of the apps' model picker. Default Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1. The default `id` is added if it isn't listed. A choice its provider doesn't have is left out. Two choices can't share an ID, even from different providers.
+- `choices`: the models pinned at the top of the model list clients get. Default Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1. The default `id` is added if it isn't listed. A choice its provider doesn't have is left out. Two choices can't share an ID, even from different providers.
 - `provider`: the provider of a model written without one. `claude-bridge` (the default), `openai`, `openrouter` or `faux`. You won't normally set this; see `ALUDRA_MODEL` below for `faux`.
 
 A model is `provider/id`, or a bare ID of `provider`:
@@ -89,9 +89,9 @@ A model is `provider/id`, or a bare ID of `provider`:
 
 Pinning is only for convenience. The picker also searches every model of every provider this machine is signed in to: Claude Code's, the ones your ChatGPT account offers, and OpenRouter's whole catalog with prices. Any of them can run a session. Claude Code is only needed when a choice is a Claude model. A sign-in reaches a running host from the next time a picker opens; a change to `choices` needs a restart, like any other setting.
 
-OpenRouter bills each request. aludra adds up what each session cost there, compaction summaries included, and shows it beside the session's context use, in the apps and the terminal, and `aludra sessions` shows the month's total. Answers on Claude Code and ChatGPT cost nothing here; they're on your plans. For a cap, set a credit limit on the key at OpenRouter.
+OpenRouter bills each request. aludra adds up what each session cost there, compaction summaries included, and shows it beside the session's context use, in amyrlin and the terminal, and `aludra sessions` shows the month's total. Answers on Claude Code and ChatGPT cost nothing here; they're on your plans. For a cap, set a credit limit on the key at OpenRouter.
 
-Each session keeps its own model and thinking level, which you can change from the apps at any time. The change applies to the session's next request.
+Each session keeps its own model and thinking level, which you can change from amyrlin or the API at any time. The change applies to the session's next request.
 
 ### `claude`
 
@@ -124,7 +124,7 @@ Where the database, keys and scratch directories go. Default `~/Library/Applicat
 | --- | --- |
 | `ALUDRA_CONFIG` | The settings file, when `--config` isn't given. |
 | `ALUDRA_DATA_DIR` | Replaces the data directory, over `dataDir` in the file. |
-| `ALUDRA_MODEL=faux` | Runs a scripted model with no network and no Claude Code, for tests and trying the app. |
+| `ALUDRA_MODEL=faux` | Runs a scripted model with no network and no Claude Code, for tests and trying the host. |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | Move the default settings and (on Linux) data directories. |
 | `CLAUDE_BRIDGE_DEBUG=1`, `CLAUDE_BRIDGE_DEBUG_PATH` | The bridge's detailed log of its Claude Code sessions. |
 
@@ -132,7 +132,7 @@ Where the database, keys and scratch directories go. Default `~/Library/Applicat
 
 | Path | What |
 | --- | --- |
-| `aludra.sqlite` | Every session, idea, approval and setting the apps change: one Pi Durable database. `-wal` and `-shm` sit beside it while the host runs. |
+| `aludra.sqlite` | Every session, idea, approval and setting clients change: one Pi Durable database. `-wal` and `-shm` sit beside it while the host runs. |
 | `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |
 | `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
 | `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, with its refreshed tokens, and the key `aludra login openrouter` gets. Owner-only. |

@@ -111,7 +111,7 @@ export async function init(config: Config, options: InitOptions): Promise<string
 			for (const root of guess.roots) console.log(`  ${root}  (${expandRoot(root).length} folders)`);
 			const roots = list(await ask("Project folders, comma-separated", guess.roots.join(", ")));
 			const users = list(await ask("Tailscale logins allowed in, comma-separated", guess.users.join(", ")));
-			const name = await ask("This machine's name in the app", guess.name);
+			const name = await ask("This machine's name in amyrlin", guess.name);
 			answers = { name, roots, users };
 		} finally {
 			prompt.close();
@@ -123,8 +123,8 @@ export async function init(config: Config, options: InitOptions): Promise<string
 
 	const projects = answers.roots.reduce((sum, root) => sum + expandRoot(root).length, 0);
 	const lines = [`wrote ${file}: ${projects} project${projects === 1 ? "" : "s"}`];
-	if (answers.users.length === 0) lines.push("no Tailscale login allowed in, so the apps can't connect; add yours to api.users");
+	if (answers.users.length === 0) lines.push("no Tailscale login allowed in, so amyrlin and the API can't connect; add yours to api.users");
 	lines.push("", "next:", "  aludra doctor", "  aludra service install", `  ${tailscale.command("serve", "--bg", String(config.api.port))}`);
-	if (self !== undefined) lines.push("", `then add this machine in the Mac app: wss://${self.dnsName}/amyrlin`, `or open https://${self.dnsName}/ on your phone`);
+	if (self !== undefined) lines.push("", `then add this machine in the Mac app: wss://${self.dnsName}/amyrlin`, `the API is at https://${self.dnsName}/api`);
 	return lines;
 }
