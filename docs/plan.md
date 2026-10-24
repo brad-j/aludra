@@ -71,6 +71,7 @@ Brad decided aludra should be its API and nothing else: no web app or web interf
 Brad dropped the read-only terminal UI the same day as the web app: amyrlin and the CLI's commands cover it. `aludra` with no command prints the usage.
 
 - **Gone:** `src/tui.ts` and `test/tui.test.ts`, and the CLI socket's `live` request, which only it used. `/api/live` and the feed in `src/live.ts` stay for API clients and the amyrlin endpoint. `@earendil-works/pi-tui` stays: `src/listing.ts` uses its width handling.
+- **The build:** the first installs after this still shipped `dist/host/tui.js`, because `tsc` never removes output whose source is gone and `pnpm pack` packs all of `dist/host`. `pnpm build` now clears `dist/host` first.
 - **The site:** `scripts/site-images.ts` now renders `aludra sessions` as HTML, `src/generated/sessions.html` in aludra-site, in place of the terminal UI's frame.
 
 ## Pi Durable 1.3.0 (2026-10-22)

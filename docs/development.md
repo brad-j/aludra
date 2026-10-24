@@ -20,7 +20,7 @@ pnpm install
 pnpm check          # tsc, oxlint, then the tests
 pnpm test           # the tests only: node --test test/*.test.ts
 pnpm lint           # oxlint --deny-warnings
-pnpm build          # the host into dist/host
+pnpm build          # the host into dist/host, cleared first
 pnpm aludra …       # the CLI from source: pnpm aludra doctor
 pnpm serve          # the host from source
 ```

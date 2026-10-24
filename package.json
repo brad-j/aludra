@@ -16,7 +16,7 @@
     "aludra": "node --no-warnings src/main.ts",
     "serve": "node --no-warnings src/main.ts serve",
     "doctor": "node --no-warnings src/main.ts doctor",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist/host && tsc -p tsconfig.build.json",
     "check": "tsc && pnpm lint && pnpm test",
     "lint": "oxlint --deny-warnings src test scripts",
     "test": "node --no-warnings --test test/*.test.ts",
