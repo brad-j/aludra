@@ -3,7 +3,7 @@
 //
 // client → server: {"type":"ask","content":"...","project":"aludra"} or {"type":"ask","content":"...","session":3},
 //                  {"type":"watch","session":3?}, {"type":"sessions","listing":true?}, {"type":"stop","session":3},
-//                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true}, {"type":"live"},
+//                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true},
 //                  {"type":"retitle"}, {"type":"archive","session":3,"archived":true},
 //                  {"type":"settings","changes":{"approvals.hosts":["db"]}?}
 // server → client: {"type":"line","text":"..."}, for a sessions request with listing
@@ -12,24 +12,20 @@
 //
 // `listing` asks for the sessions as data, which the CLI lays out for its terminal (src/listing.ts); a host from before
 // it ignores the field and sends lines, which the CLI prints as they are.
-//
-// `live` keeps the connection open for the terminal UI (src/tui.ts): the server sends {"type":"event","event":...} with
-// each ServerEvent an API client gets over /api/live (src/live.ts), and the client may send ClientEvent follows on the
-// same connection, one per line: {"type":"follow","session":3} or {"type":"follow","session":null}.
 import { randomUUID } from "node:crypto";
 import { chmodSync, rmSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchEvents } from "@earendil-works/pi-durable";
-import type { ServerEvent, SessionSummary, Settings } from "./api-types.ts";
+import type { SessionSummary, Settings } from "./api-types.ts";
 import { createApi } from "./api.ts";
-import { createLive, type Live, monthSpend, readSummary } from "./live.ts";
+import { createLive, monthSpend, readSummary } from "./live.ts";
 import { scheduleBackups } from "./backup.ts";
 import { createPush, loadPushKeys } from "./push.ts";
 import type { Config } from "./config.ts";
 import { context, conversationId, type Host, openHost, type SessionRecord } from "./host.ts";
-import { array, boolean, dictionary, integer, type Json, jsonObject, literal, nullable, number, object, optional, ParseError, parseJson, string } from "./parse.ts";
+import { array, boolean, dictionary, integer, type Json, jsonObject, literal, number, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import type { ApprovalRequest } from "./permissions.ts";
 import { findProject } from "./projects.ts";
 
@@ -42,7 +38,6 @@ export type ClientMessage =
 	| { type: "stop"; session: number }
 	| { type: "approvals" }
 	| { type: "decide"; id: string; allow: boolean }
-	| { type: "live" }
 	| { type: "retitle" }
 	| { type: "archive"; session: number; archived: boolean }
 	/** The settings, after making `changes` if there are any (src/settings.ts). */
@@ -52,12 +47,10 @@ export type ServerMessage =
 	| { type: "line"; text: string }
 	| { type: "sessions"; sessions: SessionSummary[]; colors: Record<string, number>; spend?: { month: number } }
 	| { type: "settings"; settings: Settings }
-	| { type: "event"; event: ServerEvent }
 	| { type: "done"; status: string };
 
-const followEvent = object({ type: literal("follow"), session: nullable(integer) });
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "live", "retitle", "archive", "settings"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings"),
 	changes: optional(jsonObject),
 	archived: optional(boolean),
 	content: optional(string),
@@ -82,8 +75,7 @@ const summary = object({
 	cost: optional(number),
 });
 const serverMessage = object({
-	type: literal("line", "sessions", "settings", "event", "done"),
-	event: optional(jsonObject),
+	type: literal("line", "sessions", "settings", "done"),
 	settings: optional(jsonObject),
 	text: optional(string),
 	status: optional(string),
@@ -106,8 +98,6 @@ export function parseClientMessage(line: string): ClientMessage {
 		case "stop":
 			if (m.session === undefined) throw new ParseError("a stop needs a session");
 			return { type: "stop", session: m.session };
-		case "live":
-			return { type: "live" };
 		case "retitle":
 			return { type: "retitle" };
 		case "archive":
@@ -125,8 +115,6 @@ export function parseClientMessage(line: string): ClientMessage {
 
 export function parseServerMessage(line: string): ServerMessage {
 	const m = parseJson(line, serverMessage, "the server's message");
-	// SAFETY: the host on our own socket sends the ServerEvents src/live.ts makes.
-	if (m.type === "event") return { type: "event", event: m.event as unknown as ServerEvent };
 	// SAFETY: the host on our own socket sends the Settings src/settings.ts makes.
 	if (m.type === "settings") return { type: "settings", settings: m.settings as unknown as Settings };
 	if (m.type === "sessions") return { type: "sessions", sessions: m.sessions ?? [], colors: Object.fromEntries(m.colors ?? []), ...(m.spend === undefined ? {} : { spend: m.spend }) };
@@ -223,9 +211,9 @@ export async function serve(config: Config) {
 		},
 	});
 	host.resume();
-	// One live feed for the API's socket and the terminal UI's.
+	// The live feed behind /api/live and the amyrlin endpoint.
 	const live = createLive(host);
-	const server = listen(host, socketPath, watchers, live);
+	const server = listen(host, socketPath, watchers);
 	console.error(`aludra listening on ${socketPath}, model ${host.model.provider}/${host.model.modelId}`);
 	const stopBackups = scheduleBackups(config);
 	const push = createPush({ harness: host.harness, keys: loadPushKeys(config.dataDir) });
@@ -248,11 +236,8 @@ export async function serve(config: Config) {
 	process.once("SIGTERM", shutdown);
 }
 
-/**
- * Serves the protocol above for `host` on `socketPath`. `watchers` are the sockets that hear the bridge's notices, and
- * `live` the feed the terminal UI gets; one is made when the first UI connects if none is given.
- */
-export function listen(host: Host, socketPath: string, watchers = new Set<Socket>(), live?: Live) {
+/** Serves the protocol above for `host` on `socketPath`. `watchers` are the sockets that hear the bridge's notices. */
+export function listen(host: Host, socketPath: string, watchers = new Set<Socket>()) {
 	const line = (socket: Socket, text: string) => send(socket, { type: "line", text });
 
 	/** Sends `socket` a line for everything session `id` does, prefixed with `prefix`, until it closes. Resolves once attached. */
@@ -361,16 +346,6 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				});
 				return finish([done === 0 ? "no titles to write: every session has one from a model or from you" : `wrote ${done} title${done === 1 ? "" : "s"}`]);
 			}
-			case "live": {
-				live ??= createLive(host);
-				const client = live.connect((event) => send(socket, { type: "event", event }));
-				lives.set(socket, client);
-				socket.once("close", () => {
-					lives.delete(socket);
-					client.close();
-				});
-				return;
-			}
 			case "settings":
 				send(socket, { type: "settings", settings: request.changes === undefined ? host.settings.get() : host.settings.set(request.changes) });
 				return finish([]);
@@ -381,20 +356,11 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 		}
 	}
 
-	/** The terminal UIs connected, by socket. */
-	const lives = new Map<Socket, ReturnType<Live["connect"]>>();
 	const server = createServer((socket) => {
 		let first = true;
 		createInterface({ input: socket }).on("line", (text) => {
-			if (!first) {
-				// Only a live connection reads past its request: which session to follow.
-				try {
-					lives.get(socket)?.follow(parseJson(text, followEvent, "the follow").session);
-				} catch (error) {
-					send(socket, { type: "event", event: { type: "error", message: error instanceof Error ? error.message : String(error) } });
-				}
-				return;
-			}
+			// One request per connection: anything after the first line is ignored.
+			if (!first) return;
 			first = false;
 			handle(socket, text).catch((error) => {
 				line(socket, `! ${error instanceof Error ? error.message : String(error)}`);

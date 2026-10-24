@@ -84,8 +84,7 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 ## Clients
 
 - **The CLI** (`src/cli.ts`, `src/server.ts`) sends one JSON request per connection over `aludra.sock` and prints the lines that come back. Live output comes from Pi Durable's `watchEvents()`. `aludra sessions` gets the session summaries as data instead and lays them out for the terminal (`src/listing.ts`), with pi-tui's width handling.
-- **The terminal UI** (`src/tui.ts`, `aludra` with no command) keeps a `live` connection open on the same socket and gets the same live events as `/api/live`. It's built with pi-tui, terminal pi's own library: an alternate-screen layout of a session tree, a header and a scrolling transcript, with pi-tui's Markdown for answers.
-- **The HTTP API** (`src/api.ts`) serves HTTP for actions and one WebSocket, `/api/live`, for everything live, from the feed in `src/live.ts` that the terminal UI shares. A followed session's transcript is built from Pi Durable's conversation view (`src/transcript.ts`) as a list of items, and only the items from the first change on are resent. Updates go out at most every 50 ms.
+- **The HTTP API** (`src/api.ts`) serves HTTP for actions and one WebSocket, `/api/live`, for everything live, from the feed in `src/live.ts`. A followed session's transcript is built from Pi Durable's conversation view (`src/transcript.ts`) as a list of items, and only the items from the first change on are resent. Updates go out at most every 50 ms.
 - **The sessions feed** in `src/live.ts` keeps every session's summary current by watching the task graph: a session is running while it has a generation or tool task, and when those end, its summary is read again. A run that ends done or failed triggers a notification once.
 - **amyrlin's endpoint** (`src/amyrlin/`) speaks amyrlin's protocol v1. `translate.ts` turns `watchEvents()` into v1 frames; `endpoint.ts` handles commands, the session list and approvals.
 

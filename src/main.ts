@@ -12,11 +12,8 @@ import { isListening, serve, socketPathFor } from "./server.ts";
 import { currentSpec, installService, platformOf, serviceState, uninstallService } from "./service.ts";
 import { login, logout } from "./login.ts";
 import { init } from "./setup.ts";
-import { runTui } from "./tui.ts";
 
-const USAGE = `usage: aludra [--config FILE] [COMMAND]
-
-  (none) [--session ID]                  open the terminal UI: every session and its transcript, read-only
+const USAGE = `usage: aludra [--config FILE] COMMAND
 
   init [--root PATTERN]... [--user LOGIN]... [--name NAME] [--yes] [--force]
                                          write the settings file, asking for what isn't given
@@ -60,9 +57,8 @@ const { values, positionals } = parseArgs({
 	allowPositionals: true,
 });
 const [command, ...rest] = positionals;
-// With no command in a terminal, the terminal UI; piped, or asked for help, the usage.
-const interactive = command === undefined && !values.help && process.stdout.isTTY && process.stdin.isTTY;
-if (values.help || command === "help" || (command === undefined && !interactive)) {
+// With no command, or asked for help, the usage.
+if (values.help || command === "help" || command === undefined) {
 	console.log(USAGE);
 	process.exit(command === undefined && !values.help ? 2 : 0);
 }
@@ -80,10 +76,6 @@ function sessionId(): number {
 }
 
 switch (command) {
-	case undefined: {
-		const session = values.session === undefined ? undefined : sessionId();
-		process.exit(await runTui(config, session === undefined ? {} : { session }));
-	}
 	case "init":
 		try {
 			const file = values.config ?? process.env.ALUDRA_CONFIG;

@@ -1,9 +1,9 @@
-// The picture on aludra-site's home page, made from aludra itself with sample sessions and a scripted model: a frame
-// of the terminal UI as HTML. Rerun after the UI changes:
+// The picture on aludra-site's home page, made from aludra itself with sample sessions and a scripted model:
+// `aludra sessions` as HTML. Rerun after its layout changes:
 //
 //   node --no-warnings scripts/site-images.ts ../aludra-site
 //
-// It writes src/generated/tui.html there. The sample projects live in ~/code for the run, so their
+// It writes src/generated/sessions.html there. The sample projects live in ~/code for the run, so their
 // paths read as ~/code/...; it stops if ~/code already exists rather than touch it.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -11,11 +11,10 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { type FauxResponseStep, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import type { Terminal } from "@earendil-works/pi-tui";
 import { configFor } from "../src/config.ts";
 import { context, openHost } from "../src/host.ts";
-import { listen, socketPathFor } from "../src/server.ts";
-import { runTui } from "../src/tui.ts";
+import { renderSessions } from "../src/listing.ts";
+import { readSummary } from "../src/live.ts";
 
 const site = resolve(process.argv[2] ?? "../aludra-site");
 const code = join(homedir(), "code");
@@ -79,13 +78,11 @@ function project(name: string) {
 const { config } = configFor(JSON.stringify({ dataDir: data, workspaces: [{ name: "devbox", roots: ["~/code/*"] }] }), {});
 let close = async () => {};
 try {
-	// Names whose colors are cool, so the selected row's wash isn't brown.
+	// Names whose colors are cool, so the project headings aren't brown.
 	const projects = { backend: project("backend"), shop: project("shop"), docs: project("docs") };
 	const host = await openHost({ config, models, model: { provider: "claude-bridge", modelId: "claude-opus-5-5" }, agentDir: join(data, "agent"), onNotice: () => {} });
 	host.resume();
-	const server = listen(host, socketPathFor(config));
 	close = async () => {
-		server.close();
 		for (const s of await host.sessions.list()) await host.stop(s.id).catch(() => {});
 		await host.close();
 	};
@@ -96,26 +93,17 @@ try {
 		return session;
 	};
 	await start("docs", "Summarize what changed in the docs this week");
-	const main = await start("backend", "Why does the test suite fail on main?");
+	await start("backend", "Why does the test suite fail on main?");
 	await start("shop", "Run the full build and tell me what breaks", false);
 	await start("shop", "Push the release branch", false);
 	await new Promise((done) => setTimeout(done, 1500));
 
-	// The terminal UI, on a terminal of a fixed size, as HTML.
-	const terminal: Terminal = {
-		start: () => {}, stop: () => {}, drainInput: async () => {}, write: () => {}, columns: 118, rows: 30, kittyProtocolActive: false,
-		moveBy: () => {}, hideCursor: () => {}, showCursor: () => {}, clearLine: () => {}, clearFromCursor: () => {}, clearScreen: () => {}, setTitle: () => {}, setProgress: () => {}, setProgramStatus: () => {},
-	};
-	process.env.COLORTERM = "truecolor";
-	let ui: { screen: () => string[]; quit: () => void } | undefined;
-	const running = runTui(config, { session: main.id, terminal, ready: (r) => (ui = r) });
-	await new Promise((done) => setTimeout(done, 1500));
-	const frame = ui!.screen();
-	ui!.quit();
-	await running;
+	// `aludra sessions` on a terminal of a fixed width, in 24-bit color, as HTML.
+	const sessions = (await Promise.all((await host.sessions.list()).map((s) => readSummary(host, s.id)))).flatMap((s) => (s === undefined ? [] : [s]));
+	const frame = ["$ aludra sessions", ...renderSessions(sessions, await host.colors.list(), { depth: 24, width: 96 })];
 	mkdirSync(join(site, "src", "generated"), { recursive: true });
-	writeFileSync(join(site, "src", "generated", "tui.html"), `<!-- Made by aludra's scripts/site-images.ts; don't edit. -->\n${frame.map(ansiToHtml).join("\n")}\n`);
-	console.log(`wrote ${join(site, "src/generated/tui.html")}`);
+	writeFileSync(join(site, "src", "generated", "sessions.html"), `<!-- Made by aludra's scripts/site-images.ts; don't edit. -->\n${frame.map(ansiToHtml).join("\n")}\n`);
+	console.log(`wrote ${join(site, "src/generated/sessions.html")}`);
 } finally {
 	await close();
 	rmSync(code, { recursive: true, force: true });

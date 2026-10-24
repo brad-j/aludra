@@ -53,7 +53,7 @@ cp -R ../amyrlin/fixtures/wire-v1 test/fixtures/amyrlin/
 pnpm test
 ```
 
-`scripts/site-images.ts ../aludra-site` makes the site's picture, a frame of the terminal UI, from sample sessions and a scripted model. It puts the sample projects in `~/code` for the run and refuses if that exists.
+`scripts/site-images.ts ../aludra-site` makes the site's picture, `aludra sessions` as HTML, from sample sessions and a scripted model. It puts the sample projects in `~/code` for the run and refuses if that exists.
 
 `scripts/amyrlin-capture.ts ../amyrlin/fixtures/server-v1/session.jsonl` records a whole session from the endpoint with a faux model, for amyrlin's own server test.
 

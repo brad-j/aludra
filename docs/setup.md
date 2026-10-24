@@ -105,7 +105,7 @@ The host listens on `127.0.0.1:8724` only. `tailscale serve` gives it an HTTPS a
 
 **amyrlin (macOS, optional).** In [amyrlin](https://github.com/brad-j/amyrlin), add the machine as `wss://<machine>.<tailnet>.ts.net/amyrlin`, or just its tailnet name. A machine that can't connect says why under its name in the sidebar: 403 means your login isn't in `api.users`, 502 means nothing is behind `tailscale serve`.
 
-**The terminal.** On the machine itself (or over SSH), `aludra` with no command shows every session and the open one's transcript as it streams, and `aludra sessions` prints the list. The other commands talk to the running host directly; see [cli.md](cli.md).
+**The terminal.** On the machine itself (or over SSH), `aludra sessions` prints every session, `aludra watch` follows them, and the other commands talk to the running host directly; see [cli.md](cli.md).
 
 **The API.** Anything else, such as a script or a client of your own, uses the HTTP and WebSocket API at `https://<machine>.<tailnet>.ts.net/api/`; see [api.md](api.md).
 

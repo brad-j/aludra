@@ -42,23 +42,6 @@ Checks the settings and everything the host needs, without starting it or spendi
 
 ## Working with sessions
 
-### `aludra`
-
-```
-aludra [--session ID]
-```
-
-With no command, in a terminal, opens a read-only view of the host: every session on the left, grouped by project with the project that most needs you first, and the selected session's transcript on the right, following new output as it streams. The line at the foot has the session's state, model, thinking level and context use, and its cost if it used OpenRouter. A session waiting for approval shows the call and the `approve` and `deny` commands.
-
-| Key | Does |
-| --- | --- |
-| `↑` `↓` or `k` `j` | The previous or next session. |
-| `PgUp` `PgDn`, mouse wheel | Scroll the transcript. Scrolling up stops following; `End` or `G` follows again. |
-| `Home` or `g` | The start of the transcript. |
-| `q` or `Ctrl+C` | Quit. |
-
-`--session` opens that session first; otherwise the one that most needs you. Nothing here changes a session: answer approvals, steer and stop from amyrlin or the commands below. If the host restarts, the view reconnects on its own. Piped, `aludra` prints the usage instead. `NO_COLOR` turns color off.
-
 ### `aludra ask`
 
 ```
@@ -112,7 +95,7 @@ Has a model write titles for sessions that still have their first message's firs
 
 ### `aludra archive --session ID` and `aludra unarchive --session ID`
 
-Hides a session from the lists (amyrlin's, `aludra sessions`, the terminal UI), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
+Hides a session from the lists (amyrlin's and `aludra sessions`), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
 
 ### `aludra approvals`
 

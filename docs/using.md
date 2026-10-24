@@ -31,7 +31,7 @@ A session is titled from its first message: at first its first line, then, a sec
 
 ### The transcript
 
-Your messages, the answers, and each tool call in order, with the running command's output as it streams. `aludra` with no command shows it live in the terminal, and `aludra watch` prints it.
+Your messages, the answers, and each tool call in order, with the running command's output as it streams. `aludra watch` prints it live in the terminal.
 
 When the conversation outgrows the model's context, Pi Durable compacts it: earlier messages are replaced by a summary, shown as "Earlier messages summarized".
 
@@ -56,7 +56,7 @@ Sending a message while a call waits for approval refuses that call, so the run 
 
 ### Model and thinking
 
-Each session has a model and thinking level; a change applies from the next request (`POST /api/sessions/:id/agent`). Your pinned models (`model.choices`) come first, and any model of any provider the machine is signed in to can be picked, with prices where requests are billed. The terminal UI's foot shows the model, thinking level, how much of the context window the last request used, and what the session has cost if it used OpenRouter. New sessions start with `model.id` and `model.thinking` from the settings.
+Each session has a model and thinking level; a change applies from the next request (`POST /api/sessions/:id/agent`). Your pinned models (`model.choices`) come first, and any model of any provider the machine is signed in to can be picked, with prices where requests are billed. `aludra sessions` shows what a session has cost if it used OpenRouter. New sessions start with `model.id` and `model.thinking` from the settings.
 
 ### Images
 

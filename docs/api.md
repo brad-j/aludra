@@ -136,8 +136,6 @@ Client to server, one of:
 
 `{ "type": "retitle" }` writes titles for sessions that still have their first message's first line and sends a line for each.
 
-`{ "type": "live" }` is the terminal UI's: the connection stays open and the server sends `{ "type": "event", "event": ServerEvent }` for each event an API client gets over `/api/live`. The client may then send one `ClientEvent` follow per line, `{ "type": "follow", "session": 12 }` or `{ "session": null }`, to change which transcript it gets. A host from before `live` answers it as an unknown request.
-
 `{ "type": "sessions", "listing": true }` asks for the sessions as data: the server answers with one `{ "type": "sessions", "sessions": SessionSummary[], "colors": { name: hue } }`, which the CLI lays out for its terminal, and `spend: { month }`, this calendar month's OpenRouter spend, when any session used OpenRouter. A summary's `cost` is that session's total. Without `listing`, the server sends them as text lines. A host from before `listing` ignores it and sends lines, which the CLI prints as they are.
 
 Server to client: any number of `{ "type": "line", "text": "..." }`, then `{ "type": "done", "status": "..." }` and the connection closes. `status` is `done` on success. A `watch` never sends `done`; it ends when the client closes.

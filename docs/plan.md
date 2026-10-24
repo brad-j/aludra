@@ -63,8 +63,15 @@ Brad decided aludra should be its API and nothing else: no web app or web interf
 - **Gone:** `app/` (the TanStack Start PWA), `design/` and the design brief, the Playwright suite in `e2e/`, `vite.config.ts` and `playwright.config.ts`, and the dev dependencies only they used (React, TanStack, Vite, the Plex fonts, Playwright). `pnpm build` builds the host alone and the package ships `dist/host` only. A `dist/client` left from an older build is ignored.
 - **The server:** every path that isn't `/api/` or `/amyrlin` is a 404, and every response's Content-Security-Policy is `default-src 'none'`, since nothing served is a page. The routes, `/api/live` and the amyrlin endpoint are unchanged.
 - **Kept:** Web Push and `/api/push`, for a client with a service worker of its own; nothing signs a device up until one exists. `test/projects.test.ts` became `test/project-colors.test.ts`, pinning the hash against amyrlin's values on `src/project-colors.ts` now that the app's copy is gone.
-- **Strings:** doctor's `app` line is `api`; `aludra init` prints the Mac app's and the API's addresses; the terminal UI says to answer approvals in amyrlin.
+- **Strings:** doctor's `app` line is `api`; `aludra init` prints the Mac app's and the API's addresses; the terminal UI says to answer approvals in amyrlin (it went the same way afterwards; see "No terminal UI").
 - **The site:** `scripts/site-images.ts` makes the terminal picture only. aludra-site's home page still has the phone screenshot and its copy about the web app.
+
+## No terminal UI (2026-10-24)
+
+Brad dropped the read-only terminal UI the same day as the web app: amyrlin and the CLI's commands cover it. `aludra` with no command prints the usage.
+
+- **Gone:** `src/tui.ts` and `test/tui.test.ts`, and the CLI socket's `live` request, which only it used. `/api/live` and the feed in `src/live.ts` stay for API clients and the amyrlin endpoint. `@earendil-works/pi-tui` stays: `src/listing.ts` uses its width handling.
+- **The site:** `scripts/site-images.ts` now renders `aludra sessions` as HTML, `src/generated/sessions.html` in aludra-site, in place of the terminal UI's frame.
 
 ## Pi Durable 1.3.0 (2026-10-22)
 
