@@ -133,6 +133,13 @@ Brad wanted aludra to look good in a terminal too, without it becoming a second 
 - **`aludra` with no command** opens a read-only terminal UI on pi-tui: the session tree on the left, the selected session's transcript on the right following its output, and its state, model and context at the foot. It's a client of the same live feed as the web app (`src/live.ts`, split out of `src/api.ts`), over a `live` request that keeps the CLI's socket open. Arrow keys pick a session; PgUp, PgDn and the wheel scroll; it reconnects when the host restarts. An older host is told apart from a stopped one and the UI says to update it.
 - **Not yet:** typing in it (follow-ups, steer, stop, approvals), new sessions, ideas and the changes view. Those were phases 3 and 4 of the plan Brad was offered; he chose read-only for now.
 
+## Which Claude login (2026-10-25)
+
+The Mac's service ran Claude Code on Brad's work login: launchd gives it no `CLAUDE_CONFIG_DIR`, so Claude Code used `~/.claude`, while his personal login is in `~/.claude-personal`. His shells don't set the variable either; a `claude-personal` wrapper does.
+
+- **Tried:** `claude.path` pointed at the wrapper. Claude Code then logged in correctly, but the bridge writes Claude Code's session files from inside the host, under the host's `CLAUDE_CONFIG_DIR` (unset, so `~/.claude`), and Claude Code resumed from `~/.claude-personal`: every turn failed with "No conversation found with session ID". Copying the installing shell's `CLAUDE_CONFIG_DIR` into the unit was also dropped, since the shell has none.
+- **Decided:** `claude.configDir` in the settings. `src/main.ts` sets `process.env.CLAUDE_CONFIG_DIR` from it before anything loads the bridge, so the bridge and Claude Code agree, and it survives reinstalls. File-only, like `claude.path`. The config check refuses a directory that doesn't exist; doctor shows the directory and the account's email; the no-project places list Claude Code's history under it.
+
 ## Session titles (2026-10-13)
 
 Titles were the first line of the first message cut at 80 characters, which says little when a message opens with "A couple of things…". Now a model writes one, as Claude Code and ChatGPT do.

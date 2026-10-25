@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { configFor, defaultConfigFile, defaultDataDir, loadConfig } from "../src/config.ts";
+import { claudeConfigDir, configFor, defaultConfigFile, defaultDataDir, loadConfig } from "../src/config.ts";
 import { expandRoot, findProject, findProjects } from "../src/projects.ts";
 import { tempDir } from "./helpers.ts";
 
@@ -39,6 +39,22 @@ test("a file's settings go over the defaults, and the environment over both", ()
 	assert.deepEqual(config.api.users, ["a@x", "b@x"]);
 	assert.equal(config.dataDir, join(homedir(), "aludra"));
 	assert.equal(configFor(undefined, { ALUDRA_DATA_DIR: "/tmp/x" }).config.dataDir, "/tmp/x");
+});
+
+test("claude.configDir picks Claude Code's login directory, over CLAUDE_CONFIG_DIR, and must exist", (t) => {
+	const dir = tempDir(t);
+	const workspaces = [{ name: "code", roots: ["~/code/*"] }];
+	const set = configFor(JSON.stringify({ workspaces, claude: { configDir: dir } }), {});
+	assert.deepEqual(set.errors, []);
+	assert.equal(set.config.claude.configDir, dir);
+	assert.equal(claudeConfigDir(set.config, { CLAUDE_CONFIG_DIR: "/elsewhere" }), dir);
+	const unset = configFor(JSON.stringify({ workspaces }), {}).config;
+	assert.equal(unset.claude.configDir, undefined);
+	assert.equal(claudeConfigDir(unset, { CLAUDE_CONFIG_DIR: "/elsewhere" }), "/elsewhere");
+	assert.equal(claudeConfigDir(unset, {}), join(homedir(), ".claude"));
+	assert.equal(configFor(JSON.stringify({ workspaces, claude: { configDir: "~/x" } }), {}).config.claude.configDir, join(homedir(), "x"));
+	const missing = configFor(JSON.stringify({ workspaces, claude: { configDir: join(dir, "nope") } }), {});
+	assert.match(missing.errors.join("\n"), /claude.configDir .*nope isn't a directory/);
 });
 
 test("model choices name their provider, or are the default provider's; so does the default model", () => {

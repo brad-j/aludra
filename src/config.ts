@@ -3,7 +3,7 @@
 //   {
 //     "workspaces": [{ "name": "code", "roots": ["~/code/*", "~/work/*/*"] }],
 //     "model": { "id": "claude-opus-5-5", "thinking": "high", "choices": ["claude-opus-5-5", "openai/gpt-6.1-sol"] },
-//     "claude": { "path": "claude" },
+//     "claude": { "path": "claude", "configDir": "~/.claude-personal" },
 //     "approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
 //     "backup": { "dir": "/mnt/nas/aludra", "everyHours": 24, "keep": 7 },
 //     "api": { "port": 8724, "users": ["you@example.com"] },
@@ -19,12 +19,14 @@
 // doesn't start, since every request would be refused. Everyone listed sees and runs every session. `model.choices`
 // are the models the app offers, each `provider/id` or a bare ID of `model.provider` (claude-bridge unless set); so is
 // `model.id`. OpenAI's models run on the ChatGPT sign-in `aludra login openai` keeps, OpenRouter's on the key `aludra login openrouter` gets (src/login.ts). `claude.path` is the Claude Code the bridge runs, the user's own install and login;
-// a bare name is looked up on PATH. `backup` copies the database while the host runs (src/backup.ts); its directory is
+// a bare name is looked up on PATH. `claude.configDir` is the CLAUDE_CONFIG_DIR the host sets for itself at start
+// (src/main.ts), which picks the login: the bridge writes Claude Code's session files under it in-process, and Claude
+// Code reads them there, so the two must agree, and a wrapper script that sets it only for Claude Code breaks resuming. `backup` copies the database while the host runs (src/backup.ts); its directory is
 // backups/ in the data directory unless it names another disk or a synced folder.
 //
 // The apps and `aludra config` change most settings while the host runs (src/settings.ts), so the host reads them from
 // its Config each time rather than keeping copies.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { array, integer, isObject, type Json, literal, number, object, optional, ParseError, parseJson, string } from "./parse.ts";
@@ -44,8 +46,8 @@ export type Config = {
 	file?: string;
 	workspaces: Workspace[];
 	model: { provider: ProviderId; id: string; thinking: Thinking; choices: ModelSetting[] };
-	/** The Claude Code binary the bridge runs. */
-	claude: { path: string };
+	/** The Claude Code binary the bridge runs, and the config directory (so the login) it uses when the settings name one. */
+	claude: { path: string; configDir?: string };
 	/** The app's API on loopback; tailscale serve is the way in. */
 	api: { port: number; users: string[] };
 	/** Calls that wait for the user: `git push`, and ssh, scp, rsync or sftp naming one of `hosts`. */
@@ -95,12 +97,26 @@ const EXAMPLE_WORKSPACE = '"workspaces": [{ "name": "code", "roots": ["~/code/*"
 const settingsFile = object({
 	workspaces: optional(array(object({ name: string, roots: array(string) }))),
 	model: optional(object({ provider: optional(literal(...PROVIDERS)), id: optional(string), thinking: optional(literal(...THINKING)), choices: optional(array(string)) })),
-	claude: optional(object({ path: optional(string) })),
+	claude: optional(object({ path: optional(string), configDir: optional(string) })),
 	api: optional(object({ port: optional(integer), users: optional(array(string)) })),
 	approvals: optional(object({ hosts: optional(array(string)), waitHours: optional(number) })),
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	dataDir: optional(string),
 });
+
+function isDirectory(path: string): boolean {
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+/** The directory Claude Code keeps its login and session files in: the settings' `claude.configDir`, else
+ * CLAUDE_CONFIG_DIR, else ~/.claude. */
+export function claudeConfigDir(config: Config, env: NodeJS.ProcessEnv = process.env): string {
+	return config.claude.configDir ?? (env.CLAUDE_CONFIG_DIR ? resolve(expandHome(env.CLAUDE_CONFIG_DIR)) : join(homedir(), ".claude"));
+}
 
 /** `provider/id`, or a bare ID of `fallback`. Model IDs may hold slashes; only a known provider before the first one counts. */
 function modelSetting(text: string, fallback: ProviderId, errors: string[]): ModelSetting {
@@ -130,7 +146,10 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	const config: Config = {
 		workspaces: file.workspaces ?? [],
 		model: { ...DEFAULTS.model, thinking: file.model?.thinking ?? DEFAULTS.model.thinking },
-		claude: { ...DEFAULTS.claude, ...file.claude, path: expandHome(file.claude?.path ?? DEFAULTS.claude.path) },
+		claude: {
+			path: expandHome(file.claude?.path ?? DEFAULTS.claude.path),
+			...(file.claude?.configDir ? { configDir: resolve(expandHome(file.claude.configDir)) } : {}),
+		},
 		api: { ...DEFAULTS.api, ...file.api },
 		approvals: { ...DEFAULTS.approvals, ...file.approvals },
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
@@ -154,6 +173,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	const names = config.workspaces.map((w) => w.name);
 	if (new Set(names).size !== names.length) errors.push("two workspaces share a name");
 	if (config.workspaces.length === 0) errors.push(`no workspaces: name the folders that hold your projects, such as ${EXAMPLE_WORKSPACE}`);
+	if (config.claude.configDir !== undefined && !isDirectory(config.claude.configDir)) errors.push(`claude.configDir ${config.claude.configDir} isn't a directory; log in there with CLAUDE_CONFIG_DIR=${config.claude.configDir} claude auth login`);
 	if (!(config.approvals.waitHours > 0)) errors.push("approvals.waitHours should be more than 0");
 	if (config.api.port < 1 || config.api.port > 65535) errors.push("api.port should be a port number");
 	if (!(config.backup.everyHours > 0)) errors.push("backup.everyHours should be more than 0");

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { listBackups } from "./backup.ts";
 import { claudeExecutable, loadBridge, PROVIDER } from "./bridge.ts";
-import type { Config, Loaded, ProviderId } from "./config.ts";
+import { claudeConfigDir, type Config, type Loaded, type ProviderId } from "./config.ts";
 import { accountModels, signInModels } from "./login.ts";
 import { expandRoot } from "./projects.ts";
 import { isListening, socketPathFor } from "./server.ts";
@@ -86,13 +86,14 @@ async function claude(config: Config): Promise<Check[]> {
 	const result = spawnSync(path, ["auth", "status", "--json"], { encoding: "utf8", timeout: 20_000 });
 	if (result.error !== undefined) return [{ status: "fail", area: "claude", detail: `can't run ${path}: ${result.error.message}` }];
 	try {
-		const status = JSON.parse(result.stdout) as { loggedIn?: boolean; authMethod?: string; subscriptionType?: string };
-		if (status.loggedIn !== true) return [{ status: "fail", area: "claude", detail: "Claude Code isn't logged in; run claude auth login" }];
+		const status = JSON.parse(result.stdout) as { loggedIn?: boolean; authMethod?: string; subscriptionType?: string; email?: string };
+		const dir = claudeConfigDir(config);
+		if (status.loggedIn !== true) return [{ status: "fail", area: "claude", detail: `Claude Code isn't logged in at ${dir}; run CLAUDE_CONFIG_DIR=${dir} claude auth login` }];
 		const subscription = status.authMethod === "claude.ai";
 		return [{
 			status: subscription ? "ok" : "warn",
 			area: "claude",
-			detail: subscription ? `${path}, logged in to a ${status.subscriptionType ?? "Claude"} subscription` : `logged in with ${status.authMethod}, not a subscription: runs would be billed`,
+			detail: subscription ? `${path}, logged in at ${dir}${status.email ? ` as ${status.email}` : ""} to a ${status.subscriptionType ?? "Claude"} subscription` : `logged in with ${status.authMethod}, not a subscription: runs would be billed`,
 		}];
 	} catch {
 		return [{ status: "fail", area: "claude", detail: `claude auth status answered something else: ${(result.stdout || result.stderr).slice(0, 200)}` }];

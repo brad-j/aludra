@@ -65,6 +65,9 @@ if (values.help || command === "help" || command === undefined) {
 
 const loaded = loadConfig(values.config);
 const { config } = loaded;
+// Before anything loads the bridge or runs Claude Code: the bridge reads CLAUDE_CONFIG_DIR from this process to place
+// Claude Code's session files, and Claude Code inherits it to pick its login, so both see the same directory.
+if (config.claude.configDir !== undefined) process.env.CLAUDE_CONFIG_DIR = config.claude.configDir;
 function fail(...lines: string[]): never {
 	for (const line of lines) console.error(line);
 	process.exit(1);

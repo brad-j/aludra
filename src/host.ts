@@ -18,7 +18,7 @@ import { type Bridge, bridgeProvider, loadBridge, type Notice, PROVIDER } from "
 import { choiceOf, createCatalog, displayName } from "./catalog.ts";
 import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
-import { type Config, expandHome, type Thinking } from "./config.ts";
+import { claudeConfigDir, type Config, expandHome, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
@@ -166,7 +166,7 @@ export async function openHost(options: HostOptions) {
 	const places = (): Place[] => [
 		...config.workspaces.flatMap((w) => w.roots.map((root) => ({ path: expandHome(root.split("/*")[0]!), what: `projects in the ${w.name} workspace (${root.replace(/^.*?\/\*/, "*")})` }))),
 		{ path: resolve(agentDir, "sessions"), what: "terminal pi's session history (JSONL)" },
-		{ path: resolve(homedir(), ".claude", "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
+		{ path: resolve(claudeConfigDir(config), "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
 		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
 	];
 	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places })];

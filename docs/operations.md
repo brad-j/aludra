@@ -95,6 +95,10 @@ aludra's glue around pi-claude-bridge depends on the bridge's internals, and on 
 
 **The host stopped after I logged out (Linux).** `loginctl enable-linger "$USER"`.
 
+**Sessions run on the wrong Claude account.** Set `claude.configDir` to the Claude Code config directory that holds the right login ([configuration.md](configuration.md#claude)), then `aludra service install`. `aludra doctor` shows the directory and account in use.
+
+**Every turn fails with "No conversation found with session ID".** The bridge and Claude Code see different config directories, usually because `claude.path` names a wrapper script that sets `CLAUDE_CONFIG_DIR`. Point `claude.path` at Claude Code and set `claude.configDir` instead. Resend the message; the bridge rebuilds Claude Code's session from aludra's history.
+
 **Doctor says the service runs a different aludra, Node or settings file.** The unit still names the old paths. `aludra service install`.
 
 **A session says "Refused by the model's safeguards".** The model's classifier refused the request. They're sometimes false positives, triggered by file names or wording that sound like an attack. Send a reworded follow-up. The request ID is there to copy if you want to report it.

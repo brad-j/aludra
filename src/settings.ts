@@ -3,13 +3,14 @@
 // its form from the list rather than knowing aludra's settings.
 //
 // A change is written to the settings file, checked as the host checks it at start, and the host applies the live ones
-// at once (host.settings in src/host.ts). The API's logins, its port, the data directory and Claude Code's path change
-// only in the file: a mistake in the first two locks every app out, the third strands the database, and the fourth
-// picks the program the host runs.
+// at once (host.settings in src/host.ts). The API's logins, its port, the data directory and Claude Code's path and
+// config directory change only in the file: a mistake in the first two locks every app out, the third strands the
+// database, and the last two pick the program the host runs and the account it bills.
 import { chmodSync, existsSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Setting, SettingKind, Settings, SettingValue } from "./api-types.ts";
-import { type Config, configFor, defaultDataDir, THINKING } from "./config.ts";
+import { claudeConfigDir, type Config, configFor, defaultDataDir, THINKING } from "./config.ts";
 import { array, integer, isObject, type Json, literal, number, object, ParseError, type Parser, parse, string } from "./parse.ts";
 
 /** A change the settings can't take, with every reason. */
@@ -60,6 +61,8 @@ const SPECS: readonly Spec[] = [
 		help: "The loopback port of the API and amyrlin's endpoint; tailscale serve points at it." },
 	{ key: "claude.path", label: "Claude Code", kind: "path", editable: false, get: (c) => c.claude.path, default: () => "claude",
 		help: "The Claude Code program the bridge runs; a bare name is looked up on PATH." },
+	{ key: "claude.configDir", label: "Claude Code login", kind: "path", editable: false, get: (c) => claudeConfigDir(c), default: () => join(homedir(), ".claude"),
+		help: "Claude Code's config directory (CLAUDE_CONFIG_DIR), which holds its login: the Claude account sessions run on." },
 	{ key: "dataDir", label: "Data folder", kind: "path", editable: false, get: (c) => c.dataDir, default: () => defaultDataDir(),
 		help: "Where the database, keys and no-project sessions' folders are." },
 ];

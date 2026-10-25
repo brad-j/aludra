@@ -46,7 +46,7 @@ Only `workspaces` is required. `aludra serve` and `aludra service install` refus
 | `approvals.hosts`, `approvals.waitHours` | At once, for calls made after the change. |
 | `backup.dir`, `backup.everyHours`, `backup.keep` | At the next hourly check. |
 
-`api.users`, `api.port`, `claude.path` and `dataDir` change only in the file, followed by a restart. A wrong login or port would lock every client out with no way back in from one, a new data directory would strand the database, and `claude.path` picks the program the host runs.
+`api.users`, `api.port`, `claude.path`, `claude.configDir` and `dataDir` change only in the file, followed by a restart. A wrong login or port would lock every client out with no way back in from one, a new data directory would strand the database, and the `claude` settings pick the program the host runs and the account it bills.
 
 A change is checked the way the host checks the file at start, and refused whole if anything is wrong. The file is rewritten as formatted JSON with tab indents: every setting and any key aludra doesn't know stay, but your own formatting doesn't. If the file is a link, the file it points to is written.
 
@@ -96,6 +96,9 @@ Each session keeps its own model and thinking level, which you can change from a
 ### `claude`
 
 - `path`: the Claude Code binary the bridge runs. Default `claude`, looked up on PATH. A path starting with `~/` is expanded.
+- `configDir`: Claude Code's config directory, which holds its login, so it decides which Claude account sessions run on. Unset, the host uses its environment's `CLAUDE_CONFIG_DIR`, else `~/.claude`. Set it when you keep more than one Claude Code login, for example `"~/.claude-personal"`, and log in there first with `CLAUDE_CONFIG_DIR=~/.claude-personal claude auth login`. The host sets `CLAUDE_CONFIG_DIR` for itself at start, so it doesn't depend on the shell the service was installed from.
+
+Point `path` at Claude Code itself, not at a wrapper script that sets `CLAUDE_CONFIG_DIR`. The bridge writes Claude Code's session files from inside the host, under the host's own config directory, and Claude Code resumes from its own; when the two differ, every turn fails with "No conversation found with session ID".
 
 aludra never uses the copy of Claude Code that ships inside the Agent SDK. It runs the one you installed and logged in to.
 
@@ -126,6 +129,7 @@ Where the database, keys and scratch directories go. Default `~/Library/Applicat
 | `ALUDRA_DATA_DIR` | Replaces the data directory, over `dataDir` in the file. |
 | `ALUDRA_MODEL=faux` | Runs a scripted model with no network and no Claude Code, for tests and trying the host. |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | Move the default settings and (on Linux) data directories. |
+| `CLAUDE_CONFIG_DIR` | Claude Code's config directory when `claude.configDir` isn't set. `claude.configDir` replaces it. |
 | `CLAUDE_BRIDGE_DEBUG=1`, `CLAUDE_BRIDGE_DEBUG_PATH` | The bridge's detailed log of its Claude Code sessions. |
 
 ## The data directory

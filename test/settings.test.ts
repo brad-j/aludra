@@ -40,7 +40,7 @@ test("each setting describes itself: its value with defaults filled in, its defa
 	assert.equal(find(settings, "model.id").value, "claude-bridge/claude-opus-5-5");
 	assert.deepEqual(find(settings, "model.thinking").options, ["off", "minimal", "low", "medium", "high", "xhigh"]);
 	assert.equal(find(settings, "backup.dir").value, "/srv/aludra/backups");
-	for (const key of ["api.users", "api.port", "claude.path", "dataDir"]) {
+	for (const key of ["api.users", "api.port", "claude.path", "claude.configDir", "dataDir"]) {
 		assert.equal(find(settings, key).editable, false, key);
 		assert.equal(find(settings, key).live, false, key);
 	}
