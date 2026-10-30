@@ -100,6 +100,10 @@ When a project session is created, `src/changes.ts` writes the project's working
 
 Messages may carry PNG, JPEG, GIF or WebP images, at most 8 of at most 5 MB each, checked against their magic bytes. They're stored in the conversation as base64 blocks, and the bridge hands them to Claude Code. Transcripts carry only where each image is (entry, message, block); clients fetch the bytes separately, and cache them for good since stored images never change.
 
+## Videos
+
+No model takes video, so a video sent from amyrlin (`src/videos.ts`) is written to `uploads/<session>/` in the data directory, and the message carries a text block saying where, `<video name="…" seconds="…" path="…" until="…">`, then the frames amyrlin pulled from it as image blocks. The note tells the agent to pull other frames with ffmpeg. Videos are checked against their magic bytes (an `ftyp` box, or WebM's EBML header) before anything is made or saved. The host deletes uploads 14 days after they arrive, at start and hourly; the frames stay in the conversation. The title writer sees the message without its notes.
+
 ## Versions
 
 | Package | Version | Why pinned |

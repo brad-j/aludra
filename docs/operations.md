@@ -48,6 +48,7 @@ For the bridge's detail on how it drives Claude Code, set `CLAUDE_BRIDGE_DEBUG=1
 | openai | Only when a choice is an OpenAI model: signed in with ChatGPT, and the account offers each one. | `aludra login openai`. An `OPENAI_API_KEY` with no sign-in is a warning: requests would be billed per token. |
 | api | `api.users` is set, Tailscale is installed and logged in, and `tailscale serve` points at `api.port`. | Prints the command to run, then the API's and amyrlin's addresses once it's all there. |
 | push | Apple's and Google's push services are reachable. | Notifications to those devices won't arrive. |
+| video | `ffmpeg` is on the PATH. | Agents see only the frames sent with a video; install ffmpeg. |
 | service | Installed, running, and the unit matches this aludra, Node and settings file. On Linux, lingering is on. | Prints the command to run. |
 | backup | The newest backup's age, and whether it's on the database's disk. | Warns when it's more than twice `backup.everyHours` old. |
 

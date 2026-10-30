@@ -329,8 +329,9 @@ export function createApi(host: Host, options: ApiOptions) {
 	// The amyrlin Mac app (src/amyrlin/endpoint.ts). A native app sends no Origin, and a browser always does, so a web
 	// page can't open this socket with the user's Tailscale identity.
 	const amyrlin = createAmyrlinEndpoint(host, { name: options.name ?? hostname().split(".")[0]! });
-	// Messages from the Mac carry images, scaled down there but up to 5 MB each.
-	const amyrlinSockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
+	// Messages from the Mac carry images, scaled down there but up to 5 MB each, and up to 40 MB of video (src/videos.ts),
+	// all as base64.
+	const amyrlinSockets = new WebSocketServer({ noServer: true, maxPayload: 112 * 1024 * 1024 });
 	server.on("upgrade", (request, socket, head) => {
 		const path = new URL(request.url ?? "/", "http://host").pathname;
 		if (path === "/amyrlin") {

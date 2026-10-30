@@ -48,22 +48,26 @@ export function checkImages(images: readonly ImageInput[]): void {
 	});
 }
 
-/** A message's content: the text alone, or the text then the images. Throws if there's neither, or an image is bad. */
-export function messageContent(text: string, images: readonly ImageInput[] = []): UserMessage["content"] {
+/**
+ * A message's content: the text alone, or the text, then the images, then `after` (its videos' notes and frames,
+ * src/videos.ts). Throws if there's nothing, or an image is bad.
+ */
+export function messageContent(text: string, images: readonly ImageInput[] = [], after: readonly (TextContent | ImageContent)[] = []): UserMessage["content"] {
 	checkImages(images);
-	if (images.length === 0) {
+	if (images.length === 0 && after.length === 0) {
 		if (text.trim() === "") throw new ParseError("the message is empty");
 		return text;
 	}
 	const blocks: (TextContent | ImageContent)[] = text.trim() === "" ? [] : [{ type: "text", text }];
 	for (const image of images) blocks.push({ type: "image", mimeType: image.mimeType, data: image.data });
-	return blocks;
+	return [...blocks, ...after];
 }
 
 /** A title from a first message: its first line, or what it attaches. */
-export function titleOf(text: string, images: readonly ImageInput[] = []): string {
+export function titleOf(text: string, images: readonly ImageInput[] = [], videos = 0): string {
 	const line = text.split("\n").find((l) => l.trim() !== "")?.trim();
 	if (line !== undefined) return line.slice(0, 80);
+	if (images.length === 0) return videos === 1 ? "A video" : `${videos} videos`;
 	return images.length === 1 ? "An image" : `${images.length} images`;
 }
 

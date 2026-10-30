@@ -174,6 +174,10 @@ Brad wanted settings such as directories exposed to any client he makes. Each se
 - **The file:** a change is checked with `configFor` and refused whole if anything's wrong, then the file is rewritten with tab indents through a temporary file, following a link. Unknown keys stay; hand formatting doesn't.
 - **Tests:** `test/settings.test.ts` (describing, changing, refusing, links, the CLI's words, the host applying changes live including a new approval host, the API and its live event, the amyrlin methods) and an e2e that adds a root in the sheet and finds its project in the picker at both sizes. The e2e host now reads a copy of `e2e/aludra.json` in `e2e/results`.
 
+## Videos from amyrlin (2026-10-29)
+
+Brad wanted to send short videos, mostly screen recordings for troubleshooting. No model aludra runs takes video, so amyrlin re-encodes a clip to 720p MP4 and pulls up to 6 frames; `submit` and `conversations.create` take `videos: [{name, mimeType, data, seconds, frames}]` (Brad agreed to the protocol addition). The host saves each to `uploads/<session>/` and the message carries a `<video …>` note with the path, then the frames as images, so the model sees the frames at once and can pull more with ffmpeg. Limits: 2 videos and 40 MB a message, MP4, QuickTime or WebM, sniffed; the amyrlin socket's frame limit went from 64 to 112 MB to fit the base64. Uploads are deleted 14 days after they arrive (there's no session delete to tie them to); the frames stay in the conversation. Doctor warns without ffmpeg. The HTTP API doesn't take videos.
+
 ## Spike findings (2026-10-11)
 
 Both scripts are in [`../spike/`](../spike/). They were run from `/tmp` with gaidin's `node_modules` symlinked in, so their paths need adjusting to run again.

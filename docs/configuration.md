@@ -119,7 +119,7 @@ aludra never uses the copy of Claude Code that ships inside the Agent SDK. It ru
 
 ### `dataDir`
 
-Where the database, keys and scratch directories go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.
+Where the database, keys, scratch directories and uploaded videos go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.
 
 ## Environment variables
 
@@ -143,6 +143,7 @@ Where the database, keys and scratch directories go. Default `~/Library/Applicat
 | `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |
 | `bridge/` | The bridge's own settings (`claude-bridge.json`, with `claude.path`) and a small module that points the bridge there instead of at pi's own settings. |
 | `scratch/<id>/` | The working directory of each no-project session. |
+| `uploads/<id>/` | Videos sent with a session's messages, deleted 14 days after they arrive. |
 | `backups/` | Copies of the database, unless `backup.dir` says otherwise. |
 | `tailscale/` | Only with aludra's own Tailscale node ([setup.md](setup.md#optional-a-tailscale-node-of-aludras-own-linux)). |
 

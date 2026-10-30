@@ -18,7 +18,8 @@ import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-d
 import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, type SessionRecord } from "../host.ts";
-import { type ImageInput, messageContent, titleOf } from "../images.ts";
+import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
+import { checkVideos, MAX_FRAMES, MAX_VIDEO_BYTES, MAX_VIDEOS, UPLOAD_DAYS, type VideoInput } from "../videos.ts";
 import type { ApprovalRequest } from "../permissions.ts";
 import { monthSpend } from "../live.ts";
 import { SettingsError } from "../settings.ts";
@@ -268,25 +269,30 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		const project = dir == null ? undefined : host.projects().find((candidate) => candidate.dir === dir);
 		if (dir != null && project === undefined) throw new ProtocolError("invalid_settings", `${String(dir)} isn't a project aludra knows; host.info lists them`);
 		const images = imagesParam(p.images);
+		const videos = videosParam(p.videos);
 		const text = typeof p.text === "string" ? p.text : "";
-		const first = text.trim() !== "" || images.length > 0 ? content(text, images) : undefined;
+		const hasFirst = text.trim() !== "" || images.length > 0 || videos.length > 0;
+		check(images, videos);
 		const agent: { model?: string; thinking?: Thinking } = {};
 		if (p.settings?.model != null) agent.model = modelOf(p.settings.model);
 		if (p.settings?.thinkingLevel != null) agent.thinking = thinkingOf(p.settings.thinkingLevel);
-		const title = first !== undefined ? titleOf(text, images) : typeof p.title === "string" && p.title.trim() !== "" ? p.title : "New session";
+		const title = hasFirst ? titleOf(text, images, videos.length) : typeof p.title === "string" && p.title.trim() !== "" ? p.title : "New session";
 		const record = project === undefined ? await host.sessions.createScratch(title, agent) : await host.sessions.create(project, title, agent);
 		await host.root.commit(async (tx) => {
 			(await tx.doc(AmyrlinDoc)).created[p.requestId] = record.id;
 		}, context);
-		if (first !== undefined) await host.submit(record.id, first, { requestId: `${p.requestId}:first` });
-		const summary = await summaryOf(record, first === undefined ? "idle" : "running");
+		if (hasFirst) await host.submit(record.id, content(text, images, await host.videos(record.id, videos)), { requestId: `${p.requestId}:first` });
+		const summary = await summaryOf(record, hasFirst ? "running" : "idle");
 		summaries.set(record.id, summary);
 		return { conversation: summary, duplicate: false };
 	}
 
 	async function submit(p: Json): Promise<Json> {
 		if (typeof p.requestId !== "string" || typeof p.text !== "string") throw new ProtocolError("bad_request", "submit needs requestId and text");
-		const message = content(p.text, imagesParam(p.images));
+		const images = imagesParam(p.images);
+		const videos = videosParam(p.videos);
+		check(images, videos);
+		if (p.text.trim() === "" && images.length === 0 && videos.length === 0) throw new ProtocolError("bad_request", "the message is empty");
 		const whenBusy = p.whenBusy ?? "followUp";
 		if (!["followUp", "steer", "reject"].includes(whenBusy)) throw new ProtocolError("bad_request", `whenBusy ${whenBusy}`);
 		const { record } = await session(p.conversationId);
@@ -294,6 +300,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		if (whenBusy === "reject" && before === undefined && (await host.sessions.states()).get(record.id) !== "idle") {
 			throw new ProtocolError("busy", "The session is busy");
 		}
+		// A retry gets the first message's submission back, whatever it carries, so its videos aren't saved again.
+		const message = before === undefined ? content(p.text, images, await host.videos(record.id, videos)) : p.text;
 		const submission = await host.submit(record.id, message, { requestId: p.requestId, steer: whenBusy === "steer" });
 		const status = await submission.status(context);
 		const wire: Json = { id: status.id, type: status.type, status: status.status };
@@ -372,10 +380,36 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		return value.map((i: Json) => ({ mimeType: i.mimeType, data: i.data }));
 	}
 
-	/** A message's content, or bad_request saying what's wrong with it. */
-	function content(text: string, images: ImageInput[]) {
+	/** A message's videos from the app, `[{name, mimeType, data, seconds?, frames?: [{mimeType, data, at}]}]` (src/videos.ts). */
+	function videosParam(value: Json): VideoInput[] {
+		if (value == null) return [];
+		const frame = (f: Json) => typeof f?.mimeType === "string" && typeof f?.data === "string" && typeof f?.at === "number";
+		const valid = (v: Json) =>
+			typeof v?.name === "string" && typeof v?.mimeType === "string" && typeof v?.data === "string" && (v.seconds == null || typeof v.seconds === "number") && (v.frames == null || (Array.isArray(v.frames) && v.frames.every(frame)));
+		if (!Array.isArray(value) || !value.every(valid)) throw new ProtocolError("bad_request", "videos should be a list of {name, mimeType, data, seconds?, frames?}");
+		return value.map((v: Json) => ({
+			name: v.name,
+			mimeType: v.mimeType,
+			data: v.data,
+			...(v.seconds == null ? {} : { seconds: v.seconds }),
+			frames: (v.frames ?? []).map((f: Json) => ({ mimeType: f.mimeType, data: f.data, at: f.at })),
+		}));
+	}
+
+	/** Checks a message's images and videos before anything is made or saved; bad_request says what's wrong. */
+	function check(images: ImageInput[], videos: VideoInput[]) {
 		try {
-			return messageContent(text, images);
+			checkImages(images);
+			checkVideos(videos);
+		} catch (error) {
+			throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	/** A message's content, or bad_request saying what's wrong with it. */
+	function content(text: string, images: ImageInput[], after: Parameters<typeof messageContent>[2] = []) {
+		try {
+			return messageContent(text, images, after);
 		} catch (error) {
 			throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
 		}
@@ -413,6 +447,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			defaults: { model: host.model, thinkingLevel: host.thinking },
 			projects: host.projects().map((p) => ({ workspace: p.workspace, name: p.name, path: p.path, dir: p.dir })),
 			projectColors: await host.colors.list(),
+			// Messages take videos (src/videos.ts); a host from before them leaves this out, and the app sends it none.
+			videos: { maxVideos: MAX_VIDEOS, maxBytes: MAX_VIDEO_BYTES, maxFrames: MAX_FRAMES, keepDays: UPLOAD_DAYS },
 			...(await monthCostOf()),
 		};
 	}

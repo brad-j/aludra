@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -368,4 +368,28 @@ test("an image sent from the Mac is in the transcript as a block, and conversati
 	assert.deepEqual(await mac.request("conversation.image", { conversationId: conversation.id, entryId: user.id, index }), { mimeType: "image/png", data: PNG });
 	await assert.rejects(mac.request("conversation.image", { conversationId: conversation.id, entryId: user.id, index: 0 }), { code: "not_found" });
 	await assert.rejects(mac.request("submit", { conversationId: conversation.id, requestId: "img-2", text: "", images: [{ mimeType: "image/png", data: "nope!" }] }), { code: "bad_request" });
+});
+
+test("a video sent from the Mac is saved on the host, and the message says where, with its frames as images", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypmp42"), Buffer.alloc(12)]).toString("base64");
+	const video = { name: "flicker.mov", mimeType: "video/mp4", data: mp4, seconds: 9.5, frames: [{ mimeType: "image/png", data: PNG, at: 0 }, { mimeType: "image/png", data: PNG, at: 5 }] };
+	await assert.rejects(mac.request("conversations.create", { requestId: "vid-0", project: project.dir, text: "", videos: [{ ...video, mimeType: "video/avi" }] }), { code: "bad_request" });
+	assert.deepEqual((await mac.request("host.info")).videos, { maxVideos: 2, maxBytes: 40 * 1024 * 1024, maxFrames: 6, keepDays: 14 });
+	const { conversation } = await mac.request("conversations.create", { requestId: "vid-1", project: project.dir, text: "", videos: [video] });
+	assert.equal(conversation.title, "A video");
+	const { subscription } = await mac.request("conversation.watch", { conversationId: conversation.id });
+	const seen = await mac.event(subscription, (e) => e.type === "snapshot" || e.type === "item.added", "the transcript");
+	const items = seen.flatMap((e: Json) => (e.type === "snapshot" ? e.items : e.type === "item.added" ? [e.item] : []));
+	const user = items.find((item: Json) => item.type === "user");
+	assert.deepEqual(user.content.map((b: Json) => b.type), ["text", "image", "image"]);
+	const path = /path="([^"]+)"/.exec(user.content[0].text)?.[1];
+	assert.ok(path?.endsWith("-flicker.mp4"), user.content[0].text);
+	assert.deepEqual(readFileSync(path!), Buffer.from(mp4, "base64"));
+	// A retry of the same submit gets the first back and saves no second copy.
+	const send = () => mac.request("submit", { conversationId: conversation.id, requestId: "vid-2", text: "and this", videos: [video] });
+	assert.equal((await send()).duplicate, false);
+	assert.equal((await send()).duplicate, true);
+	assert.equal(readdirSync(dirname(path!)).length, 2);
 });

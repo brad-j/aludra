@@ -24,7 +24,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), openrouter(config), api(config), push(), service(config), backups(config)];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), openrouter(config), api(config), push(), video(), service(config), backups(config)];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -176,6 +176,13 @@ async function push(): Promise<Check[]> {
 	const unreachable = (await Promise.all(services.map(async (host) => ((await fetch(`https://${host}/`, { signal: AbortSignal.timeout(10_000) }).then(() => true, () => false)) ? [] : [host])))).flat();
 	if (unreachable.length > 0) return [{ status: "fail", area: "push", detail: `can't reach ${unreachable.join(" or ")}, so notifications to those devices won't arrive` }];
 	return [{ status: "ok", area: "push", detail: "push services reachable; a device signs up through /api/push/subscribe" }];
+}
+
+/** Agents look into videos sent with messages (src/videos.ts) by pulling frames with ffmpeg. */
+async function video(): Promise<Check[]> {
+	const result = spawnSync("ffmpeg", ["-version"], { encoding: "utf8", timeout: 10_000 });
+	if (result.status !== 0) return [{ status: "warn", area: "video", detail: "no ffmpeg on the PATH, so agents see only the frames sent with a video; install ffmpeg" }];
+	return [{ status: "ok", area: "video", detail: result.stdout.split("\n")[0]!.replace(/ Copyright.*$/, "") }];
 }
 
 async function service(config: Config): Promise<Check[]> {

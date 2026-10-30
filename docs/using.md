@@ -62,6 +62,10 @@ Each session has a model and thinking level; a change applies from the next requ
 
 A message takes up to 8 images: PNG, JPEG, GIF or WebP, at most 5 MB each. amyrlin scales them down before sending. Images a tool returns, such as a screenshot the agent read, stay in the transcript with that call.
 
+### Videos
+
+amyrlin sends a short video, such as a screen recording of a bug, as a 720p MP4 of at most 40 MB, with a few frames from it. The model sees the frames straight away; the video is saved on the host, and the message tells the agent where, so it can pull more frames with ffmpeg if the host has it (`aludra doctor` says). The host keeps a video for 14 days, then deletes it. The frames stay in the transcript.
+
 ### Archiving
 
 A session you're done with can be archived: it leaves the lists, and unarchiving brings it back. Nothing is deleted, and a run that's going carries on. A session whose project folder has gone away stays under the old project name until you archive it. In amyrlin, archive from a session's menu; on the command line, `aludra archive --session ID`.

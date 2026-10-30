@@ -28,6 +28,7 @@ import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
 import { modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
+import { saveVideos, sweepUploads, type VideoInput, videoBlocks, withoutVideoNotes } from "./videos.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
@@ -225,6 +226,12 @@ export async function openHost(options: HostOptions) {
 	const projects = (): Project[] => findProjects(config.workspaces);
 	/** Where no-project sessions keep the files they make, one directory per session. */
 	const scratchRoot = resolve(config.dataDir, "scratch");
+	/** Where videos sent with messages are kept, one directory per session, until sweepUploads takes them. */
+	const uploads = resolve(config.dataDir, "uploads");
+	const sweep = () => void sweepUploads(uploads).catch((error) => console.error(`[uploads] ${error instanceof Error ? error.message : String(error)}`));
+	sweep();
+	const sweeper = setInterval(sweep, 3_600_000);
+	sweeper.unref();
 
 	async function list(): Promise<SessionRecord[]> {
 		const doc = await harness.snapshot(Sessions, context);
@@ -437,8 +444,13 @@ export async function openHost(options: HostOptions) {
 		// A new message instead of an answer: the waiting call is refused, so the run can take the message.
 		await approvals!.supersede(id);
 		// A new session's first message names it, in the background.
-		if (untitled.delete(id)) void writeTitle(id, textOf(content));
+		if (untitled.delete(id)) void writeTitle(id, withoutVideoNotes(textOf(content)));
 		return target.submit({ type: "input", content, whenBusy: options.steer ? "steer" : "followUp", ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }, context);
+	}
+
+	/** Saves checked videos for session `id`; returns what its message carries for them (src/videos.ts). */
+	async function videos(id: number, inputs: readonly VideoInput[]) {
+		return videoBlocks(await saveVideos(uploads, id, inputs));
 	}
 
 	/** The image at block `block` of message `message` in entry `entry` of session `id`, or undefined if there's none. */
@@ -620,17 +632,22 @@ export async function openHost(options: HostOptions) {
 		projects,
 		sessions: { list, get, create, createScratch, onCreate, rename, retitle, archive, onUpdate, states },
 		scratchRoot,
+		uploads,
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },
 		conversation,
 		submit,
 		image,
+		videos,
 		configure,
 		withdraw,
 		stop,
 		/** Continues the work the last process left unfinished. */
 		resume: () => harness.resume(),
-		close: () => harness.close(context),
+		close: () => {
+			clearInterval(sweeper);
+			return harness.close(context);
+		},
 	};
 }
 
