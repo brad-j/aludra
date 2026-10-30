@@ -1,11 +1,11 @@
 // Session titles a model writes from the first message, in place of its first line cut short. The smallest model on hand
-// writes it, as a one-off request outside any session: Claude Haiku through Claude Code if the bridge is loaded, else the
+// writes it, as a one-off request outside any session: Claude Haiku through Claude Code if it is loaded, else the
 // cheapest pinned OpenAI model, else the cheapest pinned OpenRouter one, else the default model. A title someone set by
 // hand is never replaced (src/host.ts keeps who titled each session).
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Models } from "@earendil-works/pi-ai/models";
 import type { ModelRef } from "@earendil-works/pi-durable";
-import { PROVIDER } from "./bridge.ts";
+import { PROVIDER } from "./claude-code.ts";
 import type { Config } from "./config.ts";
 
 /** Writes a title for a session whose first message is `text`; undefined when no model could. */
@@ -68,8 +68,8 @@ export function modelTitler(models: Models, candidates: readonly ModelRef[], log
 			const model = models.getModel(ref.provider, ref.modelId);
 			if (model === undefined) continue;
 			try {
-				// cacheRetention "none" is a one-off request: through the bridge, its own Claude Code process with no tools
-				// and no saved session, leaving every session's alone.
+				// cacheRetention "none" is a one-off request: through Claude Code, its own process with no tools, leaving
+				// every session's warm process alone.
 				const reply: AssistantMessage = await models.completeSimple(
 					model,
 					{ systemPrompt: TITLE_PROMPT, messages: [{ role: "user", content: [{ type: "text", text: `<message>\n${message}\n</message>` }], timestamp: Date.now() }] },

@@ -80,7 +80,7 @@ let close = async () => {};
 try {
 	// Names whose colors are cool, so the project headings aren't brown.
 	const projects = { backend: project("backend"), shop: project("shop"), docs: project("docs") };
-	const host = await openHost({ config, models, model: { provider: "claude-bridge", modelId: "claude-opus-5-5" }, agentDir: join(data, "agent"), onNotice: () => {} });
+	const host = await openHost({ config, models, model: { provider: "claude-bridge", modelId: "claude-opus-5-5" }, agentDir: join(data, "agent") });
 	host.resume();
 	close = async () => {
 		for (const s of await host.sessions.list()) await host.stop(s.id).catch(() => {});

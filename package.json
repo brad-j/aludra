@@ -35,6 +35,7 @@
     "@earendil-works/chord": "1.3.0",
     "@earendil-works/pi-agent-core": "1.3.0",
     "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-claude-code": "github:earendil-works/pi-claude-code#70abb65186592ca788b29b3db22c3160d629c41f",
     "@earendil-works/pi-codemode": "1.3.0",
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@earendil-works/pi-durable": "1.3.0",
@@ -42,7 +43,6 @@
     "@earendil-works/pi-telemetry": "1.3.0",
     "@earendil-works/pi-tui": "1.3.0",
     "jiti": "2.7.0",
-    "pi-claude-bridge": "0.9.3",
     "ws": "8.22.0"
   },
   "devDependencies": {

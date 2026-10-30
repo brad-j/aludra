@@ -1,12 +1,12 @@
 // `aludra doctor`: checks the settings and everything the host depends on, without starting it and without spending
-// anything (after gaidin's doctor.ts). Loading the bridge starts no Claude Code query.
+// anything (after gaidin's doctor.ts). Listing Claude Code's models starts no query.
 import { spawnSync } from "node:child_process";
 import { accessSync, constants, mkdirSync, readFileSync } from "node:fs";
 import { userInfo } from "node:os";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createModels } from "@earendil-works/pi-ai/models";
 import { listBackups } from "./backup.ts";
-import { claudeExecutable, loadBridge, PROVIDER } from "./bridge.ts";
+import { claudeCodeProvider, claudeExecutable, loadClaudeCode, PROVIDER } from "./claude-code.ts";
 import { claudeConfigDir, type Config, type Loaded, type ProviderId } from "./config.ts";
 import { accountModels, signInModels } from "./login.ts";
 import { expandRoot } from "./projects.ts";
@@ -16,8 +16,12 @@ import { servesPort, tailnetSelf, tailscaleFor } from "./tailscale.ts";
 
 export type Check = { status: "ok" | "warn" | "fail" | "skip"; area: string; detail: string };
 
-/** The versions the bridge glue was checked against (docs/plan.md); anything else needs scripts/live-check.ts again. */
-const PINNED = { "@earendil-works/pi-durable": "1.3.0", "pi-claude-bridge": "0.9.3" };
+/** The versions the provider glue was checked against (docs/plan.md); anything else needs scripts/live-check.ts again.
+ * pi-claude-code is a pinned commit in package.json too, since its version doesn't change with every commit. */
+const PINNED = { "@earendil-works/pi-durable": "1.3.0", "@earendil-works/pi-claude-code": "0.1.0" };
+
+/** What pi-claude-code won't start Claude Code with, since each moves its billing off the subscription. */
+const OVERRIDES = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_FOUNDRY_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"];
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
@@ -67,7 +71,7 @@ async function versions(): Promise<Check[]> {
 		const { version } = JSON.parse(readFileSync(file, "utf8")) as { version: string };
 		return version === pinned
 			? { status: "ok", area: "versions", detail: `${name} ${version}` }
-			: { status: "fail", area: "versions", detail: `${name} is ${version}, but the bridge glue was checked against ${pinned}; rerun scripts/live-check.ts and update PINNED` };
+			: { status: "fail", area: "versions", detail: `${name} is ${version}, but the provider glue was checked against ${pinned}; rerun scripts/live-check.ts and update PINNED` };
 	});
 }
 
@@ -77,6 +81,9 @@ const uses = (config: Config, provider: ProviderId) => config.model.choices.some
 async function claude(config: Config): Promise<Check[]> {
 	if (config.model.provider === "faux") return [{ status: "skip", area: "claude", detail: "not needed for the faux model" }];
 	if (!uses(config, PROVIDER)) return [{ status: "skip", area: "claude", detail: "no Claude models in model.choices" }];
+	// Its switches count unless they're empty or say off, as pi-claude-code reads them.
+	const overrides = OVERRIDES.filter((name) => (name.startsWith("CLAUDE_CODE_USE_") ? !/^\s*(0|false|no|off)?\s*$/i.test(process.env[name] ?? "") : Boolean(process.env[name])));
+	if (overrides.length > 0) return [{ status: "fail", area: "claude", detail: `Claude Code won't run for aludra with ${overrides.join(", ")} set; unset it so it uses the subscription` }];
 	let path: string;
 	try {
 		path = claudeExecutable(config.claude.path);
@@ -105,7 +112,12 @@ async function model(config: Config): Promise<Check[]> {
 	if (config.model.provider === "faux") return [{ status: "warn", area: "model", detail: "the faux model: scripted answers, no network" }];
 	const signIns = signInModels(config);
 	const known: Partial<Record<ProviderId, string[]>> = { openai: signIns.getModels("openai").map((m) => m.id), openrouter: signIns.getModels("openrouter").map((m) => m.id) };
-	if (uses(config, PROVIDER)) known[PROVIDER] = (await loadBridge({ claudePath: config.claude.path, dir: join(config.dataDir, "bridge") }, () => {})).models.map((m) => m.id);
+	if (uses(config, PROVIDER)) {
+		const claude = createModels();
+		claude.setProvider(claudeCodeProvider(await loadClaudeCode(config.claude.path)).provider);
+		await claude.refresh({ providers: [PROVIDER] });
+		known[PROVIDER] = claude.getModels(PROVIDER).map((m) => m.id);
+	}
 	const has = (provider: ProviderId, id: string) => known[provider]?.includes(id) === true;
 	const { provider, id } = config.model;
 	const checks: Check[] = [has(provider, id)

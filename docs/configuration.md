@@ -95,12 +95,10 @@ Each session keeps its own model and thinking level, which you can change from a
 
 ### `claude`
 
-- `path`: the Claude Code binary the bridge runs. Default `claude`, looked up on PATH. A path starting with `~/` is expanded.
+- `path`: the Claude Code binary Claude's models run through. Default `claude`, looked up on PATH. A path starting with `~/` is expanded.
 - `configDir`: Claude Code's config directory, which holds its login, so it decides which Claude account sessions run on. Unset, the host uses its environment's `CLAUDE_CONFIG_DIR`, else `~/.claude`. Set it when you keep more than one Claude Code login, for example `"~/.claude-personal"`, and log in there first with `CLAUDE_CONFIG_DIR=~/.claude-personal claude auth login`. The host sets `CLAUDE_CONFIG_DIR` for itself at start, so it doesn't depend on the shell the service was installed from.
 
-Point `path` at Claude Code itself, not at a wrapper script that sets `CLAUDE_CONFIG_DIR`. The bridge writes Claude Code's session files from inside the host, under the host's own config directory, and Claude Code resumes from its own; when the two differ, every turn fails with "No conversation found with session ID".
-
-aludra never uses the copy of Claude Code that ships inside the Agent SDK. It runs the one you installed and logged in to.
+aludra runs the Claude Code you installed and logged in to, as `claude -p`, for the model alone: aludra runs the tools, and Claude Code saves no sessions of its own. It won't start Claude Code while the host's environment sets `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_FOUNDRY_API_KEY` or one of `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_FOUNDRY`, since each would move the runs off your subscription.
 
 ### `approvals`
 
@@ -130,7 +128,7 @@ Where the database, keys, scratch directories and uploaded videos go. Default `~
 | `ALUDRA_MODEL=faux` | Runs a scripted model with no network and no Claude Code, for tests and trying the host. |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | Move the default settings and (on Linux) data directories. |
 | `CLAUDE_CONFIG_DIR` | Claude Code's config directory when `claude.configDir` isn't set. `claude.configDir` replaces it. |
-| `CLAUDE_BRIDGE_DEBUG=1`, `CLAUDE_BRIDGE_DEBUG_PATH` | The bridge's detailed log of its Claude Code sessions. |
+| `PI_CLAUDE_CODE_ALLOW_USAGE_CREDITS=1` | Lets a turn finish when Claude Code says it was charged to your account's usage credits instead of the plan's limits. Without it, that turn fails, so nothing more is charged. |
 
 ## The data directory
 
@@ -141,7 +139,6 @@ Where the database, keys, scratch directories and uploaded videos go. Default `~
 | `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
 | `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, with its refreshed tokens, and the key `aludra login openrouter` gets. Owner-only. |
 | `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |
-| `bridge/` | The bridge's own settings (`claude-bridge.json`, with `claude.path`) and a small module that points the bridge there instead of at pi's own settings. |
 | `scratch/<id>/` | The working directory of each no-project session. |
 | `uploads/<id>/` | Videos sent with a session's messages, deleted 14 days after they arrive. |
 | `backups/` | Copies of the database, unless `backup.dir` says otherwise. |

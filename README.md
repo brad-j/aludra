@@ -67,7 +67,7 @@ determined agent. [docs/security.md](docs/security.md) has the details.
 - [The aludra command](docs/cli.md): every CLI command and its flags.
 - [Security](docs/security.md): who gets in, the permissions, what's stored.
 - [Running aludra](docs/operations.md): logs, doctor, backups and restoring, upgrades, troubleshooting.
-- [Architecture](docs/architecture.md): how the host, the bridge and the clients fit together.
+- [Architecture](docs/architecture.md): how the host, the Claude Code provider and the clients fit together.
 - [API](docs/api.md): the HTTP API, amyrlin's endpoint, the CLI socket.
 - [Development](docs/development.md): commands, tests, the faux model, dependencies.
 - [Plan](docs/plan.md): decisions, milestones and their reasons.

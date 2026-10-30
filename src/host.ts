@@ -5,16 +5,16 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { UserMessage } from "@earendil-works/pi-ai";
-import { createModels, type Models } from "@earendil-works/pi-ai/models";
+import { createModels, type Models, type Provider } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
-import { type CompactionPolicy, configure as configureAgent, type ConversationId, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef, ProviderDoc } from "@earendil-works/pi-durable";
+import { type CompactionPolicy, configure as configureAgent, type ConversationId, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice, Settings } from "./api-types.ts";
-import { type Bridge, bridgeProvider, loadBridge, type Notice, PROVIDER } from "./bridge.ts";
+import { claudeCodeProvider, loadClaudeCode, PROVIDER } from "./claude-code.ts";
 import { choiceOf, createCatalog, displayName } from "./catalog.ts";
 import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
@@ -143,22 +143,19 @@ export type HostOptions = {
 	/** A model in place of the settings' one; tests pass a faux one. */
 	models?: Models;
 	model?: ModelRef;
-	/** The bridge in place of pi-claude-bridge; tests pass a fake. */
-	bridge?: Bridge;
+	/** A provider in place of pi-claude-code's; tests pass a faux one. */
+	claudeCode?: Provider;
 	/** Where AGENTS.md and skills are looked for besides the project. Default: ~/.pi/agent. */
 	agentDir?: string;
-	/** What the bridge would show in pi's UI, such as rate-limit warnings. Default: the host's stderr. */
-	onNotice?: (notice: Notice) => void;
 	/** Over Pi Durable's compaction defaults; the live check keeps less so a small conversation compacts. */
 	compaction?: Partial<CompactionPolicy>;
-	/** Writes sessions' titles. Default: the smallest model on hand (src/titles.ts); none for the faux model, given models or a given bridge. */
+	/** Writes sessions' titles. Default: the smallest model on hand (src/titles.ts); none for the faux model, given models or a given Claude Code provider. */
 	titler?: Titler;
 };
 
 export async function openHost(options: HostOptions) {
 	const { config } = options;
 	mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
-	const notify = options.onNotice ?? ((notice: Notice) => console.error(`[bridge ${notice.level}] ${notice.message}`));
 
 	let models: Models;
 	let model: ModelRef;
@@ -171,21 +168,23 @@ export async function openHost(options: HostOptions) {
 		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
 	];
 	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places })];
-	let bridged: ReturnType<typeof bridgeProvider> | undefined;
 	if (options.models !== undefined && options.model !== undefined) {
 		models = options.models;
 		model = options.model;
-	} else if (config.model.provider === "faux" && options.bridge === undefined) {
+	} else if (config.model.provider === "faux" && options.claudeCode === undefined) {
 		({ models, model } = fauxModels());
 	} else {
-		// The bridge only when the settings name a Claude model, so Claude Code is needed only for Claude. OpenAI and
+		// Claude Code only when the settings name a Claude model, so it's needed only for Claude. OpenAI and
 		// OpenRouter always: they cost nothing until signed in, and their models are then in the pickers.
 		const used = new Set([config.model.provider, ...config.model.choices.map((c) => c.provider)]);
 		const mutable = createModels({ credentials: fileCredentialStore(credentialsFile(config.dataDir)) });
-		if (used.has(PROVIDER) || options.bridge !== undefined) {
-			bridged = bridgeProvider(options.bridge ?? (await loadBridge({ claudePath: config.claude.path, dir: resolve(config.dataDir, "bridge") }, notify)));
-			mutable.setProvider(bridged.provider);
-			extensions.push(bridged.extension);
+		if (used.has(PROVIDER) || options.claudeCode !== undefined) {
+			const claude = claudeCodeProvider(options.claudeCode ?? (await loadClaudeCode(config.claude.path)));
+			mutable.setProvider(claude.provider);
+			extensions.push(claude.extension);
+			// The models this Claude account offers, from Claude Code; on failure, the provider's built-in list.
+			const { errors } = await mutable.refresh({ providers: [PROVIDER] });
+			for (const error of errors.values()) console.error(`[models] couldn't list Claude Code's models: ${error.message}`);
 		}
 		mutable.setProvider(openaiProvider());
 		mutable.setProvider(openrouterProvider());
@@ -195,11 +194,11 @@ export async function openHost(options: HostOptions) {
 		if (used.has("openrouter") && (await mutable.checkAuth("openrouter")) === undefined) console.error("[models] OpenRouter's models are in model.choices, but this machine isn't signed in; run: aludra login openrouter");
 		models = mutable;
 		model = { provider: config.model.provider, modelId: config.model.id };
-		if (models.getModel(model.provider, model.modelId) === undefined) throw new Error(`${model.provider === PROVIDER ? "pi-claude-bridge" : model.provider} has no model ${model.modelId}`);
+		if (models.getModel(model.provider, model.modelId) === undefined) throw new Error(`${model.provider === PROVIDER ? "Claude Code" : model.provider} has no model ${model.modelId}`);
 	}
 
-	// Tests' models and fake bridges script every answer, so they get titles only from a titler they pass.
-	const real = options.models === undefined && options.bridge === undefined && config.model.provider !== "faux";
+	// Tests' models and faux Claude Code providers script every answer, so they get titles only from a titler they pass.
+	const real = options.models === undefined && options.claudeCode === undefined && config.model.provider !== "faux";
 	const titler = options.titler ?? (real ? modelTitler(models, titleModels(models, config)) : undefined);
 
 	let approvals: ApprovalService | undefined;
@@ -557,12 +556,9 @@ export async function openHost(options: HostOptions) {
 		return harness.abortSubmission(submission as Parameters<Harness["abortSubmission"]>[0], context, target.id);
 	}
 
-	/** Stops session `id`'s run, and its Claude Code query if one is open between requests. */
+	/** Stops session `id`'s run. */
 	async function stop(id: number | ConversationId): Promise<void> {
-		const target = await conversation(id);
-		await target.abort(context);
-		const session = await harness.snapshot(ProviderDoc, target.id, context);
-		if (session !== undefined) bridged?.abort(session.sessionId);
+		await (await conversation(id)).abort(context);
 	}
 
 	const settingListeners = new Set<() => void>();

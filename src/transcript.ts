@@ -27,7 +27,7 @@ export function textOf(content: Message["content"]): string {
 /** What kind of failure an assistant error is, and its request ID if it names one. */
 export function classifyFailure(message: string): { type: "refused" | "rate-limit" | "error"; requestId?: string } {
 	const requestId = /\breq_[A-Za-z0-9]+/.exec(message)?.[0];
-	const type = /safeguard|usage polic|refus|\[cyber\]|content filter/i.test(message) ? "refused" : /rate limit|out of (extra )?usage|429/i.test(message) ? "rate-limit" : "error";
+	const type = /safeguard|usage polic|refus|\[cyber\]|content filter/i.test(message) ? "refused" : /rate limit|out of (extra )?usage|429|Claude Code billing/i.test(message) ? "rate-limit" : "error";
 	return requestId === undefined ? { type } : { type, requestId };
 }
 

@@ -1,5 +1,5 @@
 // Images in sessions: ones the user attaches to a message, and ones a tool returns (reading a screenshot). They're
-// stored where Pi Durable stores the message, as base64 image blocks, and the bridge hands them to Claude Code. The
+// stored where Pi Durable stores the message, as base64 image blocks, and pi-claude-code hands them to Claude Code. The
 // transcripts send only where each image is (entry, message, block); the apps fetch the bytes when they show one.
 //
 // The apps scale an image to Claude's recommended 1568 px before sending it; the host checks what arrives.

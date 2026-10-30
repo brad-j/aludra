@@ -1,15 +1,15 @@
-// The live check, run by hand: real pi-claude-bridge, real Claude Code, the user's own login. Rerun it after upgrading
-// Pi Durable or the bridge. It works in a temp directory and removes the Claude Code session files it made.
+// The live check, run by hand: real pi-claude-code, real Claude Code, the user's own login. Rerun it after upgrading
+// Pi Durable or pi-claude-code. It works in a temp directory; Claude Code saves no sessions of its own.
 //
 //   node --no-warnings scripts/live-check.ts
 //
 // 1. Two sessions at once, each in its own project directory with its own AGENTS.md: each answer names its own
-//    directory and codeword, and Claude Code's session files land under each project's directory.
+//    directory and codeword, and was drawn from the plan's limits, not usage credits.
 // 2. A compaction, then a question only the summary can answer.
 // 3. kill -9 during a tool call; after the restart the run finishes the remaining steps.
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configFor } from "../src/config.ts";
 import { context, openHost, type Host } from "../src/host.ts";
@@ -51,7 +51,6 @@ const check = (name: string, ok: boolean, detail: string) => {
 	results.push([name, ok, detail]);
 	console.log(`${ok ? "ok  " : "FAIL"}  ${name}: ${detail}`);
 };
-const notices: string[] = [];
 const data = join(root, "data");
 
 try {
@@ -62,7 +61,7 @@ try {
 		writeFileSync(join(dir, "AGENTS.md"), `The codeword for this project is ${word}.`);
 	}
 	// Keeps little verbatim, so a manual compaction of a short conversation still summarizes something.
-	let host = await openHost({ config: config(data), onNotice: (n) => notices.push(n.message), compaction: { keepRecentTokens: 50 } });
+	let host = await openHost({ config: config(data), compaction: { keepRecentTokens: 50 } });
 	host.resume();
 
 	// 1
@@ -73,9 +72,10 @@ try {
 	const seconds = Math.round((Date.now() - started) / 1000);
 	check("two at once, session one", answerA.includes(one) && /heron/i.test(answerA), answerA);
 	check("two at once, session two", answerB.includes(two) && /lantern/i.test(answerB), `${answerB} (${seconds}s for both)`);
-	const ccProjects = join(homedir(), ".claude", "projects");
-	const ours = readdirSync(ccProjects).filter((name) => name.includes(root.split("/").at(-1)!));
-	check("Claude Code ran in each project's directory", ours.some((n) => n.endsWith("-one")) && ours.some((n) => n.endsWith("-two")), ours.join(", ") || "no session files under the projects' directories");
+	// pi-claude-code puts Claude Code's last rate_limit_event on each answer.
+	const last = (await (await host.conversation(a.id)).context(context)).messages.at(-1);
+	const limit = last?.role === "assistant" ? last.diagnostics?.find((d) => d.type === "claude-code.rate-limit")?.details as { status?: string; rateLimitType?: string; isUsingOverage?: boolean } | undefined : undefined;
+	check("on the plan's limits", limit !== undefined && limit.isUsingOverage !== true, JSON.stringify(limit) ?? "no rate-limit diagnostic");
 
 	// 2
 	await ask(host, a.id, "Remember this for later: the backup on nas failed at 03:10 with exit code 23. Reply with just 'noted'.");
@@ -85,7 +85,7 @@ try {
 	await conversation.waitForIdle(context);
 	const outcome = compacted.state.outcome;
 	const summarized = outcome.status === "completed" && (outcome.result.entryId ?? outcome.result.submissionId) !== undefined;
-	check("compaction summary from the bridge", summarized, JSON.stringify(outcome).slice(0, 200));
+	check("compaction summary from Claude Code", summarized, JSON.stringify(outcome).slice(0, 200));
 	const head = (await conversation.context(context)).head;
 	check("the context starts at the summary", head?.kind === "pi.compaction", `head ${head?.kind}: ${JSON.stringify(head?.data ?? head?.model).slice(0, 300)}`);
 	const recalled = await ask(host, a.id, "What exit code did the backup fail with, and at what time? One line.");
@@ -100,7 +100,7 @@ try {
 	child.kill("SIGKILL");
 	await new Promise((resolve) => child.once("exit", resolve));
 	const crashed = Number(readFileSync(join(crash, ".started"), "utf8"));
-	host = await openHost({ config: config(data), onNotice: (n) => notices.push(n.message) });
+	host = await openHost({ config: config(data) });
 	host.resume();
 	await (await host.conversation(crashed)).waitForIdle(context);
 	const notes = existsSync(join(crash, "notes.txt")) ? readFileSync(join(crash, "notes.txt"), "utf8") : "(no notes.txt)";
@@ -110,11 +110,8 @@ try {
 } catch (error) {
 	check("live check", false, error instanceof Error ? error.stack ?? error.message : String(error));
 } finally {
-	const ccProjects = join(homedir(), ".claude", "projects");
-	for (const name of readdirSync(ccProjects).filter((n) => n.includes(root.split("/").at(-1)!))) rmSync(join(ccProjects, name), { recursive: true, force: true });
 	rmSync(root, { recursive: true, force: true });
 }
-if (notices.length > 0) console.log(`bridge notices:\n  ${notices.join("\n  ")}`);
 const failed = results.filter(([, ok]) => !ok).length;
 console.log(failed === 0 ? "\nAll live checks passed." : `\n${failed} live check${failed === 1 ? "" : "s"} failed.`);
 process.exit(failed === 0 ? 0 : 1);

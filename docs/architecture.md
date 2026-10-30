@@ -17,10 +17,10 @@ How aludra works today. [plan.md](plan.md) has the history: what was decided, wh
  │  src/server.ts ── the CLI's socket                                    │
  │  src/live.ts ── the live feed both sockets share                      │
  │  src/host.ts ── Pi Durable Harness over aludra.sqlite                 │
- │     extensions: CodingTools · project context · bridge · permissions  │
- │  src/bridge.ts ── pi-claude-bridge as a pi-ai provider                │
+ │     extensions: CodingTools · context · claude-code · permissions     │
+ │  src/claude-code.ts ── pi-claude-code as a pi-ai provider             │
  └───────────────────────────────┬───────────────────────────────────────┘
-                                 │ Agent SDK
+                                 │ claude -p, stream-json
                        Claude Code (claude.path), the user's own login
 ```
 
@@ -46,36 +46,36 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
 - **Extensions**, installed in this order:
   1. Pi Durable's `CodingTools`: `read`, `write`, `edit` and `bash`, each run in a `NodeExecutionEnv` from the conversation's `cwd`.
   2. Project context (`src/context.ts`): `AGENTS.md` or `CLAUDE.md` and skills, found with pi-coding-agent's own loaders the way the pi coding agent finds them, and read again before every request. A no-project session gets a `no_project` section instead, saying where things are on the machine.
-  3. The bridge's extension (`src/bridge.ts`), which records each conversation's `cwd` and system prompt for the provider.
+  3. The Claude provider's extension (`src/claude-code.ts`), which records each conversation's `cwd` for the provider.
   4. Permissions (`src/permissions.ts`), last, so it wraps every tool the others bring.
 
 ## Model providers
 
-Pi Durable gets one pi-ai `Models` collection: the bridge when `model.choices` names a Claude model, and pi-ai's own `openai` and `openrouter` providers always, with a credential store over `credentials.json` in the data directory (`src/credentials.ts`). Sessions can change provider between requests: the bridge rebuilds Claude Code's session from the transcript when it finds messages it didn't see.
+Pi Durable gets one pi-ai `Models` collection: pi-claude-code when `model.choices` names a Claude model, and pi-ai's own `openai` and `openrouter` providers always, with a credential store over `credentials.json` in the data directory (`src/credentials.ts`). Sessions can change provider between requests, since every provider is handed the whole transcript.
 
 - **OpenAI** is pi-ai's own `openai` provider, which Pi Durable drives directly, with nothing in between. `aludra login openai` (`src/login.ts`) runs pi-ai's Sign in with ChatGPT flow with the machine's installation ID, and the store keeps and refreshes the tokens. The store reads the file for every request, so a login from the CLI reaches a running host; a lock file keeps the CLI and the host from writing at once.
 - **OpenRouter** is pi-ai's `openrouter` provider and its catalog of several hundred priced models. `aludra login openrouter` runs pi-ai's OAuth flow, which leaves an API key in the store.
-- **Claude** goes through the bridge, below.
+- **Claude** goes through Claude Code, below.
 
 `src/catalog.ts` lists every model a session can run on: each provider this machine is signed in to, OpenAI's narrowed to what the ChatGPT account offers (asked of the account hourly). The pickers search it; `model.choices` are pinned above it. Costs come from pi-ai, which prices each answer from the catalog; A session's `cost` is `billedCost` in `src/transcript.ts`: the OpenRouter part of its usage ledger (Pi Durable's `pi.usage`, keyed `provider/modelId`), which counts compaction summaries too. The month's total is `spendOf`, which adds up answers by their time; the ledger has no times, so that total leaves out compaction summaries.
 
-### The bridge
+### Claude Code
 
-`src/bridge.ts` loads [pi-claude-bridge](https://www.npmjs.com/package/pi-claude-bridge) 0.9.3, a pi extension that drives Claude Code through the Agent SDK. The bridge was written for the pi coding agent's loop, so it loads through jiti with a stand-in for pi's `ExtensionAPI` that keeps its provider and event handlers. Its `streamSimple` is wrapped with five fixes Pi Durable needs:
+`src/claude-code.ts` loads [pi-claude-code](https://github.com/earendil-works/pi-claude-code), a pi-ai provider that uses the user's own Claude Code (`claude.path`, run as `claude -p` with `stream-json`) as the model and nothing else. Pi Durable keeps the history, compacts it and runs the tools. Each turn the provider hands Claude Code the transcript, Pi's system prompt and an inert list of Pi's tools; Claude Code returns the model's answer and tool calls without running any, and writes no session files. A turn that exactly continues the last one may reuse that session's warm Claude Code process (two at most, five minutes each). Anything else (a tool call, a restart, a compaction, a reset, a change of model or directory) starts a fresh process that replays the transcript, so none of those need glue in aludra.
 
-- **Signals.** Pi Durable aborts each request's signal when that request is done; the bridge ties one long-lived Claude Code query to the first. The wrapper keeps one controller per session and forwards an abort only while a stream runs.
-- **Restarts.** After a restart the bridge has no live query, and a transcript ending in a tool result would end the turn empty. The wrapper adds a short note to that one request, which sends the bridge down its rebuild path.
-- **Compaction and reset.** These replace the head of the history. The wrapper notices and calls the bridge's own `session_compact` handler so it rebuilds Claude Code's session from the summary.
-- **The system prompt.** Each request's prompt is recorded with the bridge as a custom prompt, so Claude Code gets all of it after its own preset.
-- **The working directory.** The bridge runs Claude Code in the directory its `session_start` recorded for the pi session, or else `process.cwd()`. aludra fires `session_start` once, at startup, so conversations get `process.cwd()`. The wrapper changes into the conversation's directory around the call, so Claude Code's session files land per project and show in `claude --resume` there.
+The package ships TypeScript, which Node won't strip inside `node_modules`, so its provider module loads through jiti, with its pi-ai imports pointed at the copy Pi Durable uses. The wrapper around it does three things:
 
-The bridge runs the user's own Claude Code (`claude.path`), not the Agent SDK's bundled copy. It reads that path only from its settings in pi's agent directory, so aludra gives it a directory of its own (`bridge/` in the data directory) by aliasing its pi-coding-agent import to a module there whose `getAgentDir()` answers with it.
+- **The working directory.** Claude Code tells the model its process's directory, and the provider reads `process.cwd()` synchronously when a request starts, so the wrapper changes into the conversation's directory around the call.
+- **The ID.** Its models run under aludra's provider ID, `claude-bridge`, which sessions and settings already name.
+- **The catalog.** Its built-in model list trails Claude Code's. The host and doctor ask Claude Code which models the account offers (a control request, no model call), and the list is then only those, less Claude Code's `default` alias.
 
-These fixes depend on bridge internals, so the bridge and Pi Durable are pinned and `aludra doctor` fails if either changes. `test/bridge.test.ts` has a test for each fix, and `scripts/live-check.ts` runs them against the real thing ([operations.md](operations.md#upgrading-pi-durable-or-the-bridge)).
+`claude.path` reaches the provider as `PI_CLAUDE_CODE_COMMAND`, set in the host's environment before it loads, and Claude Code inherits `CLAUDE_CONFIG_DIR` from the host. The provider refuses to start Claude Code when the environment names an API key, a base URL or another backend (Bedrock, Vertex, Foundry), and fails a turn that Claude Code reports was charged to usage credits rather than the plan. Each answer carries Claude Code's latest rate-limit status as a `claude-code.rate-limit` diagnostic: the five-hour and seven-day windows, their use and when they reset.
+
+pi-claude-code isn't on npm, so it's pinned to a commit, and Pi Durable to its version; `aludra doctor` fails if either changes version. `test/claude-code.test.ts` tests the wrapper, and `scripts/live-check.ts` runs the real thing ([operations.md](operations.md#upgrading-pi-durable-or-pi-claude-code)).
 
 ## Titles
 
-`src/titles.ts` writes each session's title from its first message once it's submitted, in the background: a one-off request (`cacheRetention: "none"`, which the bridge runs as its own Claude Code process with no tools and no saved session) to the smallest model on hand, then the next if one fails. The host records who wrote a title, so a rename by hand is never replaced, and announces the change like a rename. The faux model writes none.
+`src/titles.ts` writes each session's title from its first message once it's submitted, in the background: a one-off request (`cacheRetention: "none"`, which pi-claude-code runs as its own Claude Code process with no tools, apart from any session's) to the smallest model on hand, then the next if one fails. The host records who wrote a title, so a rename by hand is never replaced, and announces the change like a rename. The faux model writes none.
 
 ## Permissions
 
@@ -98,7 +98,7 @@ When a project session is created, `src/changes.ts` writes the project's working
 
 ## Images
 
-Messages may carry PNG, JPEG, GIF or WebP images, at most 8 of at most 5 MB each, checked against their magic bytes. They're stored in the conversation as base64 blocks, and the bridge hands them to Claude Code. Transcripts carry only where each image is (entry, message, block); clients fetch the bytes separately, and cache them for good since stored images never change.
+Messages may carry PNG, JPEG, GIF or WebP images, at most 8 of at most 5 MB each, checked against their magic bytes. They're stored in the conversation as base64 blocks, and pi-claude-code hands them to Claude Code. Transcripts carry only where each image is (entry, message, block); clients fetch the bytes separately, and cache them for good since stored images never change.
 
 ## Videos
 
@@ -108,7 +108,7 @@ No model takes video, so a video sent from amyrlin (`src/videos.ts`) is written 
 
 | Package | Version | Why pinned |
 | --- | --- | --- |
-| `@earendil-works/pi-durable` and its lockstep packages | 1.3.0 | The bridge glue was checked against it. An unpinned install once took pi-codemode 1.2.0, which satisfies 1.1's range and broke 1.1. |
-| `pi-claude-bridge` | 0.9.3 | The glue depends on its internals. |
+| `@earendil-works/pi-durable` and its lockstep packages | 1.3.0 | The provider glue was checked against it. An unpinned install once took pi-codemode 1.2.0, which satisfies 1.1's range and broke 1.1. |
+| `@earendil-works/pi-claude-code` | commit `70abb65` (0.1.0) | Not published to npm, so it comes from GitHub at a fixed commit. It moves fast, and loading its source depends on its file layout. |
 
 Every dependency is an exact version. pnpm resolves only versions at least three days old (`minimumReleaseAge` in `pnpm-workspace.yaml`).

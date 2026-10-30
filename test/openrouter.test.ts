@@ -13,7 +13,7 @@ import { credentialsFile, fileCredentialStore } from "../src/credentials.ts";
 import { context, conversationId, openHost } from "../src/host.ts";
 import { money, renderSessions } from "../src/listing.ts";
 import { billedCost, spendOf } from "../src/transcript.ts";
-import { fakeBridge, makeProject, tempDir } from "./helpers.ts";
+import { fakeClaudeCode, makeProject, tempDir } from "./helpers.ts";
 
 test("OpenRouter's models are offered once signed in, each with its price", async (t) => {
 	const saved = process.env.OPENROUTER_API_KEY;
@@ -42,7 +42,7 @@ test("a session can run on any model a provider has, named provider/id, pinned o
 	}), {});
 	assert.deepEqual(errors, []);
 	assert.deepEqual(config.model.choices.at(-1), { provider: "openrouter", id: "~deepseek/deepseek-flash-latest" });
-	const host = await openHost({ config, bridge: fakeBridge([]).bridge, agentDir: join(dir, "agent"), onNotice: () => {} });
+	const host = await openHost({ config, claudeCode: fakeClaudeCode([]).claudeCode, agentDir: join(dir, "agent") });
 	t.after(() => host.close());
 	const project = makeProject(dir, "demo");
 	const agentOf = async (id: number) => (await host.harness.snapshot(AgentDoc, conversationId(id), context))?.model;

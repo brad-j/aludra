@@ -60,7 +60,7 @@ const SPECS: readonly Spec[] = [
 	{ key: "api.port", label: "Port", kind: "integer", editable: false, get: (c) => c.api.port, default: () => 8724,
 		help: "The loopback port of the API and amyrlin's endpoint; tailscale serve points at it." },
 	{ key: "claude.path", label: "Claude Code", kind: "path", editable: false, get: (c) => c.claude.path, default: () => "claude",
-		help: "The Claude Code program the bridge runs; a bare name is looked up on PATH." },
+		help: "The Claude Code program Claude's models run through; a bare name is looked up on PATH." },
 	{ key: "claude.configDir", label: "Claude Code login", kind: "path", editable: false, get: (c) => claudeConfigDir(c), default: () => join(homedir(), ".claude"),
 		help: "Claude Code's config directory (CLAUDE_CONFIG_DIR), which holds its login: the Claude account sessions run on." },
 	{ key: "dataDir", label: "Data folder", kind: "path", editable: false, get: (c) => c.dataDir, default: () => defaultDataDir(),

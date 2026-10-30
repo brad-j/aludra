@@ -18,10 +18,9 @@
 // `api.users` are the Tailscale logins the app's API and the amyrlin endpoint let in (src/api.ts); without any, the API
 // doesn't start, since every request would be refused. Everyone listed sees and runs every session. `model.choices`
 // are the models the app offers, each `provider/id` or a bare ID of `model.provider` (claude-bridge unless set); so is
-// `model.id`. OpenAI's models run on the ChatGPT sign-in `aludra login openai` keeps, OpenRouter's on the key `aludra login openrouter` gets (src/login.ts). `claude.path` is the Claude Code the bridge runs, the user's own install and login;
-// a bare name is looked up on PATH. `claude.configDir` is the CLAUDE_CONFIG_DIR the host sets for itself at start
-// (src/main.ts), which picks the login: the bridge writes Claude Code's session files under it in-process, and Claude
-// Code reads them there, so the two must agree, and a wrapper script that sets it only for Claude Code breaks resuming. `backup` copies the database while the host runs (src/backup.ts); its directory is
+// `model.id`. OpenAI's models run on the ChatGPT sign-in `aludra login openai` keeps, OpenRouter's on the key `aludra login openrouter` gets (src/login.ts). `claude.path` is the Claude Code that runs Claude's models, the user's own install
+// and login; a bare name is looked up on PATH. `claude.configDir` is the CLAUDE_CONFIG_DIR the host sets for itself at
+// start (src/main.ts) and Claude Code inherits, which picks the login. `backup` copies the database while the host runs (src/backup.ts); its directory is
 // backups/ in the data directory unless it names another disk or a synced folder.
 //
 // The apps and `aludra config` change most settings while the host runs (src/settings.ts), so the host reads them from
@@ -36,7 +35,7 @@ export type Thinking = (typeof THINKING)[number];
 
 export type Workspace = { name: string; roots: string[] };
 
-/** The model providers: Claude Code through pi-claude-bridge, OpenAI on a ChatGPT sign-in, OpenRouter, and the scripted faux model. */
+/** The model providers: Claude Code through pi-claude-code, OpenAI on a ChatGPT sign-in, OpenRouter, and the scripted faux model. */
 export const PROVIDERS = ["claude-bridge", "openai", "openrouter", "faux"] as const;
 export type ProviderId = (typeof PROVIDERS)[number];
 export type ModelSetting = { provider: ProviderId; id: string };
@@ -46,7 +45,7 @@ export type Config = {
 	file?: string;
 	workspaces: Workspace[];
 	model: { provider: ProviderId; id: string; thinking: Thinking; choices: ModelSetting[] };
-	/** The Claude Code binary the bridge runs, and the config directory (so the login) it uses when the settings name one. */
+	/** The Claude Code binary Claude's models run through, and the config directory (so the login) it uses when the settings name one. */
 	claude: { path: string; configDir?: string };
 	/** The app's API on loopback; tailscale serve is the way in. */
 	api: { port: number; users: string[] };

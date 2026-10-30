@@ -139,7 +139,7 @@ function send(socket: Socket, message: ServerMessage) {
 
 const clip = (text: string, max = 200) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
-/** An answer's text, or its failure: a refusal, an error from the bridge, a stop. */
+/** An answer's text, or its failure: a refusal, an error from the model's provider, a stop. */
 export function describeAnswer(entry: EntryRecord | undefined): string | undefined {
 	if (!AssistantEntry.is(entry)) return undefined;
 	const message = entry.model?.[0];
@@ -203,13 +203,7 @@ export async function serve(config: Config) {
 		process.exit(1);
 	}
 	const watchers = new Set<Socket>();
-	const host = await openHost({
-		config,
-		onNotice: (notice) => {
-			console.error(`[bridge ${notice.level}] ${notice.message}`);
-			for (const socket of watchers) send(socket, { type: "line", text: `! ${notice.message}` });
-		},
-	});
+	const host = await openHost({ config });
 	host.resume();
 	// The live feed behind /api/live and the amyrlin endpoint.
 	const live = createLive(host);
@@ -236,7 +230,7 @@ export async function serve(config: Config) {
 	process.once("SIGTERM", shutdown);
 }
 
-/** Serves the protocol above for `host` on `socketPath`. `watchers` are the sockets that hear the bridge's notices. */
+/** Serves the protocol above for `host` on `socketPath`. `watchers` are the sockets following sessions, closed at shutdown. */
 export function listen(host: Host, socketPath: string, watchers = new Set<Socket>()) {
 	const line = (socket: Socket, text: string) => send(socket, { type: "line", text });
 

@@ -9,7 +9,7 @@ import { AgentDoc } from "@earendil-works/pi-durable";
 import { configFor } from "../src/config.ts";
 import { credentialsFile, deviceId, fileCredentialStore } from "../src/credentials.ts";
 import { context, conversationId, openHost } from "../src/host.ts";
-import { fakeBridge, makeProject, tempDir } from "./helpers.ts";
+import { fakeClaudeCode, makeProject, tempDir } from "./helpers.ts";
 
 const oauth = (access: string): Credential => ({ type: "oauth", access, refresh: "r", expires: Date.now() + 3_600_000 });
 
@@ -67,10 +67,10 @@ test("the apps offer Claude and OpenAI models side by side, and a session can st
 		model: { choices: ["claude-opus-5-5", "openai/gpt-6.1-sol", "openai/no-such-model"] },
 	}), {});
 	assert.deepEqual(errors, []);
-	const host = await openHost({ config, bridge: fakeBridge([]).bridge, agentDir: join(dir, "agent"), onNotice: () => {} });
+	const host = await openHost({ config, claudeCode: fakeClaudeCode([]).claudeCode, agentDir: join(dir, "agent") });
 	t.after(() => host.close());
 
-	// One OpenAI doesn't have is left out, as the bridge's are.
+	// One OpenAI doesn't have is left out, as Claude Code's are.
 	assert.deepEqual(host.choices().map((c) => [c.provider, c.id, c.name]), [["claude-bridge", "claude-opus-5-5", "claude-opus-5-5"], ["openai", "gpt-6.1-sol", "GPT-6.1 Sol"]]);
 	assert.equal(host.modelInfo({ provider: "openai", modelId: "gpt-6.1-sol" }).window, 272_000);
 

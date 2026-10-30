@@ -61,7 +61,7 @@ Lines in the output:
 | --- | --- |
 | `·` | A tool call (`· bash pnpm test`), a retry, a compaction, or a stop. |
 | `?` | A call waiting for approval, with the `approve` and `deny` commands to answer it. |
-| `!` | A failure: a refusal, a bridge error, or a failed task. |
+| `!` | A failure: a refusal, a model error, or a failed task. |
 | none | The answer. |
 
 ### `aludra watch [--session ID]`

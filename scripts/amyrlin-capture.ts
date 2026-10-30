@@ -32,7 +32,7 @@ faux.setResponses(Array.from({ length: 100 }, () => (ctx: TranscriptContext) => 
 const models = createModels();
 models.setProvider(faux.provider);
 const { config } = configFor(JSON.stringify({ dataDir: join(dir, "data"), workspaces: [{ name: "capture", roots: [join(dir, "Projects", "*", "*")] }] }), {});
-const host = await openHost({ config, models, model: { provider: "faux", modelId: "faux-1" }, agentDir: join(dir, "agent"), onNotice: () => {} });
+const host = await openHost({ config, models, model: { provider: "faux", modelId: "faux-1" }, agentDir: join(dir, "agent") });
 host.resume();
 const api = createApi(host, { users: [USER], name: "capture" });
 await new Promise<void>((done) => api.listen(0, done));

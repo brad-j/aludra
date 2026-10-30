@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { delimiter, dirname, join } from "node:path";
-import { findExecutable } from "./bridge.ts";
+import { findExecutable } from "./claude-code.ts";
 import { type Config, defaultConfigFile } from "./config.ts";
 
 /** What the unit runs. */

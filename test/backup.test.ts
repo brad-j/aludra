@@ -5,7 +5,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { DatabaseSync } from "node:sqlite";
 import { backupDue, backupNow, listBackups } from "../src/backup.ts";
 import { context } from "../src/host.ts";
-import { fakeBridge, makeProject, testHost } from "./helpers.ts";
+import { fakeClaudeCode, makeProject, testHost } from "./helpers.ts";
 
 const tables = (file: string) => {
 	const db = new DatabaseSync(file, { readOnly: true });
@@ -18,8 +18,8 @@ const tables = (file: string) => {
 };
 
 test("a backup taken while the host runs holds what the database does, and only the newest are kept", async (t) => {
-	const { bridge } = fakeBridge([fauxAssistantMessage("hi")]);
-	const { host, dir, config } = await testHost(t, { bridge });
+	const { claudeCode } = fakeClaudeCode([fauxAssistantMessage("hi")]);
+	const { host, dir, config } = await testHost(t, { claudeCode });
 	const project = makeProject(dir, "one");
 	const session = await host.sessions.create(project, "first");
 	await (await host.submit(session.id, "hello")).wait(context);

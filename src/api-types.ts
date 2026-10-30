@@ -48,7 +48,7 @@ export type Item =
 	| {
 		kind: "failure";
 		id: string;
-		/** A safeguard refusal, a rate limit, a stop, or any other error from the model or the bridge. */
+		/** A safeguard refusal, a rate limit, a stop, or any other error from the model or its provider. */
 		type: "refused" | "rate-limit" | "stopped" | "error";
 		message: string;
 		requestId?: string;

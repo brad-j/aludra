@@ -15,7 +15,7 @@ import { credentialsFile, deviceId, fileCredentialStore } from "./credentials.ts
 export const SIGN_INS = ["openai", "openrouter"] as const;
 type SignIn = (typeof SIGN_INS)[number];
 
-/** OpenAI and OpenRouter on this machine's sign-ins, for logging in and checking; the host builds its own with the bridge beside it. */
+/** OpenAI and OpenRouter on this machine's sign-ins, for logging in and checking; the host builds its own with Claude Code beside it. */
 export function signInModels(config: Config): Models {
 	const models = createModels({ credentials: fileCredentialStore(credentialsFile(config.dataDir)) });
 	models.setProvider(openaiProvider());

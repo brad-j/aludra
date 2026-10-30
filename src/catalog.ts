@@ -1,5 +1,6 @@
-// Every model a session can run on: each loaded provider's that this machine is signed in to. Claude Code's are the
-// bridge's; OpenAI's, on a ChatGPT sign-in, are the ones the account offers; OpenRouter's are its whole catalog, priced.
+// Every model a session can run on: each loaded provider's that this machine is signed in to. Claude Code's are the ones
+// the Claude account offers, OpenAI's on a ChatGPT sign-in the ones that account offers, and OpenRouter's its whole
+// catalog, priced.
 // `model.choices` in the settings are the pinned ones the pickers show first; any model here can be picked too.
 import type { Model } from "@earendil-works/pi-ai";
 import type { Models } from "@earendil-works/pi-ai/models";

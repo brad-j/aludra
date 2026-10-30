@@ -10,7 +10,7 @@
 | `test/fixtures/amyrlin/` | amyrlin's recorded Pi Durable streams and their expected protocol v1 frames. |
 | `scripts/` | `install.sh`, the live check, the site's terminal picture, and the amyrlin fixture scripts. |
 | `deploy/` | The optional Tailscale node unit for Linux. |
-| `spike/` | The scripts that first proved the bridge in the Pi SDK and in Pi Durable. References, not app code; their paths need adjusting to run again. |
+| `spike/` | The scripts that proved pi-claude-bridge, aludra's original Claude provider, in the Pi SDK and in Pi Durable. References, not app code; their paths need adjusting to run again. |
 | `docs/` | These docs and [plan.md](plan.md) (decisions and history). |
 
 ## Commands
@@ -39,8 +39,8 @@ The faux model runs a script: any message runs `sleep 4 && pwd`; a message menti
 
 ## Tests
 
-- **Unit and integration** (`test/*.test.ts`): config, projects, setup's guesses, permissions and the protected-path rules, the bridge fixes (each test fails without its fix), the API over HTTP and WebSocket, amyrlin's endpoint and translation, changes against real git repositories, images, push encryption and signing, backups, and the CLI. They use the faux model or a fake bridge and never reach the network.
-- **Live** (`scripts/live-check.ts`, by hand): the real bridge and your Claude Code login. Two sessions at once, a compaction, and `kill -9` mid tool call with recovery. Run it after upgrading Pi Durable or the bridge. It spends a little of the subscription.
+- **Unit and integration** (`test/*.test.ts`): config, projects, setup's guesses, permissions and the protected-path rules, the Claude Code provider's wrapper and loading, the API over HTTP and WebSocket, amyrlin's endpoint and translation, changes against real git repositories, images, push encryption and signing, backups, and the CLI. They use the faux model, alone or standing in for Claude Code, and never reach the network.
+- **Live** (`scripts/live-check.ts`, by hand): the real pi-claude-code and your Claude Code login. Two sessions at once on the plan's limits, a compaction, and `kill -9` mid tool call with recovery. Run it after upgrading Pi Durable or pi-claude-code. It spends a little of the subscription.
 
 ## The amyrlin fixtures
 
@@ -61,7 +61,7 @@ pnpm test
 
 - Use pnpm. Add and remove packages with `pnpm add` and `pnpm remove`.
 - Every version is exact. pnpm resolves only versions at least three days old (`minimumReleaseAge: 4320` in `pnpm-workspace.yaml`).
-- Pi's packages move in lockstep and are pinned together at 1.3.0, with pi-claude-bridge at 0.9.3. Upgrading either is deliberate: see [operations.md](operations.md#upgrading-pi-durable-or-the-bridge).
+- Pi's packages move in lockstep and are pinned together at 1.3.0, with pi-claude-code at a GitHub commit, since it isn't on npm. Upgrading either is deliberate: see [operations.md](operations.md#upgrading-pi-durable-or-pi-claude-code).
 
 ## Conventions
 

@@ -18,7 +18,7 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   init [--root PATTERN]... [--user LOGIN]... [--name NAME] [--yes] [--force]
                                          write the settings file, asking for what isn't given
   service install | uninstall | status   run the host in the background and at login (launchd or systemd)
-  serve                                  run the host: sessions, the bridge, the socket the CLI uses
+  serve                                  run the host: sessions, the models, the socket the CLI uses
   ask --project NAME "MESSAGE"           start a session in a project and print its run
   ask --session ID [--steer] "MESSAGE"   send a session a follow-up (or a steer) and print the run
   watch [--session ID]                   print what every session (or one) does, until Ctrl+C
@@ -65,8 +65,7 @@ if (values.help || command === "help" || command === undefined) {
 
 const loaded = loadConfig(values.config);
 const { config } = loaded;
-// Before anything loads the bridge or runs Claude Code: the bridge reads CLAUDE_CONFIG_DIR from this process to place
-// Claude Code's session files, and Claude Code inherits it to pick its login, so both see the same directory.
+// Before anything runs Claude Code, which inherits CLAUDE_CONFIG_DIR from this process to pick its login.
 if (config.claude.configDir !== undefined) process.env.CLAUDE_CONFIG_DIR = config.claude.configDir;
 function fail(...lines: string[]): never {
 	for (const line of lines) console.error(line);
