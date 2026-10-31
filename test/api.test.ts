@@ -372,6 +372,18 @@ test("messages are searched over the API, across sessions or in one", async (t) 
 	assert.deepEqual((await (await call("/api/search?q=")).json()).results, []);
 });
 
+test("files are taken over the API: saved on the host, the message pointing at them", async (t) => {
+	const { call, base } = await api(t, [fauxAssistantMessage("Read it."), fauxAssistantMessage("Again.")]);
+	const socket = await live(t, base);
+	const data = Buffer.from("trace").toString("base64");
+	const { id } = await (await call("/api/sessions", { project: "one", text: "", files: [{ name: "crash.txt", data }] })).json();
+	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.state === "done", "the run");
+	assert.equal(socket.state.sessions.find((s) => s.id === id)?.title, "crash.txt");
+	socket.follow(id);
+	await socket.until(() => socket.state.items.some((i) => i.kind === "user" && /<file name="crash\.txt"/.test(i.text)), "the note in the transcript");
+	assert.equal((await call(`/api/sessions/${id}/messages`, { text: "x", mode: "followUp", files: [{ name: "", data }] })).status, 400);
+});
+
 test("a message with an image: the transcript says where it is, and the app gets its bytes", async (t) => {
 	const { call, base } = await api(t, [fauxAssistantMessage("Nice picture.")]);
 	const socket = await live(t, base);

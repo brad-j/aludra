@@ -64,9 +64,10 @@ export function messageContent(text: string, images: readonly ImageInput[] = [],
 }
 
 /** A title from a first message: its first line, or what it attaches. */
-export function titleOf(text: string, images: readonly ImageInput[] = [], videos = 0): string {
+export function titleOf(text: string, images: readonly ImageInput[] = [], videos = 0, files: readonly string[] = []): string {
 	const line = text.split("\n").find((l) => l.trim() !== "")?.trim();
 	if (line !== undefined) return line.slice(0, 80);
+	if (files.length > 0 && images.length === 0 && videos === 0) return files.length === 1 ? files[0]!.slice(0, 80) : `${files.length} files`;
 	if (images.length === 0) return videos === 1 ? "A video" : `${videos} videos`;
 	return images.length === 1 ? "An image" : `${images.length} images`;
 }

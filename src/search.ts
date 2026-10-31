@@ -8,6 +8,7 @@
 import { rmSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Message } from "@earendil-works/pi-ai";
+import { withoutFileNotes } from "./files.ts";
 import { withoutVideoNotes } from "./videos.ts";
 
 export type SearchHit = {
@@ -32,7 +33,7 @@ export function messagesOf(entry: { id: number; conversationId: number; kind: st
 	return (entry.model ?? []).flatMap((message, index): IndexedMessage[] => {
 		if (message.role === "user" && entry.kind === "pi.user") {
 			const text = typeof message.content === "string" ? message.content : message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n");
-			const clean = withoutVideoNotes(text).replace(/<restored [^>]*>[\s\S]*?<\/restored>/g, "").trim();
+			const clean = withoutFileNotes(withoutVideoNotes(text)).replace(/<restored [^>]*>[\s\S]*?<\/restored>/g, "").trim();
 			return clean === "" ? [] : [{ session: entry.conversationId, entry: entry.id, index, from: "user", at: message.timestamp, text: clean }];
 		}
 		if (message.role === "assistant") {

@@ -19,6 +19,7 @@ import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, type SessionRecord } from "../host.ts";
 import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
+import { checkFiles, type FileInput, MAX_FILE_BYTES, MAX_FILES, PASTE_BYTES } from "../files.ts";
 import { checkVideos, MAX_FRAMES, MAX_VIDEO_BYTES, MAX_VIDEOS, UPLOAD_DAYS, type VideoInput } from "../videos.ts";
 import type { ApprovalRequest } from "../permissions.ts";
 import { monthSpend } from "../live.ts";
@@ -39,6 +40,9 @@ const AmyrlinDoc = defineDoc<{ hostId?: string; created: Record<string, number> 
 	scope: "session",
 	initial: () => ({ created: {} }),
 });
+
+/** A message's attachments together, raw: as base64 in JSON they fit the 112 MB socket frame (src/api.ts). */
+export const MAX_MESSAGE_BYTES = 80 * 1024 * 1024;
 
 export class ProtocolError extends Error {
 	readonly code: string;
@@ -278,18 +282,19 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		if (dir != null && project === undefined) throw new ProtocolError("invalid_settings", `${String(dir)} isn't a project aludra knows; host.info lists them`);
 		const images = imagesParam(p.images);
 		const videos = videosParam(p.videos);
+		const files = filesParam(p.files);
 		const text = typeof p.text === "string" ? p.text : "";
-		const hasFirst = text.trim() !== "" || images.length > 0 || videos.length > 0;
-		check(images, videos);
+		const hasFirst = text.trim() !== "" || images.length > 0 || videos.length > 0 || files.length > 0;
+		check(images, videos, files);
 		const agent: { model?: string; thinking?: Thinking } = {};
 		if (p.settings?.model != null) agent.model = modelOf(p.settings.model);
 		if (p.settings?.thinkingLevel != null) agent.thinking = thinkingOf(p.settings.thinkingLevel);
-		const title = hasFirst ? titleOf(text, images, videos.length) : typeof p.title === "string" && p.title.trim() !== "" ? p.title : "New session";
+		const title = hasFirst ? titleOf(text, images, videos.length, files.map((f) => f.name)) : typeof p.title === "string" && p.title.trim() !== "" ? p.title : "New session";
 		const record = project === undefined ? await host.sessions.createScratch(title, agent) : await host.sessions.create(project, title, agent);
 		await host.root.commit(async (tx) => {
 			(await tx.doc(AmyrlinDoc)).created[p.requestId] = record.id;
 		}, context);
-		if (hasFirst) await host.submit(record.id, content(text, images, await host.videos(record.id, videos)), { requestId: `${p.requestId}:first` });
+		if (hasFirst) await host.submit(record.id, content(text, images, [...(await host.files(record.id, files)), ...(await host.videos(record.id, videos))]), { requestId: `${p.requestId}:first` });
 		const summary = await summaryOf(record, hasFirst ? "running" : "idle");
 		summaries.set(record.id, summary);
 		return { conversation: summary, duplicate: false };
@@ -299,8 +304,9 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		if (typeof p.requestId !== "string" || typeof p.text !== "string") throw new ProtocolError("bad_request", "submit needs requestId and text");
 		const images = imagesParam(p.images);
 		const videos = videosParam(p.videos);
-		check(images, videos);
-		if (p.text.trim() === "" && images.length === 0 && videos.length === 0) throw new ProtocolError("bad_request", "the message is empty");
+		const files = filesParam(p.files);
+		check(images, videos, files);
+		if (p.text.trim() === "" && images.length === 0 && videos.length === 0 && files.length === 0) throw new ProtocolError("bad_request", "the message is empty");
 		const whenBusy = p.whenBusy ?? "followUp";
 		if (!["followUp", "steer", "reject"].includes(whenBusy)) throw new ProtocolError("bad_request", `whenBusy ${whenBusy}`);
 		const { record } = await session(p.conversationId);
@@ -308,8 +314,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		if (whenBusy === "reject" && before === undefined && (await host.sessions.states()).get(record.id) !== "idle") {
 			throw new ProtocolError("busy", "The session is busy");
 		}
-		// A retry gets the first message's submission back, whatever it carries, so its videos aren't saved again.
-		const message = before === undefined ? content(p.text, images, await host.videos(record.id, videos)) : p.text;
+		// A retry gets the first message's submission back, whatever it carries, so its files and videos aren't saved again.
+		const message = before === undefined ? content(p.text, images, [...(await host.files(record.id, files)), ...(await host.videos(record.id, videos))]) : p.text;
 		const submission = await host.submit(record.id, message, { requestId: p.requestId, steer: whenBusy === "steer" });
 		const status = await submission.status(context);
 		const wire: Json = { id: status.id, type: status.type, status: status.status };
@@ -404,11 +410,23 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		}));
 	}
 
-	/** Checks a message's images and videos before anything is made or saved; bad_request says what's wrong. */
-	function check(images: ImageInput[], videos: VideoInput[]) {
+	/** A message's files from the app, `[{name, mimeType?, data}]` (src/files.ts). */
+	function filesParam(value: Json): FileInput[] {
+		if (value == null) return [];
+		const valid = (f: Json) => typeof f?.name === "string" && typeof f?.data === "string" && (f.mimeType == null || typeof f.mimeType === "string");
+		if (!Array.isArray(value) || !value.every(valid)) throw new ProtocolError("bad_request", "files should be a list of {name, mimeType?, data}");
+		return value.map((f: Json) => ({ name: f.name, data: f.data, ...(f.mimeType == null ? {} : { mimeType: f.mimeType }) }));
+	}
+
+	/** Checks a message's images, videos and files before anything is made or saved; bad_request says what's wrong. */
+	function check(images: ImageInput[], videos: VideoInput[], files: FileInput[] = []) {
 		try {
 			checkImages(images);
 			checkVideos(videos);
+			checkFiles(files);
+			// Everything together fits the socket's frame as base64 (src/api.ts).
+			const total = [...images, ...videos, ...videos.flatMap((v) => v.frames ?? []), ...files].reduce((n, a) => n + Buffer.byteLength(a.data, "base64"), 0);
+			if (total > MAX_MESSAGE_BYTES) throw new Error(`the attachments are ${(total / 1048576).toFixed(1)} MB together; the limit is ${MAX_MESSAGE_BYTES / 1048576} MB a message`);
 		} catch (error) {
 			throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
 		}
@@ -457,6 +475,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			projectColors: await host.colors.list(),
 			// Messages take videos (src/videos.ts); a host from before them leaves this out, and the app sends it none.
 			videos: { maxVideos: MAX_VIDEOS, maxBytes: MAX_VIDEO_BYTES, maxFrames: MAX_FRAMES, keepDays: UPLOAD_DAYS },
+			// Messages take files, and long text becomes one (src/files.ts); a host from before them leaves this out.
+			files: { maxFiles: MAX_FILES, maxBytes: MAX_FILE_BYTES, pasteBytes: PASTE_BYTES, keepDays: UPLOAD_DAYS, maxMessageBytes: MAX_MESSAGE_BYTES },
 			...(await monthCostOf()),
 		};
 	}

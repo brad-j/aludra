@@ -141,7 +141,7 @@ Where the database, keys, scratch directories and uploaded videos go. Default `~
 | `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, with its refreshed tokens, and the key `aludra login openrouter` gets. Owner-only. |
 | `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |
 | `scratch/<id>/` | The working directory of each no-project session. |
-| `uploads/<id>/` | Videos sent with a session's messages, deleted 14 days after they arrive. |
+| `uploads/<id>/` | Videos and files sent with a session's messages, and messages too long to send whole, deleted 14 days after they arrive. |
 | `backups/` | Copies of the database, unless `backup.dir` says otherwise. |
 | `tailscale/` | Only with aludra's own Tailscale node ([setup.md](setup.md#optional-a-tailscale-node-of-aludras-own-linux)). |
 

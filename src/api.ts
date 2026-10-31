@@ -43,6 +43,7 @@ import { findProject } from "./projects.ts";
 import type { ApprovalRequest } from "./permissions.ts";
 import type { Push, PushMessage } from "./push.ts";
 import { createLive, type Live } from "./live.ts";
+import { checkFiles } from "./files.ts";
 import { changesSince, fileDiff } from "./changes.ts";
 
 class HttpError extends Error {
@@ -88,8 +89,9 @@ async function readBody(request: IncomingMessage, limit: number): Promise<string
 
 const thinking = literal<Thinking>(...THINKING);
 const image = object({ mimeType: string, data: string });
-const newSession = object({ project: string, text: string, images: optional(array(image)), model: optional(string), thinking: optional(thinking), requestId: optional(string) });
-const message = object({ text: string, images: optional(array(image)), mode: literal("steer", "followUp"), requestId: optional(string) });
+const file = object({ name: string, mimeType: optional(string), data: string });
+const newSession = object({ project: string, text: string, images: optional(array(image)), files: optional(array(file)), model: optional(string), thinking: optional(thinking), requestId: optional(string) });
+const message = object({ text: string, images: optional(array(image)), files: optional(array(file)), mode: literal("steer", "followUp"), requestId: optional(string) });
 const agentChange = object({ model: optional(string), thinking: optional(thinking) });
 const withdrawal = object({ submission: integer });
 const newTitle = object({ title: string });
@@ -224,12 +226,15 @@ export function createApi(host: Host, options: ApiOptions) {
 		}
 		if (path === "/api/sessions") {
 			const request = parseJson(body, newSession, "the new session");
-			if (request.text.trim() === "" && (request.images ?? []).length === 0) throw new HttpError(400, "Say what the session should do");
-			const content = messageContent(request.text, request.images);
+			const files = request.files ?? [];
+			if (request.text.trim() === "" && (request.images ?? []).length === 0 && files.length === 0) throw new HttpError(400, "Say what the session should do");
+			checkFiles(files);
+			messageContent(request.text || "-", request.images);
 			const agent = { ...(request.model === undefined ? {} : { model: request.model }), ...(request.thinking === undefined ? {} : { thinking: request.thinking }) };
-			const title = titleOf(request.text, request.images);
+			const title = titleOf(request.text, request.images, 0, files.map((f) => f.name));
 			// An empty project is a no-project session, in a scratch directory of its own.
 			const session = request.project === "" ? await host.sessions.createScratch(title, agent) : await host.sessions.create(findProject(host.projects(), request.project), title, agent);
+			const content = messageContent(request.text, request.images, await host.files(session.id, files));
 			await host.submit(session.id, content, request.requestId === undefined ? {} : { requestId: request.requestId });
 			return { id: session.id };
 		}
@@ -258,8 +263,13 @@ export function createApi(host: Host, options: ApiOptions) {
 		switch (match[2]) {
 			case "messages": {
 				const request = parseJson(body, message, "the message");
-				if (request.text.trim() === "" && (request.images ?? []).length === 0) throw new HttpError(400, "The message is empty");
-				const submission = await host.submit(id, messageContent(request.text, request.images), { steer: request.mode === "steer", ...(request.requestId === undefined ? {} : { requestId: request.requestId }) });
+				const files = request.files ?? [];
+				if (request.text.trim() === "" && (request.images ?? []).length === 0 && files.length === 0) throw new HttpError(400, "The message is empty");
+				checkFiles(files);
+				messageContent(request.text || "-", request.images);
+				// A retry carries no new files: the same request id finds the message already sent.
+				const retry = await host.sent(id, request.requestId);
+				const submission = await host.submit(id, messageContent(request.text, request.images, retry ? [] : await host.files(id, files)), { steer: request.mode === "steer", ...(request.requestId === undefined ? {} : { requestId: request.requestId }) });
 				return { submission: Number(submission.id) };
 			}
 			case "stop":

@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { UserMessage } from "@earendil-works/pi-ai";
+import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { createModels, type Models, type Provider } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
@@ -30,6 +30,7 @@ import { changeSettings, describeSettings, SettingsError, writeSettings } from "
 import { messagesOf, openSearch } from "./search.ts";
 import { type Exchange, excerptOf, modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
+import { fileBlocks, type FileInput, isLong, preview, saveFiles, withoutFileNotes } from "./files.ts";
 import { saveVideos, sweepUploads, type VideoInput, videoBlocks, withoutVideoNotes } from "./videos.ts";
 
 export const context = BACKGROUND_CONTEXT;
@@ -465,7 +466,7 @@ export async function openHost(options: HostOptions) {
 		let exchanges: Exchange[];
 		try {
 			exchanges = itemsOf(state.value).flatMap((item): Exchange[] =>
-				item.kind === "user" ? [{ from: "user", text: withoutVideoNotes(item.text) }] : item.kind === "answer" && item.streaming !== true ? [{ from: "agent", text: item.text }] : [],
+				item.kind === "user" ? [{ from: "user", text: withoutFileNotes(withoutVideoNotes(item.text)) }] : item.kind === "answer" && item.streaming !== true ? [{ from: "agent", text: item.text }] : [],
 			);
 		} finally {
 			state.dispose();
@@ -534,12 +535,35 @@ export async function openHost(options: HostOptions) {
 		const target = await conversation(id);
 		// A new message instead of an answer: the waiting call is refused, so the run can take the message.
 		await approvals!.supersede(id);
+		// Text too long for a message goes to a file the message points at, unless this is a retry of one already sent.
+		if (!(await sent(id, options.requestId))) content = await movedLongText(id, content);
 		// A new session's first message names it, in the background.
-		if (untitled.delete(id)) void writeTitle(id, withoutVideoNotes(textOf(content)));
+		if (untitled.delete(id)) void writeTitle(id, withoutFileNotes(withoutVideoNotes(textOf(content))));
 		// After a restore, the next message tells the agent the files were put back.
 		const note = await checkpoints.takeNote(id);
 		if (note !== undefined) content = [{ type: "text", text: restoreNoteText(note) }, ...(typeof content === "string" ? [{ type: "text" as const, text: content }] : content)];
 		return target.submit({ type: "input", content, whenBusy: options.steer ? "steer" : "followUp", ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }, context);
+	}
+
+	/** Whether a message with `requestId` was already sent to session `id`: a retry, whose files mustn't be saved again. */
+	async function sent(id: number, requestId: string | undefined): Promise<boolean> {
+		if (requestId === undefined) return false;
+		return (await harness.commit((tx) => tx.submissionByRequest(conversationId(id), requestId), context)) !== undefined;
+	}
+
+	/** `content` with a text block over PASTE_BYTES saved to a file: the message keeps its start and a note (src/files.ts). */
+	async function movedLongText(id: number, content: UserMessage["content"]): Promise<UserMessage["content"]> {
+		const blocks = typeof content === "string" ? [{ type: "text" as const, text: content }] : content;
+		const long = blocks.findIndex((b) => b.type === "text" && isLong(b.text));
+		if (long === -1) return content;
+		const text = (blocks[long] as TextContent).text;
+		const notes = fileBlocks(await saveFiles(uploads, id, [], text));
+		return [...blocks.slice(0, long), { type: "text", text: preview(text) }, ...notes, ...blocks.slice(long + 1)];
+	}
+
+	/** Saves checked files for session `id`; returns what its message carries for them (src/files.ts). */
+	async function files(id: number, inputs: readonly FileInput[]) {
+		return fileBlocks(await saveFiles(uploads, id, inputs));
 	}
 
 	/** Saves checked videos for session `id`; returns what its message carries for them (src/videos.ts). */
@@ -744,6 +768,8 @@ export async function openHost(options: HostOptions) {
 		submit,
 		image,
 		videos,
+		files,
+		sent,
 		configure,
 		withdraw,
 		stop,

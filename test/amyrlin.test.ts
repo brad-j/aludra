@@ -348,6 +348,26 @@ test("messages.search finds what was said, and refuses a missing query or sessio
 	await assert.rejects(mac.request("messages.search", { query: "x", conversationId: 999 }), { code: "not_found" });
 });
 
+test("files sent from the Mac are saved on the host, and the message says where; a retry saves none again", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const file = { name: "server.log", mimeType: "text/plain", data: Buffer.from("boom").toString("base64") };
+	assert.deepEqual((await mac.request("host.info")).files, { maxFiles: 20, maxBytes: 25 * 1024 * 1024, pasteBytes: 32 * 1024, keepDays: 14, maxMessageBytes: 80 * 1024 * 1024 });
+	await assert.rejects(mac.request("conversations.create", { requestId: "file-0", project: project.dir, text: "", files: [{ name: "x" }] }), { code: "bad_request" });
+	const { conversation } = await mac.request("conversations.create", { requestId: "file-1", project: project.dir, text: "", files: [file] });
+	assert.equal(conversation.title, "server.log");
+	const { subscription } = await mac.request("conversation.watch", { conversationId: conversation.id });
+	const seen = await mac.event(subscription, (e) => e.type === "snapshot" || e.type === "item.added", "the transcript");
+	const user = seen.flatMap((e: Json) => (e.type === "snapshot" ? e.items : e.type === "item.added" ? [e.item] : [])).find((item: Json) => item.type === "user");
+	const path = /path="([^"]+)"/.exec(user.content[0].text)?.[1];
+	assert.ok(path?.endsWith("-server.log"), user.content[0].text);
+	assert.equal(readFileSync(path!, "utf8"), "boom");
+	const send = () => mac.request("submit", { conversationId: conversation.id, requestId: "file-2", text: "and this", files: [file] });
+	assert.equal((await send()).duplicate, false);
+	assert.equal((await send()).duplicate, true);
+	assert.equal(readdirSync(dirname(path!)).length, 2);
+});
+
 test("a conversation is archived from the Mac: hidden from conversations.list, still in host.watch marked archived, and brought back", async (t) => {
 	const { url, project } = await api(t);
 	const mac = await client(t, url);

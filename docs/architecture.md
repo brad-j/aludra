@@ -112,6 +112,10 @@ Restoring is refused while the session runs or waits. It first records the files
 
 Messages may carry PNG, JPEG, GIF or WebP images, at most 8 of at most 5 MB each, checked against their magic bytes. They're stored in the conversation as base64 blocks, and pi-claude-code hands them to Claude Code. Transcripts carry only where each image is (entry, message, block); clients fetch the bytes separately, and cache them for good since stored images never change.
 
+## Files and long messages
+
+`src/files.ts` saves files from clients to `uploads/<session>/`, named for when they came and what they're called, made safe. Each becomes a `<file name="…" type="…" bytes="…" path="…" until="…">` text block after the message's images. `host.submit` moves any text block over 32 KB the same way, as `message.txt`, keeping its first 1,500 characters in the message, so the CLI's `ask` gets it too; a retry, found by its request ID, saves nothing again. The title writer and the search index see messages without file notes. The same hourly sweep as videos deletes them after 14 days.
+
 ## Videos
 
 No model takes video, so a video sent from amyrlin (`src/videos.ts`) is written to `uploads/<session>/` in the data directory, and the message carries a text block saying where, `<video name="…" seconds="…" path="…" until="…">`, then the frames amyrlin pulled from it as image blocks. The note tells the agent to pull other frames with ffmpeg. Videos are checked against their magic bytes (an `ftyp` box, or WebM's EBML header) before anything is made or saved. The host deletes uploads 14 days after they arrive, at start and hourly; the frames stay in the conversation. The title writer sees the message without its notes.

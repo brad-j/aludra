@@ -17,8 +17,8 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 | Method and path | Body | Answer |
 | --- | --- | --- |
 | `GET /api/bootstrap` | | `Bootstrap`: the login, machine name, projects, the pinned models, every model the signed-in providers have (`catalog`, with prices where billed), thinking levels and defaults. |
-| `POST /api/sessions` | `{ project, text, images?, model?, thinking?, requestId? }` | `{ id }`. An empty `project` makes a no-project session. Needs text or images. |
-| `POST /api/sessions/:id/messages` | `{ text, images?, mode: "steer" \| "followUp", requestId? }` | `{ submission }`, for withdrawing it. |
+| `POST /api/sessions` | `{ project, text, images?, files?, model?, thinking?, requestId? }` | `{ id }`. An empty `project` makes a no-project session. Needs text, images or files. |
+| `POST /api/sessions/:id/messages` | `{ text, images?, files?, mode: "steer" \| "followUp", requestId? }` | `{ submission }`, for withdrawing it. |
 | `POST /api/sessions/:id/stop` | `{}` | `{}` |
 | `POST /api/sessions/:id/title` | `{ title }` | `{ title }`, whitespace folded, 1 to 200 characters. |
 | `POST /api/sessions/:id/retitle` | `{}` | `{ title, written }`. A model writes the title again from the whole conversation, replacing any title, one set by hand too. `written` is false when no model wrote one (the title stays); 400 when the session has no messages yet. |
@@ -46,6 +46,8 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 | `POST /api/push/test` | `{}` | `{ devices, inSeconds }`. Sends a test notification after 5 seconds. |
 
 `images` is a list of `{ mimeType, data }`, with `data` base64: PNG, JPEG, GIF or WebP, at most 8, each at most 5 MB, and the bytes must match the type. Scale images to 1568 px on the long side before sending; the model sees no more than that.
+
+`files` is a list of `{ name, mimeType?, data }`, with `data` base64: any kind of file, at most 20, together at most 25 MB. The host saves each in the data directory's `uploads/<session>/` for 14 days and the message carries a `<file name type bytes path until>` text block for each, which the agent reads with its tools. A message's text over 32 KB is saved the same way, as `message.txt`: the message keeps its first 1,500 characters or so and a note saying where the rest is. That applies to every way in, the CLI included.
 
 `requestId` makes a send safe to retry: the same ID finds the message already sent rather than sending it twice.
 
@@ -110,6 +112,7 @@ How aludra maps onto the protocol:
 - `conversations.create` takes a project directory (or a `cwd` naming one) and the first message; without a project it makes a no-project session. The project can't change afterwards, so `configure` changes only the model and thinking.
 - `conversations.list`, `conversations.rename`, `submit`, `abort`, `compact`, `reset`, `approval.answer`, `approval.forget`, `conversation.history`, `conversation.image`, `conversation.watch`, `host.info` and `host.watch` are supported.
 - `submit` and `conversations.create` take `videos` beside `images`: a list of `{ name, mimeType, data, seconds?, frames? }`, MP4, QuickTime or WebM, at most 2 and 40 MB together, the bytes matching the type, with up to 6 `frames`, each an image as above plus `at`, its time in seconds. The host saves each video in the data directory's `uploads/<session>/` for 14 days and adds a `<video name path seconds until>` text block to the message, followed by its frames as image blocks. A retried request saves nothing again. `host.info` carries `videos: { maxVideos, maxBytes, maxFrames, keepDays }`, which tells a client the host takes them. The HTTP API doesn't take videos.
+- `submit` and `conversations.create` take `files` too, `[{ name, mimeType?, data }]`, as the HTTP API does; a file alone names a new session. `host.info` carries `files: { maxFiles, maxBytes, pasteBytes, keepDays, maxMessageBytes }`: the limits, the text length past which a message goes to a file, and the most a message's images, videos and files may come to together (80 MB, to fit the socket's frame as base64). A host without `files` drops them without a word, so a client should send none to it.
 - `projects.setColor` picks a project's color; `host.info` and the host snapshot carry the picked colors, and `host.projectColors` announces changes.
 - Summaries carry `cost`, the dollars billed providers (OpenRouter) charged for the session, only when it used one. `spend` stays as the protocol defines it, Pi Durable's usage priced at API rates for every model, plan-paid ones (Claude Code, ChatGPT) included, so a client showing money should show `cost`. `host.info` and `host.snapshot` carry `monthCost`, this calendar month's charged total, when any session was charged.
 - `settings.get` and `settings.set { changes }` are aludra's own additions to the protocol, each answering `{ settings }` with the same `Settings` as the web API. A refused change is `invalid_settings` with `data.errors`, one reason each. A host from before them answers `unknown_method`, which is how a client can tell whether to offer settings.
