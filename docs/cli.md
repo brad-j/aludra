@@ -89,9 +89,11 @@ In a terminal, project names are in their project color (the same one amyrlin sh
 
 Stops a session's run.
 
-### `aludra retitle`
+### `aludra retitle [--session ID]`
 
 Has a model write titles for sessions that still have their first message's first line: ones from before titles were written, or whose title request failed. Sessions you renamed are left alone. Prints each new title beside the old one. Run it again any time; it only picks up sessions that still need one.
+
+With `--session ID`, writes that session's title again from its whole conversation (the first message and as many of the latest messages and answers as fit), for a session that has moved on from how it started. This replaces any title, one you set too. A rename made while the model writes wins.
 
 ### `aludra archive --session ID` and `aludra unarchive --session ID`
 

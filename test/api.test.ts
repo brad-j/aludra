@@ -10,6 +10,7 @@ import { createApi } from "../src/api.ts";
 import { context } from "../src/host.ts";
 import type { Idea, Item, ServerEvent, SessionMeta, SessionSummary } from "../src/api-types.ts";
 import { createPush, loadPushKeys } from "../src/push.ts";
+import type { Titler } from "../src/titles.ts";
 import { decrypt, device, makeProject, PNG, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
@@ -22,12 +23,12 @@ type Pushed = { title: string; body: string; tag?: string; url?: string; urgency
  * A host with a faux model answering `responses`, and its API on a free port. Its notifications go to a fake push
  * service; `pushed` gets what the signed-up device decrypts, once one has.
  */
-async function api(t: TestContext, responses: FauxResponseStep[]) {
+async function api(t: TestContext, responses: FauxResponseStep[], titler?: Titler) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000 }, { id: "faux-2", name: "Faux 2" }] });
 	faux.setResponses(responses);
 	const models = createModels();
 	models.setProvider(faux.provider);
-	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, approvalHosts: ["build-box"] });
+	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, approvalHosts: ["build-box"], ...(titler === undefined ? {} : { titler }) });
 	const project = makeProject(dir, "one");
 	const phone = device();
 	const pushed: Pushed[] = [];
@@ -316,6 +317,26 @@ test("a session is renamed over the API: the list and the open session follow, a
 	assert.equal(socket.state.sessions.find((s) => s.id === id)?.title, "The real name", "a later run doesn't put the old title back");
 	assert.equal((await call(`/api/sessions/${id}/title`, { title: "   " })).status, 400);
 	assert.equal((await call("/api/sessions/999/title", { title: "x" })).status, 404);
+});
+
+test("a session's title is written again over the API from its whole conversation, replacing one set by hand", async (t) => {
+	const asked: string[] = [];
+	const titler: Titler = async (text, options) => {
+		asked.push(`${options?.conversation === true ? "conversation" : "first"}: ${text}`);
+		return options?.conversation === true ? "Where it ended up" : undefined;
+	};
+	const { call, base } = await api(t, [fauxAssistantMessage("Hi."), fauxAssistantMessage("Done that.")], titler);
+	const socket = await live(t, base);
+	const { id } = await (await call("/api/sessions", { project: "one", text: "first words" })).json();
+	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.state === "done", "the first run");
+	await call(`/api/sessions/${id}/messages`, { text: "now the other thing", mode: "followUp" });
+	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.line.includes("Done that.") === true, "the second run");
+	await call(`/api/sessions/${id}/title`, { title: "Mine" });
+
+	assert.deepEqual(await (await call(`/api/sessions/${id}/retitle`, {})).json(), { title: "Where it ended up", written: true });
+	assert.equal(asked.at(-1), "conversation: User: first words\nAgent: Hi.\nUser: now the other thing\nAgent: Done that.");
+	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.title === "Where it ended up", "the new title in the list");
+	assert.equal((await call("/api/sessions/999/retitle", {})).status, 404);
 });
 
 test("a message with an image: the transcript says where it is, and the app gets its bytes", async (t) => {

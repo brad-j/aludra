@@ -75,7 +75,7 @@ pi-claude-code isn't on npm, so it's pinned to a commit, and Pi Durable to its v
 
 ## Titles
 
-`src/titles.ts` writes each session's title from its first message once it's submitted, in the background: a one-off request (`cacheRetention: "none"`, which pi-claude-code runs as its own Claude Code process with no tools, apart from any session's) to the smallest model on hand, then the next if one fails. The host records who wrote a title, so a rename by hand is never replaced, and announces the change like a rename. The faux model writes none.
+`src/titles.ts` writes each session's title from its first message once it's submitted, in the background: a one-off request (`cacheRetention: "none"`, which pi-claude-code runs as its own Claude Code process with no tools, apart from any session's) to the smallest model on hand, then the next if one fails. The host records who wrote a title, so a rename by hand is never replaced, and announces the change like a rename. Writing a title again (`regenerateTitle`) sends an excerpt of the conversation instead: the first message, then the latest messages and answers that fit in 6,000 characters, without tool calls, each cut to 1,200. It replaces a title set by hand, unless the title was renamed while the model wrote. The faux model writes none.
 
 ## Permissions
 

@@ -22,6 +22,7 @@ import { checkImages, type ImageInput, messageContent, titleOf } from "../images
 import { checkVideos, MAX_FRAMES, MAX_VIDEO_BYTES, MAX_VIDEOS, UPLOAD_DAYS, type VideoInput } from "../videos.ts";
 import type { ApprovalRequest } from "../permissions.ts";
 import { monthSpend } from "../live.ts";
+import { ParseError } from "../parse.ts";
 import { SettingsError } from "../settings.ts";
 import { billedCost } from "../transcript.ts";
 import { DurableTranslator, entryItem, type Json, text, usageState } from "./translate.ts";
@@ -651,6 +652,21 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 					const summary = await summaryOf(renamed, (await host.sessions.states()).get(renamed.id) ?? "idle");
 					publishSummary(summary);
 					return { conversation: summary };
+				}
+				case "conversations.retitle": {
+					// aludra's own: the title written again from the whole conversation, replacing any title.
+					const { record } = await session(p.conversationId);
+					let written;
+					try {
+						written = await host.sessions.regenerateTitle(record.id);
+					} catch (error) {
+						if (error instanceof ParseError) throw new ProtocolError("bad_request", error.message);
+						throw error;
+					}
+					const current = written ?? record;
+					const summary = await summaryOf(current, (await host.sessions.states()).get(current.id) ?? "idle");
+					if (written !== undefined) publishSummary(summary);
+					return { conversation: summary, written: written !== undefined };
 				}
 				case "conversations.archive": {
 					const { record } = await session(p.conversationId);

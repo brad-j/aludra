@@ -27,7 +27,7 @@ From a terminal:
 aludra ask --project site "Why does the build fail on main?"
 ```
 
-A session is titled from its first message: at first its first line, then, a second or two later, a short title a model writes, such as "Feature backlog: shortcuts, editable ideas". The smallest model on hand writes it (Claude Haiku through Claude Code, or the cheapest OpenAI model you offer), as a one-off request on your plan. If no model answers, the first line stays. A title you set yourself is never replaced. Rename it from amyrlin's session menu or by double-clicking its header there, or with `POST /api/sessions/:id/title`.
+A session is titled from its first message: at first its first line, then, a second or two later, a short title a model writes, such as "Feature backlog: shortcuts, editable ideas". The smallest model on hand writes it (Claude Haiku through Claude Code, or the cheapest OpenAI model you offer), as a one-off request on your plan. If no model answers, the first line stays. A title you set yourself is never replaced on its own. When a session has moved on, have the title written again from the whole conversation: `aludra retitle --session ID`, `POST /api/sessions/:id/retitle` or amyrlin's `conversations.retitle`. That replaces any title, yours too. Rename it from amyrlin's session menu or by double-clicking its header there, or with `POST /api/sessions/:id/title`.
 
 ### The transcript
 

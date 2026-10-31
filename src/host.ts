@@ -26,7 +26,7 @@ import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
 import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
-import { modelTitler, type Titler, titleModels } from "./titles.ts";
+import { type Exchange, excerptOf, modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
 import { saveVideos, sweepUploads, type VideoInput, videoBlocks, withoutVideoNotes } from "./videos.ts";
 
@@ -394,6 +394,39 @@ export async function openHost(options: HostOptions) {
 		}
 	}
 
+	/**
+	 * Has a model write session `id`'s title again, from the whole conversation as it is now, replacing any title, one set
+	 * by hand too. A rename made while the model writes wins. Resolves with the new record, or undefined when no model
+	 * wrote one; throws if there's no such session or it has no messages yet.
+	 */
+	async function regenerateTitle(id: number): Promise<SessionRecord | undefined> {
+		const before = await get(id);
+		if (before === undefined) throw new Error(`no session ${id}`);
+		const state = await (await conversation(id)).viewState(context);
+		let exchanges: Exchange[];
+		try {
+			exchanges = itemsOf(state.value).flatMap((item): Exchange[] =>
+				item.kind === "user" ? [{ from: "user", text: withoutVideoNotes(item.text) }] : item.kind === "answer" && item.streaming !== true ? [{ from: "agent", text: item.text }] : [],
+			);
+		} finally {
+			state.dispose();
+		}
+		if (!exchanges.some((e) => e.from === "user" && e.text.trim() !== "")) throw new ParseError("the session has no messages to title it from");
+		if (titler === undefined) return undefined;
+		const title = await titler(excerptOf(exchanges), { conversation: true });
+		if (title === undefined) return undefined;
+		const record = await root.commit(async (tx) => {
+			const found = (await tx.doc(Sessions)).sessions[String(id)];
+			if (found === undefined) return undefined;
+			if (found.titled === "user" && found.title !== before.title) return undefined;
+			found.title = title;
+			found.titled = "model";
+			return { ...found };
+		}, context);
+		if (record !== undefined) updated.forEach((listener) => listener(record));
+		return record;
+	}
+
 	/** Gives session `id` a new title; returns its record, or throws if there's no such session. */
 	async function rename(id: number, title: string): Promise<SessionRecord> {
 		const trimmed = title.replace(/\s+/g, " ").trim();
@@ -626,7 +659,7 @@ export async function openHost(options: HostOptions) {
 		catalog: () => catalog.list(),
 		modelInfo,
 		projects,
-		sessions: { list, get, create, createScratch, onCreate, rename, retitle, archive, onUpdate, states },
+		sessions: { list, get, create, createScratch, onCreate, rename, retitle, regenerateTitle, archive, onUpdate, states },
 		scratchRoot,
 		uploads,
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },

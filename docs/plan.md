@@ -56,6 +56,21 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces.
 
+## From T3 Code (2026-10-30)
+
+Brad picked these from a read of [T3 Code](https://github.com/pingdotgg/t3code)'s server and user docs, in this order. None is started.
+
+1. **Regenerate a title on demand.** Done 2026-10-30: `POST /api/sessions/:id/retitle`, `aludra retitle --session ID` and `conversations.retitle` on `/amyrlin` (aludra's own; amyrlin doesn't call it yet). The model gets an excerpt of the whole conversation, the first message plus the latest messages and answers that fit, not only the first message, since a stale title is one the work has moved past. It replaces a title set by hand; a rename made while it writes wins. Per-project title instructions can come later.
+2. **Per-turn checkpoints and restore.** `src/changes.ts` snapshots the working tree at each user message as well as at session start, so the changes view can show one turn's work. Restore puts the project back to a checkpoint: refused while a run goes, and it snapshots the current tree first so the restore can be undone.
+3. **Search message text** across sessions, opening at the match. Check whether Pi Durable's SQLite schema is stable enough to index directly before choosing between its tables and an index of aludra's own.
+4. **File attachments and large pastes.** Generalizes the video path (`src/videos.ts`): any file is saved in `uploads/<session>/` and the message carries a note with its path. In T3 a paste of 32 KiB or more becomes such a file instead of filling the context. Needs additions to amyrlin's protocol and the HTTP API.
+5. **An MCP server at `/mcp`**, so Claude Code or pi on one machine can list, read, start and message sessions on another. Identity is the `Tailscale-User-Login` check, with no OAuth pairing. Start with reading and starting sessions; tools that write wait until a client asks for them, since anything holding the URL can start full-access sessions. Adding the MCP SDK is a new dependency to ask about first.
+6. **Auto-archive on the host** (Brad agreed 2026-10-30). amyrlin archives sessions idle 3 days with nothing pending, through `conversations.archive`, but only while it runs, and it keeps the sessions brought back by hand in the Mac's UserDefaults. The host would do the same on a timer (`archive.afterDays`, default 3, 0 for off), and mark a session kept when any client unarchives it, so no protocol change is needed. amyrlin then drops `archiveStale` and `keptSessions`; until it does, both apply the same rule.
+
+Also worth doing whenever text can come in from outside (MCP, pasted text): strip zero-width and Unicode tag characters from prompts and say so, since they can carry instructions the user can't see.
+
+Dropped: prompt links. Not picked this round: the usage meter (the rate-limit diagnostic is already there), scheduled and webhook tasks, a worktree per session, triage, editing queued messages, visual replies, forking.
+
 ## pi-claude-code (2026-10-30)
 
 Brad replaced pi-claude-bridge with [pi-claude-code](https://github.com/earendil-works/pi-claude-code), Earendil's own provider for Claude subscriptions through Claude Code. The bridge drove Claude Code through the Agent SDK and kept a long-lived query and its own Claude Code session per conversation, which is what the five fixes in the old `src/bridge.ts` worked around. pi-claude-code is a plain pi-ai provider: each turn it runs `claude -p` with Pi's transcript, Pi's system prompt and an inert list of Pi's tools, and Claude Code returns the model's response without running anything or saving a session. That fits Pi Durable as it is.

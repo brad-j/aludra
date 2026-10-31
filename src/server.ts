@@ -4,7 +4,7 @@
 // client → server: {"type":"ask","content":"...","project":"aludra"} or {"type":"ask","content":"...","session":3},
 //                  {"type":"watch","session":3?}, {"type":"sessions","listing":true?}, {"type":"stop","session":3},
 //                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true},
-//                  {"type":"retitle"}, {"type":"archive","session":3,"archived":true},
+//                  {"type":"retitle","session":3?}, {"type":"archive","session":3,"archived":true},
 //                  {"type":"settings","changes":{"approvals.hosts":["db"]}?}
 // server → client: {"type":"line","text":"..."}, for a sessions request with listing
 //                  {"type":"sessions","sessions":[SessionSummary...],"colors":{...}}, for a settings request
@@ -38,7 +38,8 @@ export type ClientMessage =
 	| { type: "stop"; session: number }
 	| { type: "approvals" }
 	| { type: "decide"; id: string; allow: boolean }
-	| { type: "retitle" }
+	/** With a session, that session's title written again from its whole conversation; without, every first-line title. */
+	| { type: "retitle"; session?: number }
 	| { type: "archive"; session: number; archived: boolean }
 	/** The settings, after making `changes` if there are any (src/settings.ts). */
 	| { type: "settings"; changes?: { readonly [key: string]: Json } };
@@ -99,7 +100,7 @@ export function parseClientMessage(line: string): ClientMessage {
 			if (m.session === undefined) throw new ParseError("a stop needs a session");
 			return { type: "stop", session: m.session };
 		case "retitle":
-			return { type: "retitle" };
+			return m.session === undefined ? { type: "retitle" } : { type: "retitle", session: m.session };
 		case "archive":
 			if (m.session === undefined) throw new ParseError("an archive needs a session");
 			return { type: "archive", session: m.session, archived: m.archived !== false };
@@ -330,6 +331,12 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				return finish([request.archived ? `archived session ${record.id}: ${record.title}` : `brought back session ${record.id}: ${record.title}`]);
 			}
 			case "retitle": {
+				if (request.session !== undefined) {
+					const before = await host.sessions.get(request.session);
+					if (before === undefined) return finish([`no session ${request.session}; aludra sessions lists them`], "failed");
+					const after = await host.sessions.regenerateTitle(request.session);
+					return after === undefined ? finish([`no model wrote a title; session ${before.id} keeps "${before.title}"`], "failed") : finish([`  ${String(after.id).padStart(4)}  ${after.title}   (was: ${before.title})`]);
+				}
 				let done = 0;
 				await host.sessions.retitle((before, after) => {
 					if (after === undefined) line(socket, `  ${String(before.id).padStart(4)}  kept: ${before.title}`);

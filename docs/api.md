@@ -21,6 +21,7 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 | `POST /api/sessions/:id/messages` | `{ text, images?, mode: "steer" \| "followUp", requestId? }` | `{ submission }`, for withdrawing it. |
 | `POST /api/sessions/:id/stop` | `{}` | `{}` |
 | `POST /api/sessions/:id/title` | `{ title }` | `{ title }`, whitespace folded, 1 to 200 characters. |
+| `POST /api/sessions/:id/retitle` | `{}` | `{ title, written }`. A model writes the title again from the whole conversation, replacing any title, one set by hand too. `written` is false when no model wrote one (the title stays); 400 when the session has no messages yet. |
 | `POST /api/sessions/:id/archive` | `{ archived }` | `{ archived }`. Hides the session from the lists, or brings it back. Nothing else changes; a run goes on. |
 | `POST /api/sessions/:id/agent` | `{ model?, thinking? }` | `{}`. Applies from the next request. `model` is a pinned model's ID or `provider/id` for any model, here and when starting a session. |
 | `POST /api/sessions/:id/withdraw` | `{ submission }` | `{ result }`: `aborted`, `already_placed`, `settled` or `not_found`. |
@@ -107,6 +108,7 @@ How aludra maps onto the protocol:
 - `projects.setColor` picks a project's color; `host.info` and the host snapshot carry the picked colors, and `host.projectColors` announces changes.
 - Summaries carry `cost`, the dollars billed providers (OpenRouter) charged for the session, only when it used one. `spend` stays as the protocol defines it, Pi Durable's usage priced at API rates for every model, plan-paid ones (Claude Code, ChatGPT) included, so a client showing money should show `cost`. `host.info` and `host.snapshot` carry `monthCost`, this calendar month's charged total, when any session was charged.
 - `settings.get` and `settings.set { changes }` are aludra's own additions to the protocol, each answering `{ settings }` with the same `Settings` as the web API. A refused change is `invalid_settings` with `data.errors`, one reason each. A host from before them answers `unknown_method`, which is how a client can tell whether to offer settings.
+- `conversations.retitle {conversationId}` is aludra's own: a model writes the title again from the whole conversation, replacing any title, one set by hand too. It returns `{conversation, written}`, and watchers get `conversation.updated` when it's written; `written: false` means no model did, and the title stays. A session with no messages is `bad_request`. A host without it answers `unknown_method`.
 - `conversations.archive` hides a session from the lists, or brings it back with `archived: false`; running work goes on. `conversations.list` leaves archived sessions out unless `includeArchived` is set, and `host.watch` carries them marked `archived` for the client to filter. `conversations.fork` answers `unsupported`.
 - Pending approvals are `approval.requested`. Approved, denied, and expired, stopped or superseded requests are `approval.resolved` with `approve`, `deny` or `cancelled`.
 - `approval.answer` with `always: true` (only with `approve`) lets the session run the request's summary, `git push` or `ssh to host`, without asking again, and approves its other requests for it. Summaries list those as `alwaysAllowed`, present only when there are any; `approval.forget {conversationId, summary}` takes one back and returns `{conversation}`.
@@ -135,7 +137,7 @@ Client to server, one of:
 
 `{ "type": "settings" }` answers with one `{ "type": "settings", "settings": Settings }`. With `"changes": { key: value | null }` it makes them first, as `POST /api/settings` does; a refused change is a `! ` line with the reasons and a `failed` status.
 
-`{ "type": "retitle" }` writes titles for sessions that still have their first message's first line and sends a line for each.
+`{ "type": "retitle" }` writes titles for sessions that still have their first message's first line and sends a line for each. With `"session": 12` it writes that session's title again from its whole conversation, as `POST /api/sessions/:id/retitle` does, and the status is `failed` when no model wrote one.
 
 `{ "type": "sessions", "listing": true }` asks for the sessions as data: the server answers with one `{ "type": "sessions", "sessions": SessionSummary[], "colors": { name: hue } }`, which the CLI lays out for its terminal, and `spend: { month }`, this calendar month's OpenRouter spend, when any session used OpenRouter. A summary's `cost` is that session's total. Without `listing`, the server sends them as text lines. A host from before `listing` ignores it and sends lines, which the CLI prints as they are.
 

@@ -26,7 +26,8 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   stop --session ID                      stop a session's run
   archive --session ID | unarchive --session ID
                                          hide a session from the lists, or bring it back
-  retitle                                have a model title sessions that still have their first line
+  retitle [--session ID]                 have a model title sessions that still have their first line, or
+                                         write one session's title again from its whole conversation
   approvals                              list calls waiting for approval
   approve ID | deny ID                   answer one
   projects                               list the projects the workspaces' roots match
@@ -145,7 +146,7 @@ switch (command) {
 	case "unarchive":
 		process.exit(await talk(config, { type: "archive", session: sessionId(), archived: command === "archive" }));
 	case "retitle":
-		process.exit(await talk(config, { type: "retitle" }));
+		process.exit(await talk(config, values.session === undefined ? { type: "retitle" } : { type: "retitle", session: sessionId() }));
 	case "approve":
 	case "deny":
 		if (rest[0] === undefined) fail(`usage: aludra ${command} ID (aludra approvals lists them)`);

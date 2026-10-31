@@ -5,7 +5,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { configFor } from "../src/config.ts";
 import { context, Sessions } from "../src/host.ts";
-import { cleanTitle, modelTitler, TITLE_PROMPT, titleModels } from "../src/titles.ts";
+import { cleanTitle, excerptOf, modelTitler, RETITLE_PROMPT, TITLE_PROMPT, titleModels } from "../src/titles.ts";
 import { makeProject, testHost } from "./helpers.ts";
 
 test("a model's reply is cut down to a title", () => {
@@ -112,4 +112,72 @@ test("retitle names the sessions that still have their first line, and leaves th
 	const again: number[] = [];
 	await host.sessions.retitle((before) => again.push(before.id));
 	assert.deepEqual(again, []);
+});
+
+test("an excerpt for a title keeps the first message and the latest ones that fit", () => {
+	assert.equal(excerptOf([]), "");
+	assert.equal(excerptOf([{ from: "user", text: "Fix  the\nbuild" }, { from: "agent", text: "Fixed." }]), "User: Fix the build\nAgent: Fixed.");
+	const many = Array.from({ length: 50 }, (_, i) => ({ from: (i % 2 === 0 ? "user" : "agent") as "user" | "agent", text: `message ${i} ${"x".repeat(100)}` }));
+	const excerpt = excerptOf(many, 1000);
+	const lines = excerpt.split("\n");
+	assert.ok(excerpt.length <= 1000 + 30, String(excerpt.length));
+	assert.match(lines[0]!, /^User: message 0 /);
+	assert.match(lines[1]!, /^\(\d+ more left out\)$/);
+	assert.match(lines.at(-1)!, /^Agent: message 49 /);
+	assert.ok(excerptOf([{ from: "agent", text: "y".repeat(5000) }]).length < 1300, "one long answer is cut");
+});
+
+test("a conversation title goes to the model with the retitle prompt", async () => {
+	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
+	const contexts: TranscriptContext[] = [];
+	faux.setResponses([(ctx: TranscriptContext) => {
+		contexts.push(ctx);
+		return fauxAssistantMessage(fauxText("Where it went"));
+	}]);
+	const models = createModels();
+	models.setProvider(faux.provider);
+	const title = await modelTitler(models, [{ provider: "faux", modelId: "faux-1" }], () => {})("User: a\nAgent: b", { conversation: true });
+	assert.equal(title, "Where it went");
+	assert.match(JSON.stringify(contexts[0]!.messages), new RegExp(JSON.stringify(RETITLE_PROMPT.split("\n")[0]).slice(1, 60)));
+	assert.match(JSON.stringify(contexts[0]!.messages), /<conversation>\\nUser: a\\nAgent: b\\n<\/conversation>/);
+});
+
+test("regenerating a title reads the whole conversation, replaces a title set by hand, and loses to a rename made meanwhile", async (t) => {
+	const pending: ((title: string | undefined) => void)[] = [];
+	const asked: string[] = [];
+	const titler = (text: string, options?: { conversation?: boolean }) => {
+		if (options?.conversation !== true) return Promise.resolve(undefined);
+		asked.push(text);
+		return new Promise<string | undefined>((resolve) => pending.push(resolve));
+	};
+	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
+	faux.setResponses([fauxAssistantMessage(fauxText("First answer")), fauxAssistantMessage(fauxText("Second answer"))]);
+	const models = createModels();
+	models.setProvider(faux.provider);
+	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, titler });
+	const project = makeProject(dir, "demo");
+	const session = await host.sessions.create(project, "Start");
+	await (await host.submit(session.id, "Start here")).wait(context);
+	await (await host.submit(session.id, "Then this")).wait(context);
+	await host.sessions.rename(session.id, "By hand");
+
+	const written = host.sessions.regenerateTitle(session.id);
+	while (pending.length === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.equal(asked[0], "User: Start here\nAgent: First answer\nUser: Then this\nAgent: Second answer");
+	pending[0]!("Then this, after starting");
+	const record = await written;
+	assert.equal(record?.title, "Then this, after starting");
+	assert.equal(record?.titled, "model");
+
+	// A rename while the model writes wins.
+	const raced = host.sessions.regenerateTitle(session.id);
+	while (pending.length === 1) await new Promise((resolve) => setTimeout(resolve, 5));
+	await host.sessions.rename(session.id, "Renamed meanwhile");
+	pending[1]!("Too late");
+	assert.equal(await raced, undefined);
+	assert.equal((await host.sessions.get(session.id))!.title, "Renamed meanwhile");
+
+	const empty = await host.sessions.create(project, "New session");
+	await assert.rejects(host.sessions.regenerateTitle(empty.id), /no messages/);
+	await assert.rejects(host.sessions.regenerateTitle(999), /no session 999/);
 });

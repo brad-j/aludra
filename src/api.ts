@@ -238,7 +238,7 @@ export function createApi(host: Host, options: ApiOptions) {
 			if (decided === undefined) throw new HttpError(409, "That approval isn't waiting any more");
 			return { status: decided.status };
 		}
-		const match = /^\/api\/sessions\/(\d+)\/(messages|stop|agent|withdraw|title|archive)$/.exec(path);
+		const match = /^\/api\/sessions\/(\d+)\/(messages|stop|agent|withdraw|title|retitle|archive)$/.exec(path);
 		if (match === null) throw new HttpError(404, "Not found");
 		const id = Number(match[1]);
 		if ((await host.sessions.get(id)) === undefined) throw new HttpError(404, `No session ${id}`);
@@ -258,6 +258,10 @@ export function createApi(host: Host, options: ApiOptions) {
 				return {};
 			case "title":
 				return { title: (await host.sessions.rename(id, parseJson(body, newTitle, "the title").title)).title };
+			case "retitle": {
+				const written = await host.sessions.regenerateTitle(id);
+				return { title: (written ?? (await host.sessions.get(id))!).title, written: written !== undefined };
+			}
 			case "archive":
 				return { archived: (await host.sessions.archive(id, parseJson(body, archiving, "the archive").archived)).archived === true };
 			default:

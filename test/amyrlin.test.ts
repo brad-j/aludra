@@ -311,6 +311,18 @@ test("a conversation is renamed from the Mac, and every watcher hears the new ti
 	await assert.rejects(mac.request("conversations.rename", { conversationId: 999, title: "x" }), { code: "not_found" });
 });
 
+test("conversations.retitle writes the title again from the conversation, or says it couldn't", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const { conversation } = await mac.request("conversations.create", { requestId: "retitle-1", project: project.dir, text: "hello" });
+	await mac.request("conversations.rename", { conversationId: conversation.id, title: "Kept" });
+	// The faux host has no titler, so no title is written and the old one stays.
+	const answer = await mac.request("conversations.retitle", { conversationId: conversation.id });
+	assert.equal(answer.written, false);
+	assert.equal(answer.conversation.title, "Kept");
+	await assert.rejects(mac.request("conversations.retitle", { conversationId: 999 }), { code: "not_found" });
+});
+
 test("a conversation is archived from the Mac: hidden from conversations.list, still in host.watch marked archived, and brought back", async (t) => {
 	const { url, project } = await api(t);
 	const mac = await client(t, url);
