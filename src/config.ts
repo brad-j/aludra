@@ -6,6 +6,7 @@
 //     "claude": { "path": "claude", "configDir": "~/.claude-personal" },
 //     "approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
 //     "backup": { "dir": "/mnt/nas/aludra", "everyHours": 24, "keep": 7 },
+//     "archive": { "afterDays": 3 },
 //     "mcp": { "write": false },
 //     "api": { "port": 8724, "users": ["you@example.com"] },
 //     "dataDir": "~/.local/share/aludra"
@@ -54,6 +55,8 @@ export type Config = {
 	approvals: { hosts: string[]; waitHours: number };
 	/** Copies of the database: one every `everyHours`, the newest `keep` kept, in `dir`. */
 	backup: { dir: string; everyHours: number; keep: number };
+	/** Sessions idle `afterDays` with nothing waiting are archived (src/archive.ts); 0 turns it off. */
+	archive: { afterDays: number };
 	/** The MCP endpoint (src/mcp.ts): read-only unless `write`, which lets agents start, message and stop sessions. */
 	mcp: { write: boolean };
 	dataDir: string;
@@ -92,6 +95,7 @@ const DEFAULTS = {
 	api: { port: 8724, users: [] },
 	approvals: { hosts: [], waitHours: 24 },
 	backup: { everyHours: 24, keep: 7 },
+	archive: { afterDays: 3 },
 	mcp: { write: false },
 } satisfies Omit<Config, "workspaces" | "dataDir" | "backup"> & { backup: Omit<Config["backup"], "dir"> };
 
@@ -104,6 +108,7 @@ const settingsFile = object({
 	api: optional(object({ port: optional(integer), users: optional(array(string)) })),
 	approvals: optional(object({ hosts: optional(array(string)), waitHours: optional(number) })),
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
+	archive: optional(object({ afterDays: optional(number) })),
 	mcp: optional(object({ write: optional(boolean) })),
 	dataDir: optional(string),
 });
@@ -156,6 +161,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 		},
 		api: { ...DEFAULTS.api, ...file.api },
 		approvals: { ...DEFAULTS.approvals, ...file.approvals },
+		archive: { ...DEFAULTS.archive, ...file.archive },
 		mcp: { ...DEFAULTS.mcp, ...file.mcp },
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
 		backup: { ...DEFAULTS.backup, dir: "" },
@@ -183,6 +189,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	if (config.api.port < 1 || config.api.port > 65535) errors.push("api.port should be a port number");
 	if (!(config.backup.everyHours > 0)) errors.push("backup.everyHours should be more than 0");
 	if (config.backup.keep < 1) errors.push("backup.keep should be 1 or more");
+	if (!(config.archive.afterDays >= 0)) errors.push("archive.afterDays should be 0 (off) or more");
 	return { config, errors };
 }
 

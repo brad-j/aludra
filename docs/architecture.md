@@ -36,7 +36,7 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
 
   | Document | Holds |
   | --- | --- |
-  | `aludra.sessions` | Each session's workspace, project, directory, title and who wrote it (a model or the user), whether it's archived, creation time, and changes snapshot. |
+  | `aludra.sessions` | Each session's workspace, project, directory, title and who wrote it (a model or the user), whether it's archived or was brought back by hand (`kept`), creation time, and changes snapshot. |
   | `aludra.ideas` | Ideas, by ID. |
   | `aludra.approvals` | Approval requests and decisions; decided ones are dropped after a week. |
   | `aludra.colors` | Picked project colors: name to hue index. |
@@ -74,6 +74,10 @@ The package ships TypeScript, which Node won't strip inside `node_modules`, so i
 `claude.path` reaches the provider as `PI_CLAUDE_CODE_COMMAND`, set in the host's environment before it loads, and Claude Code inherits `CLAUDE_CONFIG_DIR` from the host. The provider refuses to start Claude Code when the environment names an API key, a base URL or another backend (Bedrock, Vertex, Foundry), and fails a turn that Claude Code reports was charged to usage credits rather than the plan. Each answer carries Claude Code's latest rate-limit status as a `claude-code.rate-limit` diagnostic: the five-hour and seven-day windows, their use and when they reset.
 
 pi-claude-code isn't on npm, so it's pinned to a commit, and Pi Durable to its version; `aludra doctor` fails if either changes version. `test/claude-code.test.ts` tests the wrapper, and `scripts/live-check.ts` runs the real thing ([operations.md](operations.md#upgrading-pi-durable-or-pi-claude-code)).
+
+## Archiving idle sessions
+
+`src/archive.ts` runs a minute after start and hourly: it reads every session's summary and archives each one idle for `archive.afterDays` with nothing running or waiting, through `host.sessions.archiveIdle`, which skips a session archived or kept in the meantime. Unarchiving one that was archived marks it `kept`; archiving it again clears that. The change reaches clients as any archive does, through the session's update.
 
 ## Titles
 

@@ -46,6 +46,8 @@ export type SessionRecord = {
 	titled?: "model" | "user";
 	/** Hidden from the lists; nothing else changes, and running work goes on. */
 	archived?: boolean;
+	/** Brought back from the archive by hand, so it isn't archived again for being idle (src/archive.ts). */
+	kept?: boolean;
 	createdAt: number;
 	/** The project's files when it started, for its changes (src/changes.ts); or why there's no snapshot. */
 	base?: Snapshot;
@@ -505,17 +507,37 @@ export async function openHost(options: HostOptions) {
 		return record;
 	}
 
-	/** Archives session `id`, or brings it back with false; returns its record. Archiving only hides it from the lists. */
+	/**
+	 * Archives session `id`, or brings it back with false; returns its record. Archiving only hides it from the lists.
+	 * Bringing one back by hand keeps it from the idle archive; archiving it again lets it go back to the usual rule.
+	 */
 	async function archive(id: number, archived: boolean): Promise<SessionRecord> {
 		const record = await root.commit(async (tx) => {
 			const found = (await tx.doc(Sessions)).sessions[String(id)];
 			if (found === undefined) throw new Error(`no session ${id}`);
-			if (archived) found.archived = true;
-			else delete found.archived;
+			if (archived) {
+				found.archived = true;
+				delete found.kept;
+			} else {
+				if (found.archived === true) found.kept = true;
+				delete found.archived;
+			}
 			return { ...found };
 		}, context);
 		updated.forEach((listener) => listener(record));
 		return record;
+	}
+
+	/** Archives session `id` for being idle, unless it was kept or archived meanwhile; returns whether it did. */
+	async function archiveIdle(id: number): Promise<boolean> {
+		const record = await root.commit(async (tx) => {
+			const found = (await tx.doc(Sessions)).sessions[String(id)];
+			if (found === undefined || found.archived === true || found.kept === true) return undefined;
+			found.archived = true;
+			return { ...found };
+		}, context);
+		if (record !== undefined) updated.forEach((listener) => listener(record));
+		return record !== undefined;
 	}
 
 	/** Hears of a session record that changed after it was made, such as a new title. */
@@ -700,6 +722,7 @@ export async function openHost(options: HostOptions) {
 		config.workspaces = next.workspaces;
 		config.approvals = next.approvals;
 		config.backup = next.backup;
+		config.archive = next.archive;
 		config.model.thinking = next.model.thinking;
 		if (moved && loaded(provider)) {
 			config.model.provider = provider;
@@ -738,6 +761,8 @@ export async function openHost(options: HostOptions) {
 			return config.model.thinking;
 		},
 		settings: { get: readSettings, set: saveSettings, onChange: onSettings },
+		/** Days idle before a session is archived; 0 for never. */
+		archiveAfterDays: () => config.archive.afterDays,
 		/** Whether the MCP endpoint may start, message and stop sessions (the settings file's mcp.write). */
 		mcpWrite: () => config.mcp.write,
 		choices,
@@ -747,7 +772,7 @@ export async function openHost(options: HostOptions) {
 		catalog: () => catalog.list(),
 		modelInfo,
 		projects,
-		sessions: { list, get, create, createScratch, onCreate, rename, retitle, regenerateTitle, archive, onUpdate, states },
+		sessions: { list, get, create, createScratch, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		checkpoints: {
 			list: checkpoints.list,
 			changes: checkpoints.changes,

@@ -23,6 +23,7 @@ import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchE
 import type { SessionSummary, Settings } from "./api-types.ts";
 import { createApi } from "./api.ts";
 import { createLive, monthSpend, readSummary } from "./live.ts";
+import { scheduleArchive } from "./archive.ts";
 import { scheduleBackups } from "./backup.ts";
 import { createPush, loadPushKeys } from "./push.ts";
 import type { Config } from "./config.ts";
@@ -225,6 +226,7 @@ export async function serve(config: Config) {
 	const server = listen(host, socketPath, watchers);
 	console.error(`aludra listening on ${socketPath}, model ${host.model.provider}/${host.model.modelId}`);
 	const stopBackups = scheduleBackups(config);
+	const stopArchive = scheduleArchive(host);
 	const push = createPush({ harness: host.harness, keys: loadPushKeys(config.dataDir) });
 	const { users } = config.api;
 	const api = users.length === 0 ? undefined : createApi(host, { users, push, live });
@@ -234,6 +236,7 @@ export async function serve(config: Config) {
 
 	async function shutdown() {
 		stopBackups();
+		stopArchive();
 		await api?.close();
 		server.close();
 		for (const socket of watchers) socket.destroy();

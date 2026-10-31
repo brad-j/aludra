@@ -45,6 +45,7 @@ Only `workspaces` is required. `aludra serve` and `aludra service install` refus
 | `model.choices` | At once, unless a choice's provider isn't loaded; then the whole list waits for a restart. |
 | `approvals.hosts`, `approvals.waitHours` | At once, for calls made after the change. |
 | `backup.dir`, `backup.everyHours`, `backup.keep` | At the next hourly check. |
+| `archive.afterDays` | At the next hourly check. |
 
 `api.users`, `api.port`, `claude.path`, `claude.configDir` and `dataDir` change only in the file, followed by a restart. A wrong login or port would lock every client out with no way back in from one, a new data directory would strand the database, and the `claude` settings pick the program the host runs and the account it bills.
 
@@ -114,6 +115,10 @@ aludra runs the Claude Code you installed and logged in to, as `claude -p`, for 
 - `keep`: how many copies to keep, newest first. Default `7`.
 
 [operations.md](operations.md#backups) covers backups and restoring.
+
+### `archive`
+
+- `afterDays`: sessions idle this many days, with nothing waiting for your approval, are archived. Checked a minute after start and hourly. A session brought back from the archive by hand isn't archived again until someone archives it. Default `3`; `0` turns it off.
 
 ### `mcp`
 
