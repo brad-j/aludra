@@ -5,6 +5,9 @@
 // are untouched; only objects are added. The changes are the diff from the start's tree to a fresh one, limited to the
 // project's directory, so they include the session's commits but not what was already uncommitted when it started.
 // The tree is kept by its hash in the session's record; git keeps unreferenced objects for two weeks at least.
+//
+// Checkpoints (src/checkpoints.ts) are more snapshots of the same kind, one as each turn starts, so a turn's changes are
+// the diff from its checkpoint to the next, and restoreTree puts a checkpoint's files back.
 import { execFile } from "node:child_process";
 import { copyFile, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,6 +25,17 @@ function git(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<
 			if (error) reject(new Error(stderr.trim() || error.message));
 			else resolvePromise(stdout);
 		});
+	});
+}
+
+/** `git` with `input` on its standard input. */
+function gitInput(cwd: string, args: string[], input: string, env: NodeJS.ProcessEnv = {}): Promise<string> {
+	return new Promise((resolvePromise, reject) => {
+		const child = execFile("git", args, { cwd, env: { ...process.env, ...env, GIT_OPTIONAL_LOCKS: "0" }, maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+			if (error) reject(new Error(stderr.trim() || error.message));
+			else resolvePromise(stdout);
+		});
+		child.stdin?.end(input);
 	});
 }
 
@@ -58,7 +72,12 @@ const local = (base: Snapshot, path: string) => (base.prefix === "" ? path : rel
 export async function changesSince(base: Snapshot): Promise<Changes> {
 	const now = await snapshot(join(base.top, base.prefix));
 	if ("error" in now) return { available: false, reason: now.error };
-	const range = [base.tree, now.tree];
+	return changesBetween(base, base.tree, now.tree, base.at);
+}
+
+/** What changed under `base`'s project from tree `from` to tree `to`, the biggest files first. */
+export async function changesBetween(base: Snapshot, from: string, to: string, since: number): Promise<Changes> {
+	const range = [from, to];
 	const [numstat, status] = await Promise.all([
 		git(base.top, ["diff", "--numstat", "-z", "-M", ...range, ...pathspec(base)]),
 		git(base.top, ["diff", "--name-status", "-z", "-M", ...range, ...pathspec(base)]),
@@ -78,7 +97,7 @@ export async function changesSince(base: Snapshot): Promise<Changes> {
 	files.sort((a, b) => b.add + b.del - (a.add + a.del) || a.path.localeCompare(b.path));
 	return {
 		available: true,
-		since: base.at,
+		since,
 		add: files.reduce((n, f) => n + f.add, 0),
 		del: files.reduce((n, f) => n + f.del, 0),
 		files,
@@ -89,9 +108,40 @@ export async function changesSince(base: Snapshot): Promise<Changes> {
 export async function fileDiff(base: Snapshot, path: string): Promise<string> {
 	const now = await snapshot(join(base.top, base.prefix));
 	if ("error" in now) throw new Error(now.error);
+	return fileDiffBetween(base, base.tree, now.tree, path);
+}
+
+/** The diff of one file under `base`'s project from tree `from` to tree `to`, cut if it's very long. */
+export async function fileDiffBetween(base: Snapshot, from: string, to: string, path: string): Promise<string> {
 	const full = join(base.prefix, path);
-	const patch = await git(base.top, ["diff", "-M", "--no-color", base.tree, now.tree, "--", full]);
+	const patch = await git(base.top, ["diff", "-M", "--no-color", from, to, "--", full]);
 	return patch.length > MAX_PATCH ? `${patch.slice(0, MAX_PATCH)}\n… (${patch.length - MAX_PATCH} more characters)` : patch;
+}
+
+/**
+ * Puts the project's files back as they were in `tree`, a snapshot of the same project: files that differ are written
+ * from it, and files made since are deleted. Ignored files, the index, branches and commits are left alone, and so is
+ * everything outside the project's directory. Returns how many files it wrote or deleted.
+ */
+export async function restoreTree(base: Snapshot, tree: string): Promise<{ written: number; deleted: number }> {
+	const dir = join(base.top, base.prefix);
+	const now = await snapshot(dir);
+	if ("error" in now) throw new Error(now.error);
+	const changed = parseNameStatus(await git(base.top, ["diff", "--name-status", "-z", "--no-renames", tree, now.tree, ...pathspec(base)]));
+	const write = [...changed].filter(([, code]) => code !== "A").map(([path]) => path);
+	const remove = [...changed].filter(([, code]) => code === "A").map(([path]) => path);
+	if (write.length > 0) {
+		const scratch = await mkdtemp(join(tmpdir(), "aludra-index-"));
+		const index = join(scratch, "index");
+		try {
+			await git(base.top, ["read-tree", tree], { GIT_INDEX_FILE: index });
+			await gitInput(base.top, ["checkout-index", "-f", "-z", "--stdin"], `${write.join("\0")}\0`, { GIT_INDEX_FILE: index });
+		} finally {
+			await rm(scratch, { recursive: true, force: true });
+		}
+	}
+	for (const path of remove) await rm(join(base.top, path), { force: true });
+	return { written: write.length, deleted: remove.length };
 }
 
 /** `git diff --numstat -z`: "add\tdel\tpath\0", or for a rename "add\tdel\t\0old\0new\0"; binary files count "-". */

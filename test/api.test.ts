@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -337,6 +338,26 @@ test("a session's title is written again over the API from its whole conversatio
 	assert.equal(asked.at(-1), "conversation: User: first words\nAgent: Hi.\nUser: now the other thing\nAgent: Done that.");
 	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.title === "Where it ended up", "the new title in the list");
 	assert.equal((await call("/api/sessions/999/retitle", {})).status, 404);
+});
+
+test("a session's checkpoints, a turn's changes and a restore over the API", async (t) => {
+	const { call, base, project } = await api(t, [fauxAssistantMessage(fauxToolCall("bash", { command: "printf 'x\\n' > made.txt" }), { stopReason: "toolUse" }), fauxAssistantMessage("Made it.")]);
+	execFileSync("git", ["init", "-q"], { cwd: project.dir });
+	const socket = await live(t, base);
+	const { id } = await (await call("/api/sessions", { project: "one", text: "make a file" })).json();
+	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.state === "done", "the run");
+
+	const { checkpoints } = await (await call(`/api/sessions/${id}/checkpoints`)).json();
+	assert.deepEqual(checkpoints.map((c: { id: number; kind: string }) => [c.id, c.kind]), [[1, "turn"]]);
+	const changes = await (await call(`/api/sessions/${id}/checkpoints/1/changes`)).json();
+	assert.deepEqual(changes.files.map((f: { path: string }) => f.path), ["made.txt"]);
+	assert.match((await (await call(`/api/sessions/${id}/checkpoints/1/changes/diff?path=made.txt`)).json()).patch, /^\+x$/m);
+	assert.equal((await call(`/api/sessions/${id}/checkpoints/1/changes/diff?path=other.txt`)).status, 404);
+	assert.equal((await call(`/api/sessions/${id}/checkpoints/9/changes`)).status, 404);
+
+	const restored = await (await call(`/api/sessions/${id}/checkpoints/1/restore`, {})).json();
+	assert.deepEqual([restored.written, restored.deleted, restored.files, restored.undo], [0, 1, ["made.txt"], 2]);
+	assert.equal((await call(`/api/sessions/${id}/checkpoints/9/restore`, {})).status, 404);
 });
 
 test("a message with an image: the transcript says where it is, and the app gets its bytes", async (t) => {

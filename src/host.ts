@@ -18,6 +18,7 @@ import { claudeCodeProvider, loadClaudeCode, PROVIDER } from "./claude-code.ts";
 import { choiceOf, createCatalog, displayName } from "./catalog.ts";
 import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
+import { createCheckpoints, restoreNoteText } from "./checkpoints.ts";
 import { claudeConfigDir, type Config, expandHome, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
@@ -202,8 +203,11 @@ export async function openHost(options: HostOptions) {
 	const titler = options.titler ?? (real ? modelTitler(models, titleModels(models, config)) : undefined);
 
 	let approvals: ApprovalService | undefined;
+	let opened: Harness | undefined;
+	const checkpoints = createCheckpoints({ harness: () => opened!, context, baseOf: async (id) => (await get(id))?.base });
 	const registry = createRegistry();
 	for (const extension of extensions) registry.install(extension);
+	registry.install(checkpoints.extension);
 	// Last, so it wraps the tools the others bring, and other hooks see a call before it waits for the user.
 	registry.install(permissionsExtension({ approvals: () => approvals!, hosts: () => config.approvals.hosts }));
 
@@ -218,6 +222,7 @@ export async function openHost(options: HostOptions) {
 		},
 		context,
 	);
+	opened = harness;
 	approvals = new ApprovalService(harness, () => config.approvals.waitHours * 3_600_000);
 	const root = await harness.root(context);
 	const created = new Set<(session: SessionRecord) => void>();
@@ -477,6 +482,9 @@ export async function openHost(options: HostOptions) {
 		await approvals!.supersede(id);
 		// A new session's first message names it, in the background.
 		if (untitled.delete(id)) void writeTitle(id, withoutVideoNotes(textOf(content)));
+		// After a restore, the next message tells the agent the files were put back.
+		const note = await checkpoints.takeNote(id);
+		if (note !== undefined) content = [{ type: "text", text: restoreNoteText(note) }, ...(typeof content === "string" ? [{ type: "text" as const, text: content }] : content)];
 		return target.submit({ type: "input", content, whenBusy: options.steer ? "steer" : "followUp", ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }, context);
 	}
 
@@ -660,6 +668,20 @@ export async function openHost(options: HostOptions) {
 		modelInfo,
 		projects,
 		sessions: { list, get, create, createScratch, onCreate, rename, retitle, regenerateTitle, archive, onUpdate, states },
+		checkpoints: {
+			list: checkpoints.list,
+			changes: checkpoints.changes,
+			diff: checkpoints.diff,
+			/** Puts session `id`'s project back to a checkpoint; refused while it runs or waits. */
+			restore: async (id: number, checkpoint: number) => {
+				const state = (await states()).get(id);
+				if (state === undefined) throw new Error(`no session ${id}`);
+				const result = await checkpoints.restore(id, checkpoint, state !== "idle");
+				const record = await get(id);
+				if (record !== undefined) updated.forEach((listener) => listener(record));
+				return result;
+			},
+		},
 		scratchRoot,
 		uploads,
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },

@@ -42,12 +42,14 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
   | `aludra.colors` | Picked project colors: name to hue index. |
   | `aludra.push` | Devices signed up for notifications. |
   | `aludra.amyrlin` | The host's ID for amyrlin, and `conversations.create` request IDs already handled. |
+  | `aludra.checkpoints` | Each session's checkpoints (a git tree each, by hash), and a note about a restore for its next message. |
 
 - **Extensions**, installed in this order:
   1. Pi Durable's `CodingTools`: `read`, `write`, `edit` and `bash`, each run in a `NodeExecutionEnv` from the conversation's `cwd`.
   2. Project context (`src/context.ts`): `AGENTS.md` or `CLAUDE.md` and skills, found with pi-coding-agent's own loaders the way the pi coding agent finds them, and read again before every request. A no-project session gets a `no_project` section instead, saying where things are on the machine.
   3. The Claude provider's extension (`src/claude-code.ts`), which records each conversation's `cwd` for the provider.
-  4. Permissions (`src/permissions.ts`), last, so it wraps every tool the others bring.
+  4. Checkpoints (`src/checkpoints.ts`), a `beforeRequest` hook that snapshots the project as each turn starts.
+  5. Permissions (`src/permissions.ts`), last, so it wraps every tool the others bring.
 
 ## Model providers
 
@@ -95,6 +97,12 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 ## Changes snapshots
 
 When a project session is created, `src/changes.ts` writes the project's working tree as a git tree through a temporary copy of the index, so untracked files count and ignored ones don't. Only objects are added to the repository; its index, branches and refs are untouched. The tree's hash goes in the session's record. `GET /api/sessions/:id/changes` diffs that tree against a fresh one, limited to the project's directory.
+
+## Checkpoints
+
+`src/checkpoints.ts` takes a snapshot of the same kind as each turn starts: a `beforeRequest` hook sees a request whose messages end with a user message, and records a checkpoint keyed by that message's timestamp, once, so a retried or recovered request takes no second one. A steer or follow-up is checkpointed when it reaches the model. A turn's changes are the diff from its checkpoint to the next, or to now for the latest; edits made by hand between turns count in the turn before them.
+
+Restoring is refused while the session runs or waits. It first records the files as they are as a checkpoint of kind `restore`, then lists what differs between the chosen tree and now, writes changed and deleted files back from the tree through a temporary index (`git checkout-index`), and deletes files made since. The real index, branches, commits, ignored files and anything outside the project's directory are left alone. A note goes in `aludra.checkpoints`, and the session's next message carries it as a `<restored>` text block before the user's own text, so the agent knows to read files again.
 
 ## Images
 

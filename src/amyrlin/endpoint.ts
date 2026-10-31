@@ -22,6 +22,7 @@ import { checkImages, type ImageInput, messageContent, titleOf } from "../images
 import { checkVideos, MAX_FRAMES, MAX_VIDEO_BYTES, MAX_VIDEOS, UPLOAD_DAYS, type VideoInput } from "../videos.ts";
 import type { ApprovalRequest } from "../permissions.ts";
 import { monthSpend } from "../live.ts";
+import { RestoreRefused } from "../checkpoints.ts";
 import { ParseError } from "../parse.ts";
 import { SettingsError } from "../settings.ts";
 import { billedCost } from "../transcript.ts";
@@ -218,6 +219,12 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		const record = await host.sessions.get(id);
 		if (record === undefined) throw new ProtocolError("not_found", `No session ${id}`);
 		return { record, conversation: await host.conversation(id) };
+	}
+
+	async function checkpointOf(id: number, checkpoint: unknown): Promise<number> {
+		if (typeof checkpoint !== "number") throw new ProtocolError("bad_request", "checkpoint should be a number");
+		if (!(await host.checkpoints.list(id)).some((c) => c.id === checkpoint)) throw new ProtocolError("not_found", `No checkpoint ${checkpoint}`);
+		return checkpoint;
 	}
 
 	async function settingsOf(id: number): Promise<Json> {
@@ -718,6 +725,32 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 						return { settings: host.settings.set(p.changes) };
 					} catch (error) {
 						if (error instanceof SettingsError) throw new ProtocolError("invalid_settings", error.message, { errors: error.errors });
+						throw error;
+					}
+				}
+				// aludra's own: a session's checkpoints, a checkpoint's changes or one file's diff, and restoring one.
+				case "checkpoints.list": {
+					const { record } = await session(p.conversationId);
+					return { checkpoints: await host.checkpoints.list(record.id) as unknown as Json };
+				}
+				case "checkpoints.changes": {
+					const { record } = await session(p.conversationId);
+					const checkpoint = await checkpointOf(record.id, p.checkpoint);
+					if (p.path === undefined) return { changes: await host.checkpoints.changes(record.id, checkpoint) as unknown as Json };
+					if (typeof p.path !== "string") throw new ProtocolError("bad_request", "path should be a string");
+					try {
+						return { path: p.path, patch: await host.checkpoints.diff(record.id, checkpoint, p.path) };
+					} catch (error) {
+						throw new ProtocolError("not_found", error instanceof Error ? error.message : String(error));
+					}
+				}
+				case "checkpoints.restore": {
+					const { record } = await session(p.conversationId);
+					const checkpoint = await checkpointOf(record.id, p.checkpoint);
+					try {
+						return await host.checkpoints.restore(record.id, checkpoint) as unknown as Json;
+					} catch (error) {
+						if (error instanceof RestoreRefused) throw new ProtocolError("busy", error.message);
 						throw error;
 					}
 				}

@@ -99,6 +99,14 @@ With `--session ID`, writes that session's title again from its whole conversati
 
 Hides a session from the lists (amyrlin's and `aludra sessions`), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
 
+### `aludra checkpoints --session ID`
+
+Lists a session's checkpoints, one taken as each turn started, with when, and how many files that turn changed and by how much (up to the next checkpoint, or now for the latest). A line saying `before restoring N` is the checkpoint a restore took first.
+
+### `aludra restore --session ID CHECKPOINT`
+
+Puts the project's files back to how they were at a checkpoint, and prints the files it wrote or deleted and the command that undoes it. Refused while the session runs or waits for approval. [using.md](using.md#checkpoints) says what it touches.
+
 ### `aludra approvals`
 
 Lists calls waiting for approval, oldest first, with their IDs.

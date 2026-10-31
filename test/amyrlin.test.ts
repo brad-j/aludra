@@ -323,6 +323,17 @@ test("conversations.retitle writes the title again from the conversation, or say
 	await assert.rejects(mac.request("conversations.retitle", { conversationId: 999 }), { code: "not_found" });
 });
 
+test("checkpoints over /amyrlin: listed, read and restored, with errors for what isn't there", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const { conversation } = await mac.request("conversations.create", { requestId: "cp-1", project: project.dir, text: "hello" });
+	// Not a git project: no checkpoints, and nothing to restore.
+	assert.deepEqual((await mac.request("checkpoints.list", { conversationId: conversation.id })).checkpoints, []);
+	await assert.rejects(mac.request("checkpoints.changes", { conversationId: conversation.id, checkpoint: 1 }), { code: "not_found" });
+	await assert.rejects(mac.request("checkpoints.restore", { conversationId: conversation.id, checkpoint: "1" }), { code: "bad_request" });
+	await assert.rejects(mac.request("checkpoints.list", { conversationId: 999 }), { code: "not_found" });
+});
+
 test("a conversation is archived from the Mac: hidden from conversations.list, still in host.watch marked archived, and brought back", async (t) => {
 	const { url, project } = await api(t);
 	const mac = await client(t, url);

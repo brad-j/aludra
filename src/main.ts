@@ -28,6 +28,8 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
                                          hide a session from the lists, or bring it back
   retitle [--session ID]                 have a model title sessions that still have their first line, or
                                          write one session's title again from its whole conversation
+  checkpoints --session ID               list a session's checkpoints, one as each turn started, with its changes
+  restore --session ID CHECKPOINT        put the project's files back to a checkpoint (undoable)
   approvals                              list calls waiting for approval
   approve ID | deny ID                   answer one
   projects                               list the projects the workspaces' roots match
@@ -147,6 +149,13 @@ switch (command) {
 		process.exit(await talk(config, { type: "archive", session: sessionId(), archived: command === "archive" }));
 	case "retitle":
 		process.exit(await talk(config, values.session === undefined ? { type: "retitle" } : { type: "retitle", session: sessionId() }));
+	case "checkpoints":
+		process.exit(await talk(config, { type: "checkpoints", session: sessionId() }));
+	case "restore": {
+		const checkpoint = Number(rest[0]);
+		if (rest[0] === undefined || !Number.isInteger(checkpoint)) fail("usage: aludra restore --session ID CHECKPOINT (aludra checkpoints --session ID lists them)");
+		process.exit(await talk(config, { type: "checkpoints", session: sessionId(), restore: checkpoint }));
+	}
 	case "approve":
 	case "deny":
 		if (rest[0] === undefined) fail(`usage: aludra ${command} ID (aludra approvals lists them)`);

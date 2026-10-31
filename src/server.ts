@@ -5,7 +5,8 @@
 //                  {"type":"watch","session":3?}, {"type":"sessions","listing":true?}, {"type":"stop","session":3},
 //                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true},
 //                  {"type":"retitle","session":3?}, {"type":"archive","session":3,"archived":true},
-//                  {"type":"settings","changes":{"approvals.hosts":["db"]}?}
+//                  {"type":"settings","changes":{"approvals.hosts":["db"]}?},
+//                  {"type":"checkpoints","session":3,"restore":2?}
 // server → client: {"type":"line","text":"..."}, for a sessions request with listing
 //                  {"type":"sessions","sessions":[SessionSummary...],"colors":{...}}, for a settings request
 //                  {"type":"settings","settings":Settings}, and, last, {"type":"done","status":"..."}
@@ -41,6 +42,8 @@ export type ClientMessage =
 	/** With a session, that session's title written again from its whole conversation; without, every first-line title. */
 	| { type: "retitle"; session?: number }
 	| { type: "archive"; session: number; archived: boolean }
+	/** A session's checkpoints, each with its turn's changes; with `restore`, that checkpoint put back first. */
+	| { type: "checkpoints"; session: number; restore?: number }
 	/** The settings, after making `changes` if there are any (src/settings.ts). */
 	| { type: "settings"; changes?: { readonly [key: string]: Json } };
 
@@ -51,7 +54,8 @@ export type ServerMessage =
 	| { type: "done"; status: string };
 
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints"),
+	restore: optional(integer),
 	changes: optional(jsonObject),
 	archived: optional(boolean),
 	content: optional(string),
@@ -104,6 +108,9 @@ export function parseClientMessage(line: string): ClientMessage {
 		case "archive":
 			if (m.session === undefined) throw new ParseError("an archive needs a session");
 			return { type: "archive", session: m.session, archived: m.archived !== false };
+		case "checkpoints":
+			if (m.session === undefined) throw new ParseError("checkpoints needs a session");
+			return m.restore === undefined ? { type: "checkpoints", session: m.session } : { type: "checkpoints", session: m.session, restore: m.restore };
 		case "settings":
 			return m.changes === undefined ? { type: "settings" } : { type: "settings", changes: m.changes };
 		case "decide":
@@ -346,6 +353,30 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 					}
 				});
 				return finish([done === 0 ? "no titles to write: every session has one from a model or from you" : `wrote ${done} title${done === 1 ? "" : "s"}`]);
+			}
+			case "checkpoints": {
+				const id = request.session;
+				if ((await host.sessions.get(id)) === undefined) return finish([`no session ${id}; aludra sessions lists them`], "failed");
+				if (request.restore !== undefined) {
+					if (!(await host.checkpoints.list(id)).some((c) => c.id === request.restore)) return finish([`no checkpoint ${request.restore} in session ${id}; aludra checkpoints --session ${id} lists them`], "failed");
+					try {
+						const done = await host.checkpoints.restore(id, request.restore);
+						const shown = done.files.slice(0, 20).map((f) => `  ${f}`);
+						return finish([`put session ${id}'s project back to checkpoint ${request.restore}: ${done.written} written, ${done.deleted} deleted`, ...shown, ...(done.files.length > 20 ? [`  … ${done.files.length - 20} more`] : []), `undo with: aludra restore --session ${id} ${done.undo}`]);
+					} catch (error) {
+						return finish([error instanceof Error ? error.message : String(error)], "failed");
+					}
+				}
+				const all = await host.checkpoints.list(id);
+				if (all.length === 0) return finish([`session ${id} has no checkpoints yet (they're taken as each turn starts, in a git project)`]);
+				const lines = [];
+				for (const c of all) {
+					const changes = await host.checkpoints.changes(id, c.id);
+					const size = changes.available ? `${changes.files.length} file${changes.files.length === 1 ? "" : "s"} +${changes.add} -${changes.del}` : changes.reason;
+					const what = c.kind === "restore" ? `before restoring ${c.restored}` : "turn";
+					lines.push(`  ${String(c.id).padStart(3)}  ${new Date(c.at).toLocaleString()}  ${what.padEnd(20)} ${size}`);
+				}
+				return finish([...lines, "each line's changes run to the next checkpoint; restoring one puts the files back to how they were then"]);
 			}
 			case "settings":
 				send(socket, { type: "settings", settings: request.changes === undefined ? host.settings.get() : host.settings.set(request.changes) });

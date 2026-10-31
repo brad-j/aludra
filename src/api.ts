@@ -37,6 +37,7 @@ import type { Bootstrap, ClientEvent, PushState, ServerEvent, Thinking } from ".
 import { THINKING } from "./config.ts";
 import { IMAGE_TYPES, messageContent, titleOf } from "./images.ts";
 import type { Host } from "./host.ts";
+import { RestoreRefused } from "./checkpoints.ts";
 import { array, boolean, integer, jsonObject, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
 import type { ApprovalRequest } from "./permissions.ts";
@@ -238,6 +239,18 @@ export function createApi(host: Host, options: ApiOptions) {
 			if (decided === undefined) throw new HttpError(409, "That approval isn't waiting any more");
 			return { status: decided.status };
 		}
+		const restoring = /^\/api\/sessions\/(\d+)\/checkpoints\/(\d+)\/restore$/.exec(path);
+		if (restoring !== null) {
+			const [id, checkpoint] = [Number(restoring[1]), Number(restoring[2])];
+			if ((await host.sessions.get(id)) === undefined) throw new HttpError(404, `No session ${id}`);
+			if (!(await host.checkpoints.list(id)).some((c) => c.id === checkpoint)) throw new HttpError(404, `No checkpoint ${checkpoint}`);
+			try {
+				return await host.checkpoints.restore(id, checkpoint);
+			} catch (error) {
+				if (error instanceof RestoreRefused) throw new HttpError(409, error.message);
+				throw error;
+			}
+		}
 		const match = /^\/api\/sessions\/(\d+)\/(messages|stop|agent|withdraw|title|retitle|archive)$/.exec(path);
 		if (match === null) throw new HttpError(404, "Not found");
 		const id = Number(match[1]);
@@ -298,6 +311,21 @@ export function createApi(host: Host, options: ApiOptions) {
 			if (path === "/api/bootstrap") return json(response, await bootstrap(login));
 			const changed = /^\/api\/sessions\/(\d+)\/changes(\/diff)?$/.exec(path);
 			if (changed !== null) return json(response, await changes(Number(changed[1]), changed[2] === undefined ? null : url.searchParams.get("path") ?? ""));
+			const checkpointed = /^\/api\/sessions\/(\d+)\/checkpoints(?:\/(\d+)\/changes(\/diff)?)?$/.exec(path);
+			if (checkpointed !== null) {
+				const id = Number(checkpointed[1]);
+				if ((await host.sessions.get(id)) === undefined) throw new HttpError(404, `No session ${id}`);
+				if (checkpointed[2] === undefined) return json(response, { checkpoints: await host.checkpoints.list(id) });
+				const checkpoint = Number(checkpointed[2]);
+				if (!(await host.checkpoints.list(id)).some((c) => c.id === checkpoint)) throw new HttpError(404, `No checkpoint ${checkpoint}`);
+				if (checkpointed[3] === undefined) return json(response, await host.checkpoints.changes(id, checkpoint));
+				const file = url.searchParams.get("path") ?? "";
+				try {
+					return json(response, { path: file, patch: await host.checkpoints.diff(id, checkpoint, file) });
+				} catch (error) {
+					throw new HttpError(404, error instanceof Error ? error.message : String(error));
+				}
+			}
 			if (path === "/api/push") return json(response, await pushState());
 			if (path === "/api/settings") return json(response, host.settings.get());
 			const picture = /^\/api\/sessions\/(\d+)\/images\/(\d+)\/(\d+)\/(\d+)$/.exec(path);

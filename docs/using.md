@@ -93,6 +93,14 @@ A request expires after `approvals.waitHours` (default 24), and the call is refu
 
 The changes are the project's files now against a snapshot taken when the session started. They include the session's commits, and leave out whatever was already uncommitted when it started. A project inside a bigger repository sees only its own files. Projects outside git, no-project sessions, and sessions from before aludra recorded snapshots say why there's nothing to show. Git may drop a snapshot after two weeks (`git gc`), so very old sessions can lose their changes.
 
+### Checkpoints
+
+As each turn starts, a project session in git takes a checkpoint: a snapshot of the project's files, like the one its changes start from. A turn's changes run from its checkpoint to the next one (or to now, for the latest), so you can see what one turn did: `aludra checkpoints --session ID`, `GET /api/sessions/:id/checkpoints` and `/checkpoints/:n/changes`.
+
+Restoring a checkpoint puts the project's files back to how they were when that turn started: changed and deleted files are written back, and files made since are deleted. Ignored files, the index, branches and commits stay as they are, so a commit the session made stays in history; only the files go back. It's refused while the session runs or waits for an approval. Before it writes anything, it takes a checkpoint of the files as they are, so a restore is undone by restoring that one; the CLI prints the command. The session's next message tells the agent which files were put back.
+
+From a terminal: `aludra restore --session ID CHECKPOINT`.
+
 ## Project colors
 
 Each project has a color hashed from its name, the same in amyrlin and the CLI. When two clash, pick another in amyrlin (a Color menu on the project's row) or with `POST /api/projects/color`.
