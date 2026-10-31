@@ -326,6 +326,16 @@ export function createApi(host: Host, options: ApiOptions) {
 					throw new HttpError(404, error instanceof Error ? error.message : String(error));
 				}
 			}
+			if (path === "/api/search") {
+				const session = url.searchParams.get("session");
+				const limit = url.searchParams.get("limit");
+				return json(response, {
+					results: await host.search(url.searchParams.get("q") ?? "", {
+						...(session === null ? {} : { session: Number(session) }),
+						...(limit === null ? {} : { limit: Number(limit) || 50 }),
+					}),
+				});
+			}
 			if (path === "/api/push") return json(response, await pushState());
 			if (path === "/api/settings") return json(response, host.settings.get());
 			const picture = /^\/api\/sessions\/(\d+)\/images\/(\d+)\/(\d+)\/(\d+)$/.exec(path);

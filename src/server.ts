@@ -6,7 +6,8 @@
 //                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true},
 //                  {"type":"retitle","session":3?}, {"type":"archive","session":3,"archived":true},
 //                  {"type":"settings","changes":{"approvals.hosts":["db"]}?},
-//                  {"type":"checkpoints","session":3,"restore":2?}
+//                  {"type":"checkpoints","session":3,"restore":2?},
+//                  {"type":"search","query":"login test","session":3?,"reindex":true?}
 // server → client: {"type":"line","text":"..."}, for a sessions request with listing
 //                  {"type":"sessions","sessions":[SessionSummary...],"colors":{...}}, for a settings request
 //                  {"type":"settings","settings":Settings}, and, last, {"type":"done","status":"..."}
@@ -44,6 +45,8 @@ export type ClientMessage =
 	| { type: "archive"; session: number; archived: boolean }
 	/** A session's checkpoints, each with its turn's changes; with `restore`, that checkpoint put back first. */
 	| { type: "checkpoints"; session: number; restore?: number }
+	/** Messages and answers matching `query`, in one session with `session`; with `reindex`, the index rebuilt first. */
+	| { type: "search"; query: string; session?: number; reindex?: boolean }
 	/** The settings, after making `changes` if there are any (src/settings.ts). */
 	| { type: "settings"; changes?: { readonly [key: string]: Json } };
 
@@ -54,7 +57,9 @@ export type ServerMessage =
 	| { type: "done"; status: string };
 
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints", "search"),
+	query: optional(string),
+	reindex: optional(boolean),
 	restore: optional(integer),
 	changes: optional(jsonObject),
 	archived: optional(boolean),
@@ -111,6 +116,8 @@ export function parseClientMessage(line: string): ClientMessage {
 		case "checkpoints":
 			if (m.session === undefined) throw new ParseError("checkpoints needs a session");
 			return m.restore === undefined ? { type: "checkpoints", session: m.session } : { type: "checkpoints", session: m.session, restore: m.restore };
+		case "search":
+			return { type: "search", query: m.query ?? "", ...(m.session === undefined ? {} : { session: m.session }), ...(m.reindex === true ? { reindex: true } : {}) };
 		case "settings":
 			return m.changes === undefined ? { type: "settings" } : { type: "settings", changes: m.changes };
 		case "decide":
@@ -377,6 +384,17 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 					lines.push(`  ${String(c.id).padStart(3)}  ${new Date(c.at).toLocaleString()}  ${what.padEnd(20)} ${size}`);
 				}
 				return finish([...lines, "each line's changes run to the next checkpoint; restoring one puts the files back to how they were then"]);
+			}
+			case "search": {
+				if (request.reindex === true) line(socket, `rebuilt the search index: ${await host.reindex()} messages`);
+				if (request.query.trim() === "") return finish([]);
+				const results = await host.search(request.query, request.session === undefined ? { limit: 30 } : { session: request.session, limit: 30 });
+				if (results.length === 0) return finish([`nothing matches ${JSON.stringify(request.query)}`]);
+				const lines = results.flatMap((r) => [
+					`  ${String(r.session).padStart(4)}  ${r.project}  ${r.title}${r.archived === true ? "  (archived)" : ""}  ${new Date(r.at).toLocaleDateString()}`,
+					`        ${r.from === "user" ? "you" : "agent"}: ${r.snippet}`,
+				]);
+				return finish(lines);
 			}
 			case "settings":
 				send(socket, { type: "settings", settings: request.changes === undefined ? host.settings.get() : host.settings.set(request.changes) });

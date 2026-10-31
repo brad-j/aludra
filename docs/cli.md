@@ -99,6 +99,10 @@ With `--session ID`, writes that session's title again from its whole conversati
 
 Hides a session from the lists (amyrlin's and `aludra sessions`), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
 
+### `aludra search [--session ID] [--reindex] WORDS...`
+
+Finds the messages and answers that have every word, across all sessions, archived ones too, or in one with `--session`. The last word matches as a prefix, and words match their other forms (`test`, `tests`, `testing`). Each result shows the session's ID, project and title, then who said it and the text around the match, matched words between « and ». Tool calls and their output aren't searched. `--reindex` builds the index again from every session first, which takes a few seconds; the host keeps it current on its own.
+
 ### `aludra checkpoints --session ID`
 
 Lists a session's checkpoints, one taken as each turn started, with when, and how many files that turn changed and by how much (up to the next checkpoint, or now for the latest). A line saying `before restoring N` is the checkpoint a restore took first.

@@ -79,6 +79,22 @@ export type ChangedFile = { path: string; old?: string; add: number; del: number
 /** A session's changes since it started, the biggest files first; unavailable outside git, or for older sessions. */
 export type Changes = { available: true; since: number; add: number; del: number; files: ChangedFile[] } | { available: false; reason: string };
 
+/** A message or answer that matches a search, with its session's title and project. `item` is the transcript item's id. */
+export type SearchResult = {
+	session: number;
+	entry: number;
+	index: number;
+	item: string;
+	from: "user" | "agent";
+	at: number;
+	/** The text around the match, matched words between « and ». */
+	snippet: string;
+	title: string;
+	project: string;
+	workspace: string;
+	archived?: boolean;
+};
+
 /** Something to do later, filed under its project. */
 export type Idea = { id: number; workspace: string; project: string; dir: string; text: string; createdAt: number };
 

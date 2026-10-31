@@ -27,6 +27,7 @@ import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
 import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
+import { messagesOf, openSearch } from "./search.ts";
 import { type Exchange, excerptOf, modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
 import { saveVideos, sweepUploads, type VideoInput, videoBlocks, withoutVideoNotes } from "./videos.ts";
@@ -236,6 +237,59 @@ export async function openHost(options: HostOptions) {
 	sweep();
 	const sweeper = setInterval(sweep, 3_600_000);
 	sweeper.unref();
+
+	// Search over what was said (src/search.ts), in its own file beside the database.
+	const searchIndex = openSearch(resolve(config.dataDir, "search.sqlite"));
+	const stopIndexing = harness.subscribeCommits((publication) => {
+		const found = publication.changes.flatMap((change) => (change.type === "entry" ? messagesOf({ ...change.value, id: Number(change.value.id), conversationId: Number(change.value.conversationId) }) : []));
+		if (found.length === 0) return;
+		try {
+			searchIndex.add(found);
+		} catch (error) {
+			console.error(`[search] ${error instanceof Error ? error.message : String(error)}`);
+		}
+	});
+
+	/** Indexes every session's entries newer than the index has, oldest first; at start, and after a rebuild. */
+	async function catchUp(): Promise<number> {
+		const from = searchIndex.progress();
+		let added = 0;
+		let newest = from;
+		for (const session of await list()) {
+			const found = await harness.conversation(conversationId(session.id), context);
+			if (found === undefined) continue;
+			let cursor: Parameters<typeof found.entries>[2];
+			do {
+				const page = await found.entries({ order: "ascending", ...(from > 0 ? { minEntryId: (from + 1) as EntryId } : {}) }, 500, cursor, context);
+				const messages = page.items.flatMap((e) => messagesOf({ ...e, id: Number(e.id), conversationId: session.id }));
+				searchIndex.add(messages);
+				for (const e of page.items) newest = Math.max(newest, Number(e.id));
+				added += messages.length;
+				cursor = page.next;
+			} while (cursor !== undefined);
+		}
+		searchIndex.advance(newest);
+		return added;
+	}
+	const caughtUp = catchUp().then(
+		(added) => {
+			if (added > 0) console.error(`[search] indexed ${added} messages`);
+		},
+		(error) => console.error(`[search] catching up: ${error instanceof Error ? error.message : String(error)}`),
+	);
+
+	/** Messages and answers matching `query`, best first, each with its session's record; archived sessions included. */
+	async function searchMessages(query: string, options: { session?: number; limit?: number } = {}) {
+		await caughtUp;
+		const sessions = new Map((await list()).map((s) => [s.id, s]));
+		return searchIndex.search(query, { ...options, limit: (options.limit ?? 50) * 2 })
+			.flatMap((hit) => {
+				const session = sessions.get(hit.session);
+				if (session === undefined) return [];
+				return [{ ...hit, title: session.title, project: session.project, workspace: session.workspace, ...(session.archived === true ? { archived: true } : {}) }];
+			})
+			.slice(0, options.limit ?? 50);
+	}
 
 	async function list(): Promise<SessionRecord[]> {
 		const doc = await harness.snapshot(Sessions, context);
@@ -695,9 +749,19 @@ export async function openHost(options: HostOptions) {
 		stop,
 		/** Continues the work the last process left unfinished. */
 		resume: () => harness.resume(),
-		close: () => {
+		search: searchMessages,
+		/** Empties the search index and builds it again from every session. */
+		reindex: async () => {
+			await caughtUp;
+			searchIndex.reset();
+			return catchUp();
+		},
+		close: async () => {
 			clearInterval(sweeper);
-			return harness.close(context);
+			stopIndexing();
+			await caughtUp;
+			await harness.close(context);
+			searchIndex.close();
 		},
 	};
 }

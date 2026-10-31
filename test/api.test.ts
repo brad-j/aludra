@@ -360,6 +360,18 @@ test("a session's checkpoints, a turn's changes and a restore over the API", asy
 	assert.equal((await call(`/api/sessions/${id}/checkpoints/9/restore`, {})).status, 404);
 });
 
+test("messages are searched over the API, across sessions or in one", async (t) => {
+	const { call, base } = await api(t, [fauxAssistantMessage("The retry loop times out."), fauxAssistantMessage("Ok.")]);
+	const socket = await live(t, base);
+	const { id } = await (await call("/api/sessions", { project: "one", text: "why does the build time out" })).json();
+	await socket.until(() => socket.state.sessions.find((s) => s.id === id)?.state === "done", "the run");
+	const { results } = await (await call("/api/search?q=time%20out")).json();
+	assert.deepEqual(results.map((r: { session: number; from: string }) => [r.session, r.from]).sort(), [[id, "agent"], [id, "user"]]);
+	assert.match(results[0].snippet, /«time/);
+	assert.deepEqual((await (await call(`/api/search?q=retry&session=${id + 1}`)).json()).results, []);
+	assert.deepEqual((await (await call("/api/search?q=")).json()).results, []);
+});
+
 test("a message with an image: the transcript says where it is, and the app gets its bytes", async (t) => {
 	const { call, base } = await api(t, [fauxAssistantMessage("Nice picture.")]);
 	const socket = await live(t, base);

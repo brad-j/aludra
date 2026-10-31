@@ -334,6 +334,20 @@ test("checkpoints over /amyrlin: listed, read and restored, with errors for what
 	await assert.rejects(mac.request("checkpoints.list", { conversationId: 999 }), { code: "not_found" });
 });
 
+test("messages.search finds what was said, and refuses a missing query or session", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	await mac.request("conversations.create", { requestId: "search-1", project: project.dir, text: "hello there" });
+	let results: Json[] = [];
+	for (let i = 0; i < 100 && results.length < 2; i++) {
+		results = (await mac.request("messages.search", { query: "hello" })).results;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+	assert.deepEqual(results.map((r) => r.from).sort(), ["agent", "user"]);
+	await assert.rejects(mac.request("messages.search", {}), { code: "bad_request" });
+	await assert.rejects(mac.request("messages.search", { query: "x", conversationId: 999 }), { code: "not_found" });
+});
+
 test("a conversation is archived from the Mac: hidden from conversations.list, still in host.watch marked archived, and brought back", async (t) => {
 	const { url, project } = await api(t);
 	const mac = await client(t, url);

@@ -728,6 +728,13 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 						throw error;
 					}
 				}
+				// aludra's own: messages and answers matching a query, across sessions or in one.
+				case "messages.search": {
+					if (typeof p.query !== "string") throw new ProtocolError("bad_request", "messages.search takes a query");
+					if (p.conversationId !== undefined) await session(p.conversationId);
+					const limit = typeof p.limit === "number" ? p.limit : 50;
+					return { results: await host.search(p.query, { limit, ...(p.conversationId === undefined ? {} : { session: p.conversationId }) }) as unknown as Json };
+				}
 				// aludra's own: a session's checkpoints, a checkpoint's changes or one file's diff, and restoring one.
 				case "checkpoints.list": {
 					const { record } = await session(p.conversationId);

@@ -28,6 +28,8 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
                                          hide a session from the lists, or bring it back
   retitle [--session ID]                 have a model title sessions that still have their first line, or
                                          write one session's title again from its whole conversation
+  search [--session ID] [--reindex] WORDS...
+                                         find messages and answers with all the words, across sessions or in one
   checkpoints --session ID               list a session's checkpoints, one as each turn started, with its changes
   restore --session ID CHECKPOINT        put the project's files back to a checkpoint (undoable)
   approvals                              list calls waiting for approval
@@ -55,6 +57,7 @@ const { values, positionals } = parseArgs({
 		name: { type: "string" },
 		yes: { type: "boolean", short: "y" },
 		force: { type: "boolean" },
+		reindex: { type: "boolean" },
 		help: { type: "boolean", short: "h" },
 	},
 	allowPositionals: true,
@@ -149,6 +152,11 @@ switch (command) {
 		process.exit(await talk(config, { type: "archive", session: sessionId(), archived: command === "archive" }));
 	case "retitle":
 		process.exit(await talk(config, values.session === undefined ? { type: "retitle" } : { type: "retitle", session: sessionId() }));
+	case "search": {
+		const query = rest.join(" ");
+		if (query.trim() === "" && values.reindex !== true) fail("usage: aludra search [--session ID] WORDS...");
+		process.exit(await talk(config, { type: "search", query, ...(values.session === undefined ? {} : { session: sessionId() }), ...(values.reindex === true ? { reindex: true } : {}) }));
+	}
 	case "checkpoints":
 		process.exit(await talk(config, { type: "checkpoints", session: sessionId() }));
 	case "restore": {

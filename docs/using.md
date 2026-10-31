@@ -93,6 +93,10 @@ A request expires after `approvals.waitHours` (default 24), and the call is refu
 
 The changes are the project's files now against a snapshot taken when the session started. They include the session's commits, and leave out whatever was already uncommitted when it started. A project inside a bigger repository sees only its own files. Projects outside git, no-project sessions, and sessions from before aludra recorded snapshots say why there's nothing to show. Git may drop a snapshot after two weeks (`git gc`), so very old sessions can lose their changes.
 
+### Searching
+
+`aludra search WORDS...`, `GET /api/search?q=` and amyrlin's `messages.search` find messages and answers with every word you give, across every session (archived ones too) or in one. The index holds what you and the agent said, not tool calls or command output, and keeps up as sessions run.
+
 ### Checkpoints
 
 As each turn starts, a project session in git takes a checkpoint: a snapshot of the project's files, like the one its changes start from. A turn's changes run from its checkpoint to the next one (or to now, for the latest), so you can see what one turn did: `aludra checkpoints --session ID`, `GET /api/sessions/:id/checkpoints` and `/checkpoints/:n/changes`.

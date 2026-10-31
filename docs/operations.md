@@ -64,7 +64,7 @@ Losing the database loses session history, ideas, approvals, picked colors and n
 
 1. Stop the host: `aludra service uninstall` (or Ctrl+C where `aludra serve` runs).
 2. Copy a backup over `aludra.sqlite` in the data directory.
-3. Delete `aludra.sqlite-wal` and `aludra.sqlite-shm` beside it.
+3. Delete `aludra.sqlite-wal` and `aludra.sqlite-shm` beside it, and `search.sqlite` with its own `-wal` and `-shm`, so the search index is built again from the restored sessions.
 4. Start the host: `aludra service install`.
 
 Devices signed up for notifications after the backup was made need turning on again.

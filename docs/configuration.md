@@ -135,6 +135,7 @@ Where the database, keys, scratch directories and uploaded videos go. Default `~
 | Path | What |
 | --- | --- |
 | `aludra.sqlite` | Every session, idea, approval and setting clients change: one Pi Durable database. `-wal` and `-shm` sit beside it while the host runs. |
+| `search.sqlite` | The index `aludra search` and the search endpoints read: the text of every message and answer. Built from `aludra.sqlite`, so it can be deleted any time; the host rebuilds it at start. |
 | `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |
 | `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
 | `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, with its refreshed tokens, and the key `aludra login openrouter` gets. Owner-only. |

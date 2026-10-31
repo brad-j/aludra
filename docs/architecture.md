@@ -98,6 +98,10 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 
 When a project session is created, `src/changes.ts` writes the project's working tree as a git tree through a temporary copy of the index, so untracked files count and ignored ones don't. Only objects are added to the repository; its index, branches and refs are untouched. The tree's hash goes in the session's record. `GET /api/sessions/:id/changes` diffs that tree against a fresh one, limited to the project's directory.
 
+## Search
+
+`src/search.ts` keeps an FTS5 index in `search.sqlite`, a file of its own beside the database, using Node's built-in SQLite, so Pi Durable's schema is never read directly and the index can be rebuilt from scratch. One row per user message or answer: its text (video and restore notes taken out), session, entry, message index, author and time. The host adds rows from `subscribeCommits` as entries land, and at start catches up through each session's `entries()` from the newest entry the index has finished with; that mark only moves after a whole catch-up, since entry IDs are shared by every session. A query becomes quoted terms, the last a prefix, so no input is an FTS5 syntax error. Stemming is the `porter` tokenizer. The first catch-up of about 14,000 entries took a quarter of a second.
+
 ## Checkpoints
 
 `src/checkpoints.ts` takes a snapshot of the same kind as each turn starts: a `beforeRequest` hook sees a request whose messages end with a user message, and records a checkpoint keyed by that message's timestamp, once, so a retried or recovered request takes no second one. A steer or follow-up is checkpointed when it reaches the model. A turn's changes are the diff from its checkpoint to the next, or to now for the latest; edits made by hand between turns count in the turn before them.
