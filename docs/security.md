@@ -7,7 +7,7 @@ aludra gives whoever reaches it an agent that runs commands as you, on a machine
 - **Loopback only.** The host listens on `127.0.0.1`. Nothing on the network reaches it directly. `tailscale serve` is the way in.
 - **Tailscale identity.** `tailscale serve` adds a `Tailscale-User-Login` header to each request from a person's device. aludra lets in only the logins in `api.users`; anything else, including tagged devices and requests with no header, gets 403. There are no passwords or tokens. Without `api.users`, the API and amyrlin's endpoint don't start.
 - **Everyone listed is equal.** Every listed login sees and runs every session on the machine, and can change the settings clients can change, approval hosts included. There are no per-user permissions.
-- **Some settings are file-only.** Clients can't change `api.users`, `api.port`, `claude.path` or `dataDir`. The first two decide who gets in, the third is the program the host runs, and the fourth is where its data is. Only someone who can edit the settings file changes them.
+- **Some settings are file-only.** Clients can't change `api.users`, `api.port`, `claude.path`, `mcp.write` or `dataDir`. The first two decide who gets in, the third is the program the host runs, and the fourth is where its data is. Only someone who can edit the settings file changes them.
 - **The CLI socket** is `aludra.sock` in the data directory, readable and writable by you only. Anyone who can use it is already you.
 
 Anything else on the machine that can open connections to `127.0.0.1:8724` and set a header could pretend to be a listed login. That includes other local users and any process running as you. On a shared machine, keep that in mind.
@@ -23,6 +23,12 @@ aludra serves no web app, but a page from another site, open in your browser on 
 ## amyrlin's endpoint
 
 `/amyrlin` takes the same identity check, and also refuses any upgrade that carries an `Origin` header. A native app sends none and a browser always does, so a web page can't open it with your identity.
+
+## MCP
+
+`/mcp` takes the same identity check, and refuses any request with an `Origin` header, as `/amyrlin` does. By default its tools only read: projects, session lists, transcripts and search. Transcripts can hold anything a session read or printed, such as a value from a file, so an agent with the URL can see that.
+
+`mcp.write` adds tools that start, message and stop sessions. A session an agent starts has every permission a session has: it edits, builds, installs and commits in its project without asking, and only `git push` and remote commands to approval hosts wait for you. So with it on, any MCP client you've configured on any tailnet device with your login can run commands on this machine as you. It's file-only, so neither an agent nor a client can turn it on, and it's off by default.
 
 ## Model credentials
 

@@ -738,6 +738,8 @@ export async function openHost(options: HostOptions) {
 			return config.model.thinking;
 		},
 		settings: { get: readSettings, set: saveSettings, onChange: onSettings },
+		/** Whether the MCP endpoint may start, message and stop sessions (the settings file's mcp.write). */
+		mcpWrite: () => config.mcp.write,
 		choices,
 		/** Whether `provider` has model `id`. */
 		hasModel: (provider: string, id: string) => models.getProvider(provider) !== undefined && models.getModel(provider, id) !== undefined,

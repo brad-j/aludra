@@ -1,6 +1,6 @@
 # API
 
-The host has three ways in: the HTTP and WebSocket API, amyrlin's protocol at `/amyrlin`, and the CLI's Unix socket. All three reach the same sessions. There's no web app. The types below are in `src/api-types.ts`, which a client in TypeScript can import.
+The host has four ways in: the HTTP and WebSocket API, amyrlin's protocol at `/amyrlin`, MCP at `/mcp` for other agents, and the CLI's Unix socket. All of them reach the same sessions. There's no web app. The types below are in `src/api-types.ts`, which a client in TypeScript can import.
 
 ## The HTTP API
 
@@ -125,6 +125,29 @@ How aludra maps onto the protocol:
 - Spend comes from Pi Durable's usage. On a subscription its cost is 0; the token counts are real.
 
 `test/amyrlin.test.ts` checks the translation against amyrlin's recorded scenarios (`test/fixtures/amyrlin/`).
+
+## MCP: `POST /mcp`
+
+Streamable HTTP, for agents aludra didn't start (Claude Code, pi, anything with an MCP client) to work with its sessions. It's stateless: each request stands alone, with JSON responses rather than streams. It takes the same `Tailscale-User-Login` check as the API; a request with an `Origin` header is 403, as on `/amyrlin`, so a browser page can't call it. Only POST; other methods are 405.
+
+Tools, always:
+
+| Tool | Arguments | Answer |
+| --- | --- | --- |
+| `list_projects` | | Each project's name, workspace and directory. |
+| `list_sessions` | `project?`, `includeArchived?`, `limit?` (default 30) | Sessions newest first: id, project, title, state, latest activity, when. |
+| `read_session` | `id` | The session's title, project and state, then its transcript as text: messages, answers and a line per tool call, the latest 60,000 characters. |
+| `search_messages` | `query`, `session?`, `limit?` (default 20) | As `GET /api/search`. |
+
+With `mcp.write` set in the settings file, also:
+
+| Tool | Arguments | Answer |
+| --- | --- | --- |
+| `start_session` | `project`, `task` | `{ id, project, dir }`. The task is the first message; its first line is the title until a model writes one. |
+| `send_message` | `id`, `text`, `mode?` (`followUp` or `steer`) | `{ submission }`. |
+| `stop_session` | `id` | Stops the run. |
+
+A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool when `mcp.write` is off. The server's instructions say which machine it is and whether it can write.
 
 ## The CLI socket
 

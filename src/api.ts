@@ -44,6 +44,7 @@ import type { ApprovalRequest } from "./permissions.ts";
 import type { Push, PushMessage } from "./push.ts";
 import { createLive, type Live } from "./live.ts";
 import { checkFiles } from "./files.ts";
+import { handleMcp } from "./mcp.ts";
 import { changesSince, fileDiff } from "./changes.ts";
 
 class HttpError extends Error {
@@ -74,6 +75,9 @@ function sameOrigin(request: IncomingMessage, json: boolean): boolean {
 	const origin = request.headers.origin;
 	return origin === undefined || origin === `https://${request.headers.host}` || origin === `http://${request.headers.host}`;
 }
+
+/** An MCP request: a tool call, whose arguments may hold a long task. */
+const MCP_BODY = 1024 * 1024;
 
 /** Messages carry images, so their posts may be large; anything else is small. */
 const bodyLimit = (path: string) => (path === "/api/sessions" || /^\/api\/sessions\/\d+\/messages$/.test(path) ? 64 * 1024 * 1024 : 200_000);
@@ -126,6 +130,7 @@ export function createApi(host: Host, options: ApiOptions) {
 		push.send(message).catch((error) => console.error("[push]", error instanceof Error ? error.message : error));
 	}
 
+	const machine = options.name ?? hostname().split(".")[0]!;
 	// The live feed is the server's when it shares one with the CLI's socket; a test's API makes its own.
 	const live = options.live ?? createLive(host);
 	const stopRunEnd = live.onRunEnd((after) => {
@@ -368,6 +373,21 @@ export function createApi(host: Host, options: ApiOptions) {
 	const server = createServer((request, response) => {
 		const login = loginOf(request);
 		if (login === undefined) return reply(response, 403, "Forbidden", "text/plain");
+		// Agents' MCP clients (src/mcp.ts). Like /amyrlin, no Origin: a browser always sends one, so a web page can't
+		// reach the sessions with the user's Tailscale identity.
+		if (new URL(request.url ?? "/", "http://host").pathname === "/mcp") {
+			if (request.headers.origin !== undefined) return reply(response, 403, "Cross-site request", "text/plain");
+			if (request.method !== "POST") return reply(response, 405, "Method not allowed", "text/plain");
+			readBody(request, MCP_BODY)
+				.then((text) => handleMcp(host, request, response, JSON.parse(text), { machine }))
+				.catch((error) => {
+					const status = error instanceof HttpError ? error.status : error instanceof SyntaxError ? 400 : 500;
+					if (status === 500) console.error("[mcp]", error);
+					if (!response.headersSent) reply(response, status, error instanceof Error ? error.message : String(error), "text/plain");
+					else response.end();
+				});
+			return;
+		}
 		if (request.method === "POST" && !sameOrigin(request, true)) return reply(response, 403, "Cross-site request", "text/plain");
 		route(request, response, login).catch((error) => {
 			const status = error instanceof HttpError ? error.status : error instanceof ParseError ? 400 : /^no (session|project|model|idea)|could be/.test(String(error?.message)) ? 404 : 500;
@@ -380,7 +400,7 @@ export function createApi(host: Host, options: ApiOptions) {
 	const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 	// The amyrlin Mac app (src/amyrlin/endpoint.ts). A native app sends no Origin, and a browser always does, so a web
 	// page can't open this socket with the user's Tailscale identity.
-	const amyrlin = createAmyrlinEndpoint(host, { name: options.name ?? hostname().split(".")[0]! });
+	const amyrlin = createAmyrlinEndpoint(host, { name: machine });
 	// Messages from the Mac carry images, scaled down there but up to 5 MB each, and up to 40 MB of video (src/videos.ts),
 	// all as base64.
 	const amyrlinSockets = new WebSocketServer({ noServer: true, maxPayload: 112 * 1024 * 1024 });

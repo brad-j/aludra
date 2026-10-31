@@ -55,6 +55,8 @@ const SPECS: readonly Spec[] = [
 		help: "How old the newest copy may get before the host makes another." },
 	{ key: "backup.keep", label: "Backups kept", kind: "integer", editable: true, get: (c) => c.backup.keep, default: () => 7,
 		help: "How many copies to keep, newest first." },
+	{ key: "mcp.write", label: "MCP can run sessions", kind: "choice", options: ["off", "on"], editable: false, get: (c) => (c.mcp.write ? "on" : "off"), default: () => "off",
+		help: "Whether agents on /mcp may start, message and stop sessions, not only read them. File-only, so an agent can't turn it on." },
 	{ key: "api.users", label: "Logins", kind: "list", editable: false, get: (c) => [...c.api.users], default: () => [],
 		help: "The Tailscale logins the apps let in." },
 	{ key: "api.port", label: "Port", kind: "integer", editable: false, get: (c) => c.api.port, default: () => 8724,

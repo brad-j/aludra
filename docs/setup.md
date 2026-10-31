@@ -107,6 +107,14 @@ The host listens on `127.0.0.1:8724` only. `tailscale serve` gives it an HTTPS a
 
 **The terminal.** On the machine itself (or over SSH), `aludra sessions` prints every session, `aludra watch` follows them, and the other commands talk to the running host directly; see [cli.md](cli.md).
 
+**Another agent, over MCP.** Claude Code or pi on any of your tailnet machines can list, read and search this machine's sessions, and with `mcp.write` start and message them:
+
+```sh
+claude mcp add --transport http aludra-<machine> https://<machine>.<tailnet>.ts.net/mcp
+```
+
+There's no sign-in step: `tailscale serve` says who's asking, and your login has to be in `api.users`. A tagged machine (a server joined with a tag rather than your login) has no login, so it gets 403.
+
 **The API.** Anything else, such as a script or a client of your own, uses the HTTP and WebSocket API at `https://<machine>.<tailnet>.ts.net/api/`; see [api.md](api.md).
 
 ## Update

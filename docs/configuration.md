@@ -115,6 +115,10 @@ aludra runs the Claude Code you installed and logged in to, as `claude -p`, for 
 
 [operations.md](operations.md#backups) covers backups and restoring.
 
+### `mcp`
+
+- `write`: whether agents on `/mcp` may start sessions, send them messages and stop them, besides reading. Default `false`. Only the settings file sets it, never a client, so nothing reaching the host can turn it on; it applies after a restart. [security.md](security.md#mcp) says what it gives away.
+
 ### `dataDir`
 
 Where the database, keys, scratch directories and uploaded videos go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.

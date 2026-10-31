@@ -123,6 +123,10 @@ The host notifies your devices when a call waits for approval (after 2 seconds, 
 
 They go by Web Push, to devices signed up with `POST /api/push/subscribe`, through the browser maker's push service (Apple's, Google's or Mozilla's), encrypted to the device. aludra serves no page or service worker to sign a device up, so this takes a client of your own; `POST /api/push/test` sends a test five seconds later. amyrlin gets its updates over its own connection instead.
 
+## Other agents (MCP)
+
+`/mcp` lets an agent aludra didn't start, such as Claude Code in a terminal on your Mac, list this machine's projects and sessions, read a session's transcript and search what was said. With `mcp.write` on in the settings file, it can also start a session with a task, send one a message and stop it, so work can be handed from one machine to another: "start a session in site on egwene to fix the build, then check on it." [setup.md](setup.md#connect-a-client) has the command to add it.
+
 ## amyrlin
 
 [amyrlin](https://github.com/brad-j/amyrlin) is an optional native macOS client. It connects to every machine you add and shows all their sessions together. It reaches the same sessions, approvals, settings and project colors as the API. Its README covers installing it. Forking sessions isn't an aludra feature; amyrlin gets "unsupported" for it.
