@@ -30,6 +30,7 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
                                          write one session's title again from its whole conversation
   search [--session ID] [--reindex] WORDS...
                                          find messages and answers with all the words, across sessions or in one
+  page --session ID PAGE                  write a page the agent published to a file, to open in a browser
   checkpoints --session ID               list a session's checkpoints, one as each turn started, with its changes
   restore --session ID CHECKPOINT        put the project's files back to a checkpoint (undoable)
   approvals                              list calls waiting for approval
@@ -156,6 +157,11 @@ switch (command) {
 		const query = rest.join(" ");
 		if (query.trim() === "" && values.reindex !== true) fail("usage: aludra search [--session ID] WORDS...");
 		process.exit(await talk(config, { type: "search", query, ...(values.session === undefined ? {} : { session: sessionId() }), ...(values.reindex === true ? { reindex: true } : {}) }));
+	}
+	case "page": {
+		const page = Number(rest[0]);
+		if (rest[0] === undefined || !Number.isInteger(page)) fail("usage: aludra page --session ID PAGE");
+		process.exit(await talk(config, { type: "page", session: sessionId(), page }));
 	}
 	case "checkpoints":
 		process.exit(await talk(config, { type: "checkpoints", session: sessionId() }));

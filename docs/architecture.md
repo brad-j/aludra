@@ -43,6 +43,7 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
   | `aludra.push` | Devices signed up for notifications. |
   | `aludra.amyrlin` | The host's ID for amyrlin, and `conversations.create` request IDs already handled. |
   | `aludra.checkpoints` | Each session's checkpoints (a git tree each, by hash), and a note about a restore for its next message. |
+  | `aludra.pages` | One document per published page, keyed `<session>/<n>`: its title, sealed HTML, when, and what it inlined. `aludra.page-counters` holds each session's next number. |
 
 - **Extensions**, installed in this order:
   1. Pi Durable's `CodingTools`: `read`, `write`, `edit` and `bash`, each run in a `NodeExecutionEnv` from the conversation's `cwd`.
@@ -112,6 +113,10 @@ When a project session is created, `src/changes.ts` writes the project's working
 `src/checkpoints.ts` takes a snapshot of the same kind as each turn starts: a `beforeRequest` hook sees a request whose messages end with a user message, and records a checkpoint keyed by that message's timestamp, once, so a retried or recovered request takes no second one. A steer or follow-up is checkpointed when it reaches the model. A turn's changes are the diff from its checkpoint to the next, or to now for the latest; edits made by hand between turns count in the turn before them.
 
 Restoring is refused while the session runs or waits. It first records the files as they are as a checkpoint of kind `restore`, then lists what differs between the chosen tree and now, writes changed and deleted files back from the tree through a temporary index (`git checkout-index`), and deletes files made since. The real index, branches, commits, ignored files and anything outside the project's directory are left alone. A note goes in `aludra.checkpoints`, and the session's next message carries it as a `<restored>` text block before the user's own text, so the agent knows to read files again.
+
+## Pages
+
+`src/pages.ts` adds a `publish_page` tool. The agent passes a title and a self-contained HTML document; the tool seals it and stores it as its own document, so reading one page never loads another. Sealing reads each local image the page names (in `src=` or `url()`, by absolute or project-relative path, not a protected path, at most 3 MB) and inlines it as a data: URL, then puts a Content-Security-Policy first in the `<head>`: inline scripts and styles, data: and blob: images, fonts and media, and nothing else, so the page can't load anything or reach the network. A sealed page may be 5 MB. The page number is memoized, so a rerun after a restart writes the same page. The tool's result carries `{ page, title, bytes }` in its details, which is how a client finds the page in a transcript. Nothing serves pages over HTTP; amyrlin fetches one with `conversation.page`, and the CLI writes one to a file.
 
 ## Images
 

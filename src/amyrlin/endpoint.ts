@@ -19,6 +19,7 @@ import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, type SessionRecord } from "../host.ts";
 import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
+import { PAGE_CSP } from "../pages.ts";
 import { checkFiles, type FileInput, MAX_FILE_BYTES, MAX_FILES, PASTE_BYTES } from "../files.ts";
 import { checkVideos, MAX_FRAMES, MAX_VIDEO_BYTES, MAX_VIDEOS, UPLOAD_DAYS, type VideoInput } from "../videos.ts";
 import type { ApprovalRequest } from "../permissions.ts";
@@ -476,6 +477,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			// Messages take videos (src/videos.ts); a host from before them leaves this out, and the app sends it none.
 			videos: { maxVideos: MAX_VIDEOS, maxBytes: MAX_VIDEO_BYTES, maxFrames: MAX_FRAMES, keepDays: UPLOAD_DAYS },
 			// Messages take files, and long text becomes one (src/files.ts); a host from before them leaves this out.
+			// Sessions can publish pages (src/pages.ts); conversation.page fetches one.
+			pages: true,
 			files: { maxFiles: MAX_FILES, maxBytes: MAX_FILE_BYTES, pasteBytes: PASTE_BYTES, keepDays: UPLOAD_DAYS, maxMessageBytes: MAX_MESSAGE_BYTES },
 			...(await monthCostOf()),
 		};
@@ -747,6 +750,14 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 						if (error instanceof SettingsError) throw new ProtocolError("invalid_settings", error.message, { errors: error.errors });
 						throw error;
 					}
+				}
+				// aludra's own: a page the agent published (src/pages.ts), sealed HTML for a web view.
+				case "conversation.page": {
+					const { record } = await session(p.conversationId);
+					if (typeof p.page !== "number") throw new ProtocolError("bad_request", "conversation.page takes a page number");
+					const found = await host.page(record.id, p.page);
+					if (found === undefined) throw new ProtocolError("not_found", `No page ${p.page} in session ${record.id}`);
+					return { page: found.page, title: found.title, html: found.html, bytes: found.bytes, createdAt: found.createdAt, csp: PAGE_CSP };
 				}
 				// aludra's own: messages and answers matching a query, across sessions or in one.
 				case "messages.search": {

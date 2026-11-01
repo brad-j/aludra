@@ -58,6 +58,10 @@ Sending a message while a call waits for approval refuses that call, so the run 
 
 Each session has a model and thinking level; a change applies from the next request (`POST /api/sessions/:id/agent`). Your pinned models (`model.choices`) come first, and any model of any provider the machine is signed in to can be picked, with prices where requests are billed. `aludra sessions` shows what a session has cost if it used OpenRouter. New sessions start with `model.id` and `model.thinking` from the settings.
 
+### Pages
+
+Ask for a chart, a table, a diagram or a mockup ("show the build times as a chart") and the agent can publish a page: a self-contained HTML document that amyrlin shows in the session, above the written answer. Local images the page names are copied into it, so it keeps working after the files move. A page can run scripts but can't load anything from the network, so charts are drawn inline. Pages are kept with their session. From a terminal, `aludra page --session ID N` writes page N to a file and prints its path, to open in a browser.
+
 ### Images
 
 A message takes up to 8 images: PNG, JPEG, GIF or WebP, at most 5 MB each. amyrlin scales them down before sending. Images a tool returns, such as a screenshot the agent read, stay in the transcript with that call.

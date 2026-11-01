@@ -7,7 +7,8 @@
 //                  {"type":"retitle","session":3?}, {"type":"archive","session":3,"archived":true},
 //                  {"type":"settings","changes":{"approvals.hosts":["db"]}?},
 //                  {"type":"checkpoints","session":3,"restore":2?},
-//                  {"type":"search","query":"login test","session":3?,"reindex":true?}
+//                  {"type":"search","query":"login test","session":3?,"reindex":true?},
+//                  {"type":"page","session":3,"page":1}
 // server → client: {"type":"line","text":"..."}, for a sessions request with listing
 //                  {"type":"sessions","sessions":[SessionSummary...],"colors":{...}}, for a settings request
 //                  {"type":"settings","settings":Settings}, and, last, {"type":"done","status":"..."}
@@ -16,8 +17,10 @@
 // it ignores the field and sends lines, which the CLI prints as they are.
 import { randomUUID } from "node:crypto";
 import { chmodSync, rmSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { connect, createServer, type Socket } from "node:net";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchEvents } from "@earendil-works/pi-durable";
 import type { SessionSummary, Settings } from "./api-types.ts";
@@ -48,6 +51,8 @@ export type ClientMessage =
 	| { type: "checkpoints"; session: number; restore?: number }
 	/** Messages and answers matching `query`, in one session with `session`; with `reindex`, the index rebuilt first. */
 	| { type: "search"; query: string; session?: number; reindex?: boolean }
+	/** Page `page` of a session, written to a file for a browser. */
+	| { type: "page"; session: number; page: number }
 	/** The settings, after making `changes` if there are any (src/settings.ts). */
 	| { type: "settings"; changes?: { readonly [key: string]: Json } };
 
@@ -58,7 +63,8 @@ export type ServerMessage =
 	| { type: "done"; status: string };
 
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints", "search"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints", "search", "page"),
+	page: optional(integer),
 	query: optional(string),
 	reindex: optional(boolean),
 	restore: optional(integer),
@@ -117,6 +123,9 @@ export function parseClientMessage(line: string): ClientMessage {
 		case "checkpoints":
 			if (m.session === undefined) throw new ParseError("checkpoints needs a session");
 			return m.restore === undefined ? { type: "checkpoints", session: m.session } : { type: "checkpoints", session: m.session, restore: m.restore };
+		case "page":
+			if (m.session === undefined || m.page === undefined) throw new ParseError("page needs a session and a page");
+			return { type: "page", session: m.session, page: m.page };
 		case "search":
 			return { type: "search", query: m.query ?? "", ...(m.session === undefined ? {} : { session: m.session }), ...(m.reindex === true ? { reindex: true } : {}) };
 		case "settings":
@@ -387,6 +396,15 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 					lines.push(`  ${String(c.id).padStart(3)}  ${new Date(c.at).toLocaleString()}  ${what.padEnd(20)} ${size}`);
 				}
 				return finish([...lines, "each line's changes run to the next checkpoint; restoring one puts the files back to how they were then"]);
+			}
+			case "page": {
+				const found = await host.page(request.session, request.page);
+				if (found === undefined) return finish([`no page ${request.page} in session ${request.session}`], "failed");
+				const dir = join(tmpdir(), "aludra-pages");
+				await mkdir(dir, { recursive: true, mode: 0o700 });
+				const file = join(dir, `session-${found.session}-page-${found.page}.html`);
+				await writeFile(file, found.html, { mode: 0o600 });
+				return finish([`${found.title}: ${file}`]);
 			}
 			case "search": {
 				if (request.reindex === true) line(socket, `rebuilt the search index: ${await host.reindex()} messages`);

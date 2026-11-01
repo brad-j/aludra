@@ -19,6 +19,7 @@ import { choiceOf, createCatalog, displayName } from "./catalog.ts";
 import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
 import { createCheckpoints, restoreNoteText } from "./checkpoints.ts";
+import { pagesExtension } from "./pages.ts";
 import { claudeConfigDir, type Config, expandHome, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
@@ -212,6 +213,8 @@ export async function openHost(options: HostOptions) {
 	const registry = createRegistry();
 	for (const extension of extensions) registry.install(extension);
 	registry.install(checkpoints.extension);
+	const pages = pagesExtension({ harness: () => opened!, context });
+	registry.install(pages.extension);
 	// Last, so it wraps the tools the others bring, and other hooks see a call before it waits for the user.
 	registry.install(permissionsExtension({ approvals: () => approvals!, hosts: () => config.approvals.hosts }));
 
@@ -803,6 +806,8 @@ export async function openHost(options: HostOptions) {
 		/** Continues the work the last process left unfinished. */
 		resume: () => harness.resume(),
 		search: searchMessages,
+		/** Page `page` of session `id` (src/pages.ts), or undefined. */
+		page: pages.read,
 		/** Empties the search index and builds it again from every session. */
 		reindex: async () => {
 			await caughtUp;

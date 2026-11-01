@@ -11,6 +11,7 @@ import { WebSocket } from "ws";
 import { createApi } from "../src/api.ts";
 import { type Json, translateFixture } from "../src/amyrlin/translate.ts";
 import { context, conversationId } from "../src/host.ts";
+import { PAGE_CSP, Pages } from "../src/pages.ts";
 import { makeProject, PNG, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
@@ -366,6 +367,23 @@ test("files sent from the Mac are saved on the host, and the message says where;
 	assert.equal((await send()).duplicate, false);
 	assert.equal((await send()).duplicate, true);
 	assert.equal(readdirSync(dirname(path!)).length, 2);
+});
+
+test("conversation.page answers a page the agent published, with its policy, and not_found for one that isn't there", async (t) => {
+	const { url, project, host } = await api(t);
+	const mac = await client(t, url);
+	assert.equal((await mac.request("host.info")).pages, true);
+	const { conversation } = await mac.request("conversations.create", { requestId: "page-1", project: project.dir, text: "hello" });
+	await host.root.commit(async (tx) => {
+		const doc = await tx.doc(Pages, `${conversation.id}/1`, null);
+		doc.title = "Chart";
+		doc.html = "<html><head></head><body>x</body></html>";
+		doc.createdAt = 5;
+	}, context);
+	const page = await mac.request("conversation.page", { conversationId: conversation.id, page: 1 });
+	assert.deepEqual([page.page, page.title, page.html, page.createdAt, page.csp], [1, "Chart", "<html><head></head><body>x</body></html>", 5, PAGE_CSP]);
+	await assert.rejects(mac.request("conversation.page", { conversationId: conversation.id, page: 2 }), { code: "not_found" });
+	await assert.rejects(mac.request("conversation.page", { conversationId: conversation.id }), { code: "bad_request" });
 });
 
 test("a conversation is archived from the Mac: hidden from conversations.list, still in host.watch marked archived, and brought back", async (t) => {

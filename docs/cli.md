@@ -99,6 +99,10 @@ With `--session ID`, writes that session's title again from its whole conversati
 
 Hides a session from the lists (amyrlin's and `aludra sessions`), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
 
+### `aludra page --session ID PAGE`
+
+Writes a page the agent published in a session to `aludra-pages/` in the temporary directory and prints its title and path, to open in a browser on this machine. Pages are numbered from 1 in each session; the agent's tool result says which number it published.
+
 ### `aludra search [--session ID] [--reindex] WORDS...`
 
 Finds the messages and answers that have every word, across all sessions, archived ones too, or in one with `--session`. The last word matches as a prefix, and words match their other forms (`test`, `tests`, `testing`). Each result shows the session's ID, project and title, then who said it and the text around the match, matched words between « and ». Tool calls and their output aren't searched. `--reindex` builds the index again from every session first, which takes a few seconds; the host keeps it current on its own.

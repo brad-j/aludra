@@ -69,7 +69,9 @@ Brad picked these from a read of [T3 Code](https://github.com/pingdotgg/t3code)'
 
 Also worth doing whenever text can come in from outside (MCP, pasted text): strip zero-width and Unicode tag characters from prompts and say so, since they can carry instructions the user can't see.
 
-Dropped: prompt links. Not picked this round: the usage meter (the rate-limit diagnostic is already there), scheduled and webhook tasks, a worktree per session, triage, editing queued messages, visual replies, forking.
+7. **Visual replies.** Done 2026-11-01 (`src/pages.ts`). Brad chose socket-only (option A): a `publish_page` tool stores a sealed page with its session, amyrlin fetches it with `conversation.page`, and `aludra page` writes one to a file; nothing serves pages over HTTP, so aludra still serves no web content. Option B, pages at `/api/sessions/:id/pages/:n` for any browser on the tailnet, was turned down: it puts agent-written scripts at aludra's address in a tab with Brad's identity, and no client but amyrlin would show pages today; it stays a small addition if that changes. Sealed pages can't reach the network (a CSP of inline scripts and styles and data: images only), so charts are inline SVG or canvas, and local images are inlined. Pages live in the database with their session, at most 5 MB each, with no expiry. No headless-browser self-check for the agent yet; add one if pages come out broken. Checked in Chromium: a sealed page renders and runs its script, and a remote image and a fetch are both blocked by the policy. amyrlin doesn't show pages yet.
+
+Dropped: prompt links. Not picked this round: the usage meter (the rate-limit diagnostic is already there), scheduled and webhook tasks, a worktree per session, triage, editing queued messages, forking.
 
 ## pi-claude-code (2026-10-30)
 
