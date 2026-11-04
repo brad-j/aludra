@@ -200,3 +200,29 @@ test("after a sandbox run ends, its commits are synced once, again if it ends me
 	await sync.settled();
 	assert.equal(calls.length, 2, "off syncs nothing");
 });
+
+test("sandbox sessions number their branches in one count across projects, past any branch an older session made", async (t) => {
+	const { tempDir, gitProject, fakeSandboxes, testHost, SANDBOX_SETTINGS } = await import("./helpers.ts");
+	const root = tempDir(t);
+	const { project: one } = gitProject(root, "one");
+	const { project: two } = gitProject(root, "two");
+	const fake = fakeSandboxes(root);
+	t.after(() => fake.close());
+	fake.control.hold = true;
+	const { host } = await testHost(t, { dir: root, sandboxes: fake.sandboxes, settings: SANDBOX_SETTINGS });
+	const a = await host.sessions.startSandbox(one, "a");
+	const b = await host.sessions.startSandbox(two, "b");
+	const c = await host.sessions.startSandbox(one, "c");
+	assert.deepEqual([a, b, c].map((r) => r.sandboxNumber), [0, 1, 2]);
+	// A branch already in a checkout, from another data directory, is skipped.
+	execFileSync("git", ["-C", two.dir, "branch", "sandbox/7"]);
+	assert.equal((await host.sessions.startSandbox(two, "d")).sandboxNumber, 8);
+	assert.ok([a, b, c].every((r) => r.sandboxState === "preparing" && r.sandbox === undefined));
+	await assert.rejects(host.submit(a.id, "hi"), /still being made/);
+	fake.control.hold = false;
+	fake.control.release();
+	await Promise.all([a, b, c].map((r) => host.sandboxes.prepared(r.id)));
+	await Promise.all((await host.sessions.list()).map((r) => host.sandboxes.prepared(r.id)));
+	// The sandbox host reuses its numbers once a sandbox is deleted; the branches never do.
+	assert.equal((await host.sessions.get(c.id))?.sandboxState, "ready");
+});

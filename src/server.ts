@@ -26,7 +26,7 @@ import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchE
 import type { SessionSummary, Settings } from "./api-types.ts";
 import { createApi } from "./api.ts";
 import { removeSandboxesOnArchive } from "./sandbox-cleanup.ts";
-import { ship } from "./ship.ts";
+import type { ShipResult } from "./ship.ts";
 import { sandboxSyncAfterRuns } from "./sandbox-sync.ts";
 import { createLive, monthSpend, readSummary } from "./live.ts";
 import { scheduleArchive } from "./archive.ts";
@@ -368,15 +368,14 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				return ask(socket, request);
 			case "ship": {
 				const { events } = await follow(socket, request.session, "");
-				const result = await ship(host, request.session, {
-					mode: request.to ?? host.shipMode(),
-					onProgress: (text) => line(socket, `→ ${text}`),
-					ask: async (id, prompt) => {
-						const settled = await (await host.submit(id, prompt)).wait(context);
-						const answer = settled.status === "done" && settled.type === "input" ? describeAnswer(await host.harness.commit((tx) => tx.entry(settled.answer), context)) : undefined;
-						return { status: settled.status, ...(answer === undefined ? {} : { answer }) };
-					},
-				}).catch((error: Error) => ({ shipped: false as const, reason: error.message }));
+				let result: ShipResult;
+				try {
+					// The host's ships, so the Mac app hears of this one as of its own (sandbox.shipped).
+					result = await (await host.ships.start(request.session, { mode: request.to ?? host.shipMode(), onProgress: (text) => line(socket, `→ ${text}`) })).done;
+				} catch (error) {
+					await events.stop();
+					return finish([`! not shipped: ${error instanceof Error ? error.message : String(error)}`], "failed");
+				}
 				await events.stop();
 				if (!result.shipped) return finish([`! not shipped: ${result.reason}`], "failed");
 				return finish([

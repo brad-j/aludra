@@ -1,5 +1,6 @@
 // The host: one Pi Durable Harness over SQLite in the data directory. Each session is an ownerless conversation whose
 // agent `cwd` is its project's directory; the root conversation only carries aludra's session-wide documents.
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -9,9 +10,9 @@ import { createModels, type Models, type Provider } from "@earendil-works/pi-ai/
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
-import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef } from "@earendil-works/pi-durable";
+import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, defineDocFamily, type EntryId, Harness, type Extension, type ModelRef } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { createSandboxes, fastForward, type MergeResult, type SyncResult } from "./sandboxes.ts";
+import { createSandboxes, deleteBranch, run, type Sandboxes, fastForward, type MergeResult, type SandboxStep, type SyncResult } from "./sandboxes.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice, Settings } from "./api-types.ts";
@@ -25,6 +26,7 @@ import { claudeConfigDir, type Config, expandHome, type Thinking } from "./confi
 import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
+import { askSession, createShips, type Shipping } from "./ship.ts";
 import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
 import { type Json, ParseError } from "./parse.ts";
@@ -56,8 +58,30 @@ export type SessionRecord = {
 	baseError?: string;
 	/** A no-project session: `dir` is its own scratch directory, and `project` is NO_PROJECT. */
 	scratch?: boolean;
-	/** A sandbox session (spike): its tools run on this sandbox, by its number on the sandbox host, and `dir` is a directory there. */
+	/**
+	 * A sandbox session (spike): its tools run on this sandbox, by its number on the sandbox host, and `dir` is a directory
+	 * there. Unset while the sandbox is being made.
+	 */
 	sandbox?: number;
+	/**
+	 * A sandbox session's own number, which names its branch, `sandbox/<number>`: given out by aludra, one count across
+	 * projects, never reused. The sandbox host reuses its numbers, so they can't name branches. Sessions from before it
+	 * have none, and their branch is `sandbox/<sandbox>`.
+	 */
+	sandboxNumber?: number;
+	/** Where its sandbox is: being made, ready, or failed to be made (`sandboxReason` says why). Unset is ready. */
+	sandboxState?: "preparing" | "ready" | "failed";
+	/** While preparing, what's being done. */
+	sandboxStep?: SandboxStep;
+	sandboxReason?: string;
+	/** The project's commit its sandbox was made from. */
+	sandboxBase?: string;
+	/** What its tools ask about: `ask` waits for approvals as any session does, `off` doesn't. Unset follows `sandboxes.approvals`. */
+	approvals?: "ask" | "off";
+	/** Its sandbox/N was discarded: archiving deletes the sandbox without fetching it again. A sync clears it. */
+	sandboxDiscarded?: boolean;
+	/** A ship going on (src/ship.ts), so a restart finishes it. */
+	shipping?: Shipping;
 	/** A sandbox session's project directory on this machine, which its template was made from; context is read there. */
 	source?: string;
 	/** Its sandbox was deleted (src/sandbox-cleanup.ts): its tools have nowhere to run. */
@@ -87,6 +111,34 @@ export const Colors = defineDoc<{ colors: Record<string, number> }>({
 	scope: "session",
 	initial: () => ({ colors: {} }),
 });
+
+/** Messages a sandbox session got while its sandbox was being made, by session, each its content's JSON; sent in order once it's ready. */
+export const Held = defineDocFamily<{ messages: { content: string; requestId: string }[] }, null>({
+	kind: "aludra.held",
+	version: 1,
+	scope: "session",
+	family: true,
+	initial: () => ({ messages: [] }),
+});
+
+/** The next sandbox session number (SessionRecord.sandboxNumber). */
+const SandboxNumbers = defineDoc<{ next: number }>({
+	kind: "aludra.sandbox-numbers",
+	version: 1,
+	scope: "session",
+	initial: () => ({ next: 0 }),
+});
+
+/** A sandbox session's branch in its project's checkout. */
+export function sandboxBranch(record: Pick<SessionRecord, "sandbox" | "sandboxNumber">): string {
+	return `sandbox/${record.sandboxNumber ?? record.sandbox}`;
+}
+
+/** Whether `record` is a sandbox session, its sandbox made or not. */
+export const isSandboxSession = (record: SessionRecord | undefined) => record !== undefined && (record.sandbox !== undefined || record.sandboxNumber !== undefined);
+
+/** A message to a sandbox session that has no sandbox yet, or whose sandbox couldn't be made. */
+export class SandboxNotReady extends Error {}
 
 export const Sessions = defineDoc<{ sessions: Record<string, SessionRecord> }>({
 	kind: "aludra.sessions",
@@ -162,6 +214,8 @@ export type HostOptions = {
 	agentDir?: string;
 	/** Over Pi Durable's compaction defaults; the live check keeps less so a small conversation compacts. */
 	compaction?: Partial<CompactionPolicy>;
+	/** Sandboxes in place of the settings' sandbox host; tests pass ones over pi-env's local daemon. */
+	sandboxes?: Sandboxes;
 	/** Writes sessions' titles. Default: the smallest model on hand (src/titles.ts); none for the faux model, given models or a given Claude Code provider. */
 	titler?: Titler;
 };
@@ -180,11 +234,17 @@ export async function openHost(options: HostOptions) {
 		{ path: resolve(claudeConfigDir(config), "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
 		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
 	];
-	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; local?: string; removed?: true } | undefined> => {
+	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; branch: string; local?: string; removed?: true } | { sandbox: undefined; dir: string } | undefined> => {
 		const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
-		return record?.sandbox === undefined ? undefined : { sandbox: record.sandbox, dir: record.dir, ...(record.source === undefined ? {} : { local: record.source }), ...(record.sandboxRemoved === true ? { removed: true as const } : {}) };
+		if (record === undefined || !isSandboxSession(record)) return undefined;
+		// Being made: nothing may run anywhere yet, here least of all.
+		if (record.sandbox === undefined) return { sandbox: undefined, dir: record.dir };
+		return { sandbox: record.sandbox, dir: record.dir, branch: sandboxBranch(record), ...(record.source === undefined ? {} : { local: record.source }), ...(record.sandboxRemoved === true ? { removed: true as const } : {}) };
 	};
-	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places }, (input) => sandboxOf(input))];
+	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places }, async (input) => {
+		const found = await sandboxOf(input);
+		return found?.sandbox === undefined ? undefined : found;
+	})];
 	if (options.models !== undefined && options.model !== undefined) {
 		models = options.models;
 		model = options.model;
@@ -220,7 +280,7 @@ export async function openHost(options: HostOptions) {
 
 	const sandboxDir = resolve(config.dataDir, "sandboxes");
 	mkdirSync(sandboxDir, { recursive: true, mode: 0o700 });
-	const sandboxes = createSandboxes(config.sandboxes === undefined ? undefined : {
+	const sandboxes = options.sandboxes ?? createSandboxes(config.sandboxes === undefined ? undefined : {
 		ssh: config.sandboxes.ssh,
 		gateKey: config.sandboxes.gateKey,
 		hostKnownHosts: config.sandboxes.knownHosts,
@@ -249,7 +309,8 @@ export async function openHost(options: HostOptions) {
 				const { cwd } = target;
 				const sandbox = await sandboxOf(target, ctx);
 				// A throw becomes the call's error result, which the model reads.
-				if (sandbox?.removed === true) throw new Error(`This session's sandbox was deleted when the session was archived, so its tools have nowhere to run. Its commits were fetched to sandbox/${sandbox.sandbox} in the project first. Start a new sandbox session to keep going.`);
+				if (sandbox !== undefined && sandbox.sandbox === undefined) throw new Error("This session's sandbox isn't ready yet, so its tools have nowhere to run.");
+				if (sandbox?.removed === true) throw new Error(`This session's sandbox was deleted when the session was archived, so its tools have nowhere to run. Its commits were fetched to ${sandbox.branch} in the project first. Start a new sandbox session to keep going.`);
 				if (sandbox !== undefined) return sandboxes.env(sandbox.sandbox, cwd ?? sandbox.dir);
 				return new NodeExecutionEnv({ cwd: cwd ?? homedir() });
 			},
@@ -426,19 +487,44 @@ export async function openHost(options: HostOptions) {
 		return record!;
 	}
 
+	/** Sandboxes being made, by session; one at a time each. */
+	const preparing = new Map<number, Promise<SessionRecord>>();
+
+	/** Commits `change` to session `id`'s record and tells listeners; returns the record, or undefined if there's none. */
+	async function changeRecord(id: number, change: (record: SessionRecord) => void): Promise<SessionRecord | undefined> {
+		const record = await root.commit(async (tx) => {
+			const found = (await tx.doc(Sessions)).sessions[String(id)];
+			if (found === undefined) return undefined;
+			change(found);
+			return { ...found };
+		}, context);
+		if (record !== undefined) updated.forEach((listener) => listener(record));
+		return record;
+	}
+
 	/**
 	 * A session in a sandbox of its own (spike), made from `project`'s template (src/sandboxes.ts), or a bare sandbox with no
 	 * project. Its tools run on the sandbox; its model and transcript stay here. No changes view or checkpoints, which read
-	 * files on this machine. The first session of a project at a new commit waits while its template is made.
+	 * files on this machine. Returns at once with the session `preparing`; the sandbox is made after (`prepareSandbox`), and
+	 * messages sent meanwhile are held (`hold`) until it's ready.
 	 */
-	async function createSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, onProgress?: (line: string) => void): Promise<SessionRecord> {
+	async function startSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { approvals?: "ask" | "off"; onProgress?: (line: string) => void } = {}): Promise<SessionRecord> {
 		if (!sandboxes.configured()) throw new Error("no sandbox host in the settings (sandboxes)");
-		const { sandbox, dir } = await sandboxes.create(project === undefined ? undefined : { name: project.name, dir: project.dir }, onProgress);
+		const dir = project === undefined ? "/home/user" : sandboxes.dirFor({ name: project.name, dir: project.dir });
+		// Past any sandbox branch already in the checkout, such as one another data directory made.
+		const branches = project === undefined ? "" : await run("git", ["-C", project.dir, "for-each-ref", "--format=%(refname:lstrip=3)", "refs/heads/sandbox/"]).catch(() => "");
+		const inCheckout = Math.max(-1, ...branches.split("\n").filter((b) => /^\d+$/.test(b)).map(Number)) + 1;
 		let record: SessionRecord | undefined;
 		await harness.createConversation({
 			ownership: { kind: "ownerless" },
 			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? config.model.thinking, cwd: dir },
 			init: async (tx, id) => {
+				const numbers = await tx.doc(SandboxNumbers);
+				const sessions = (await tx.doc(Sessions)).sessions;
+				// Past every sandbox branch a session from before the count could have made.
+				const floor = Math.max(-1, ...Object.values(sessions).map((s) => s.sandboxNumber ?? s.sandbox ?? -1)) + 1;
+				const number = Math.max(numbers.next, floor, inCheckout);
+				numbers.next = number + 1;
 				record = {
 					id,
 					workspace: project?.workspace ?? config.workspaces[0]?.name ?? "local",
@@ -447,22 +533,129 @@ export async function openHost(options: HostOptions) {
 					title: prompt.split("\n")[0]!.slice(0, 80),
 					createdAt: Date.now(),
 					baseError: "A sandbox session's files are on the sandbox.",
-					sandbox,
+					sandboxNumber: number,
+					sandboxState: "preparing",
+					...(options.approvals === undefined ? {} : { approvals: options.approvals }),
 					...(project === undefined ? {} : { source: project.dir }),
 				};
-				(await tx.doc(Sessions)).sessions[String(id)] = record;
+				sessions[String(id)] = record;
 			},
 		}, context);
 		untitled.add(record!.id);
 		for (const listener of created) listener(record!);
+		void prepareSandbox(record!.id, options.onProgress);
 		return record!;
+	}
+
+	/**
+	 * Makes session `id`'s sandbox, recording each step, then sends the messages held for it, in order. A failure is
+	 * recorded as the reason, and the held messages stay unsent. Also run at start for sessions a restart caught preparing.
+	 * Resolves with the record once it's ready or failed; never rejects.
+	 */
+	function prepareSandbox(id: number, onProgress?: (line: string) => void): Promise<SessionRecord> {
+		const going = preparing.get(id);
+		if (going !== undefined) return going;
+		const run = (async () => {
+			const record = await get(id);
+			if (record === undefined) throw new Error(`no session ${id}`);
+			if (record.sandbox !== undefined || record.sandboxState !== "preparing") return record;
+			const project = record.source === undefined ? undefined : projects().find((p) => p.dir === record.source) ?? { name: record.project, dir: record.source };
+			try {
+				const made = await sandboxes.create(project === undefined ? undefined : { name: project.name, dir: project.dir }, onProgress, (step) => void changeRecord(id, (r) => {
+					if (r.sandboxState === "preparing") r.sandboxStep = step;
+				}));
+				// The directory was named when the session was made; a sandbox host that put it elsewhere moves the agent too.
+				if (made.dir !== record.dir) await (await conversation(id)).configure({ cwd: made.dir }, context);
+				const ready = await changeRecord(id, (r) => {
+					r.sandbox = made.sandbox;
+					r.dir = made.dir;
+					r.sandboxState = "ready";
+					delete r.sandboxStep;
+					if (made.base !== undefined) r.sandboxBase = made.base;
+				});
+				await sendHeld(id);
+				return ready ?? record;
+			} catch (error) {
+				const reason = error instanceof Error ? error.message.slice(-2000) : String(error);
+				console.error(`[sandbox] session ${id}: couldn't make its sandbox: ${reason}`);
+				return (await changeRecord(id, (r) => {
+					r.sandboxState = "failed";
+					r.sandboxReason = reason;
+					delete r.sandboxStep;
+				})) ?? record;
+			}
+		})().finally(() => preparing.delete(id));
+		preparing.set(id, run);
+		return run;
+	}
+
+	/**
+	 * A sandbox session started the old way: waits while the sandbox is made, printing its progress, and throws if it
+	 * couldn't be. For the CLI, the HTTP API and MCP.
+	 */
+	async function createSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, onProgress?: (line: string) => void): Promise<SessionRecord> {
+		const started = await startSandbox(project, prompt, agent, onProgress === undefined ? {} : { onProgress });
+		const done = await prepareSandbox(started.id);
+		if (done.sandboxState === "failed") throw new Error(`couldn't make session ${done.id}'s sandbox: ${done.sandboxReason}`);
+		return done;
+	}
+
+	/**
+	 * Keeps a message for sandbox session `id` until its sandbox is ready, in the database, so a restart doesn't lose it.
+	 * A request ID already held isn't held twice. Returns false when the sandbox is ready already (send it instead). Once
+	 * the sandbox has failed, messages are refused, except a session's first (`first`), which stays unanswered with it.
+	 */
+	async function hold(id: number, content: UserMessage["content"], requestId: string = randomUUID(), first = false): Promise<boolean> {
+		const held = await root.commit(async (tx) => {
+			const record = (await tx.doc(Sessions)).sessions[String(id)];
+			if (record === undefined) throw new Error(`no session ${id}`);
+			if (record.sandboxState === "failed" && !first) throw new SandboxNotReady(`session ${id}'s sandbox couldn't be made: ${record.sandboxReason}`);
+			if (record.sandbox !== undefined) return false;
+			const doc = await tx.doc(Held, String(id), null);
+			if (!doc.messages.some((m) => m.requestId === requestId)) doc.messages = [...doc.messages, { content: JSON.stringify(content), requestId }];
+			return true;
+		}, context);
+		// Checked in the same commit that holds it, so a message is either held before the sandbox is ready, and sent with
+		// the rest, or refused here and sent by the caller.
+		if (!held) return false;
+		if (untitled.delete(id)) void writeTitle(id, withoutFileNotes(withoutVideoNotes(textOf(content))));
+		return true;
+	}
+
+	/** Messages held for session `id`, oldest first. */
+	async function heldMessages(id: number): Promise<{ content: UserMessage["content"]; requestId: string }[]> {
+		const doc = await harness.snapshot(Held, String(id), context);
+		// SAFETY: held content is a UserMessage's content, stored as its JSON.
+		return (doc?.messages ?? []).map((m) => ({ content: JSON.parse(m.content) as UserMessage["content"], requestId: m.requestId }));
+	}
+
+	/** Sends session `id` its held messages, then forgets them. Each keeps its request ID, so a resend after a crash is a no-op. */
+	async function sendHeld(id: number): Promise<void> {
+		const messages = await heldMessages(id);
+		for (const message of messages) await submit(id, message.content, { requestId: message.requestId });
+		if (messages.length === 0) return;
+		await root.commit(async (tx) => {
+			const doc = await tx.doc(Held, String(id), null);
+			doc.messages = doc.messages.filter((m) => !messages.some((sent) => sent.requestId === m.requestId));
+		}, context);
+	}
+
+	/** Picks up sandboxes a restart caught being made, held messages it caught being sent, and ships it cut off. */
+	async function resumeSandboxes(): Promise<void> {
+		const records = await list();
+		for (const record of records) {
+			if (record.sandboxState === "preparing" && record.sandbox === undefined) void prepareSandbox(record.id);
+			else if (record.sandbox !== undefined) await sendHeld(record.id);
+		}
+		ships.resume(records);
 	}
 
 	/** Sandbox session `id`'s record, for work with its sandbox and its local project; throws when it has neither. */
 	async function sandboxRecord(id: number): Promise<SessionRecord & { sandbox: number; source: string }> {
 		const record = await get(id);
 		if (record === undefined) throw new Error(`no session ${id}`);
-		if (record.sandbox === undefined) throw new Error(`session ${id} isn't in a sandbox`);
+		if (!isSandboxSession(record)) throw new Error(`session ${id} isn't in a sandbox`);
+		if (record.sandbox === undefined) throw new Error(`session ${id}'s sandbox isn't ready${record.sandboxState === "failed" ? `: ${record.sandboxReason}` : " yet"}`);
 		if (record.sandboxRemoved === true) throw new Error(`session ${id}'s sandbox was deleted when it was archived; its commits were fetched then`);
 		if (record.source === undefined) throw new Error(`session ${id} has no project to sync into`);
 		return record as SessionRecord & { sandbox: number; source: string };
@@ -628,6 +821,10 @@ export async function openHost(options: HostOptions) {
 	/** Sends `content` to session `id`. A busy session queues it as a follow-up, or as a steer. */
 	async function submit(id: number, content: UserMessage["content"], options: { requestId?: string; steer?: boolean } = {}) {
 		const target = await conversation(id);
+		const record = await get(id);
+		if (isSandboxSession(record) && record!.sandbox === undefined) {
+			throw new SandboxNotReady(record!.sandboxState === "failed" ? `session ${id}'s sandbox couldn't be made: ${record!.sandboxReason}` : `session ${id}'s sandbox is still being made; its messages wait for it`);
+		}
 		// A new message instead of an answer: the waiting call is refused, so the run can take the message.
 		await approvals!.supersede(id);
 		// Text too long for a message goes to a file the message points at, unless this is a retry of one already sent.
@@ -775,6 +972,40 @@ export async function openHost(options: HostOptions) {
 		await (await conversation(id)).abort(context);
 	}
 
+	const sandboxApi = {
+		/** Puts `ref` of sandbox session `id`'s local project into its sandbox as refs/aludra/base (src/ship.ts). */
+		async receiveBase(id: number, ref: string): Promise<string> {
+			const record = await sandboxRecord(id);
+			return sandboxes.receiveBase(record.sandbox, record.dir, record.source, ref);
+		},
+		/**
+		 * Fetches sandbox session `id`'s commits into its project's local checkout, as `into` (default its branch);
+		 * with `merge`, then fast-forwards the checked-out branch to them when that's safe (src/sandboxes.ts).
+		 */
+		async sync(id: number, into?: string, options: { merge?: boolean; force?: boolean } = {}): Promise<SyncResult & { merge?: MergeResult }> {
+			const record = await sandboxRecord(id);
+			const synced = await sandboxes.sync(record.sandbox, record.dir, record.source, into ?? sandboxBranch(record), { force: options.force === true });
+			// The branch is back, so archiving fetches it again before deleting the sandbox.
+			if (record.sandboxDiscarded === true && into === undefined) await changeRecord(id, (r) => void delete r.sandboxDiscarded);
+			if (options.merge !== true) return synced;
+			return { ...synced, merge: await fastForward(record.source, synced.branch) };
+		},
+	};
+
+	/** Ships started from clients (src/ship.ts): one at a time per session, picked up again after a restart. */
+	const ships = createShips({
+		sessions: { get },
+		sandboxes: sandboxApi,
+		states,
+		ask: (id, prompt, requestId) => askSession({ submit, harness }, id, prompt, requestId),
+		mark: async (id, shipping) => {
+			await changeRecord(id, (r) => {
+				if (shipping === undefined) delete r.shipping;
+				else r.shipping = shipping;
+			});
+		},
+	});
+
 	const settingListeners = new Set<() => void>();
 
 	/** The settings as clients see them (src/settings.ts). */
@@ -840,6 +1071,10 @@ export async function openHost(options: HostOptions) {
 		mcpWrite: () => config.mcp.write,
 		/** Where a ship lands by default (src/ship.ts). */
 		shipMode: (): "main" | "branch" => config.sandboxes?.shipTo ?? "main",
+		/** Ships started from clients (src/ship.ts). */
+		ships,
+		/** The sandbox settings clients see, or undefined without a sandbox host. */
+		sandboxSettings: () => (config.sandboxes === undefined ? undefined : { shipTo: config.sandboxes.shipTo, afterRun: config.sandboxes.afterRun }),
 		choices,
 		/** Whether `provider` has model `id`. */
 		hasModel: (provider: string, id: string) => models.getProvider(provider) !== undefined && models.getModel(provider, id) !== undefined,
@@ -852,12 +1087,10 @@ export async function openHost(options: HostOptions) {
 			close: (n?: number) => sandboxes.close(n),
 			connected: (n: number) => sandboxes.connected(n),
 			status: sandboxes.status,
+			states: () => sandboxes.states(),
 			remove: sandboxes.remove,
-			/** Puts `ref` of sandbox session `id`'s local project into its sandbox as refs/aludra/base (src/ship.ts). */
-			async receiveBase(id: number, ref: string): Promise<string> {
-				const record = await sandboxRecord(id);
-				return sandboxes.receiveBase(record.sandbox, record.dir, record.source, ref);
-			},
+			receiveBase: sandboxApi.receiveBase,
+			sync: sandboxApi.sync,
 			/** Deletes sandbox session `id`'s sandbox on its host and marks the session; nothing is fetched first. */
 			async forget(id: number): Promise<void> {
 				const record = await get(id);
@@ -872,17 +1105,24 @@ export async function openHost(options: HostOptions) {
 				if (marked !== undefined) updated.forEach((listener) => listener(marked));
 			},
 			/**
-			 * Fetches sandbox session `id`'s commits into its project's local checkout, as `into` (default sandbox/<n>);
-			 * with `merge`, then fast-forwards the checked-out branch to them when that's safe (src/sandboxes.ts).
+			 * Deletes sandbox session `id`'s branch in its project's checkout, unmerged commits and all; returns the commit
+			 * it was at, or undefined when there was none. The sandbox stays.
 			 */
-			async sync(id: number, into?: string, options: { merge?: boolean; force?: boolean } = {}): Promise<SyncResult & { merge?: MergeResult }> {
-				const record = await sandboxRecord(id);
-				const synced = await sandboxes.sync(record.sandbox, record.dir, record.source, into, { force: options.force === true });
-				if (options.merge !== true) return synced;
-				return { ...synced, merge: await fastForward(record.source, synced.branch) };
+			async discard(id: number): Promise<{ branch: string; head?: string }> {
+				const record = await get(id);
+				if (!isSandboxSession(record)) throw new Error(`session ${id} isn't in a sandbox`);
+				if (record!.source === undefined) throw new Error(`session ${id} has no project`);
+				const branch = sandboxBranch(record!);
+				const head = await deleteBranch(record!.source, branch);
+				await changeRecord(id, (r) => void (r.sandboxDiscarded = true));
+				return { branch, ...(head === undefined ? {} : { head }) };
 			},
+			hold,
+			held: heldMessages,
+			/** Resolves once session `id`'s sandbox is ready or failed. */
+			prepared: (id: number) => prepareSandbox(id),
 		},
-		sessions: { list, get, create, createScratch, createSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
+		sessions: { list, get, create, createScratch, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		checkpoints: {
 			list: checkpoints.list,
 			changes: checkpoints.changes,
@@ -911,7 +1151,10 @@ export async function openHost(options: HostOptions) {
 		withdraw,
 		stop,
 		/** Continues the work the last process left unfinished. */
-		resume: () => harness.resume(),
+		resume: () => {
+			harness.resume();
+			void resumeSandboxes().catch((error) => console.error(`[sandbox] resuming: ${error instanceof Error ? error.message : String(error)}`));
+		},
 		search: searchMessages,
 		/** Page `page` of session `id` (src/pages.ts), or undefined. */
 		page: pages.read,

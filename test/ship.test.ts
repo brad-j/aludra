@@ -86,10 +86,11 @@ test("ship rebases the sandbox's work onto a main that moved, then pushes it to 
 });
 
 test("nothing is pushed when the session is blocked, didn't rebase, or left files uncommitted", async () => {
-	for (const [what, agent, reason] of [
-		["blocked", async () => ({ status: "done", answer: "SHIP-BLOCKED: a test fails on main too" }), /a test fails on main too/],
-		["no rebase", async () => ({ status: "done", answer: "SHIP-READY" }), /isn't on origin\/main/],
-		["uncommitted", async (box: string) => { writeFileSync(join(box, "stray.txt"), "x\n"); return { status: "done", answer: "SHIP-READY" }; }, /uncommitted/],
+	for (const [what, agent, reason, kind] of [
+		["blocked", async () => ({ status: "done", answer: "SHIP-BLOCKED: a test fails on main too" }), /a test fails on main too/, "blocked"],
+		["stopped", async () => ({ status: "stopped" }), /ended stopped/, "blocked"],
+		["no rebase", async () => ({ status: "done", answer: "SHIP-READY" }), /isn't on origin\/main/, "check_failed"],
+		["uncommitted", async (box: string) => { writeFileSync(join(box, "stray.txt"), "x\n"); return { status: "done", answer: "SHIP-READY" }; }, /uncommitted/, "check_failed"],
 	] as const) {
 		const t = setup();
 		try {
@@ -104,9 +105,43 @@ test("nothing is pushed when the session is blocked, didn't rebase, or left file
 			const result = await ship(t.host, 3, { ask: async () => agent(t.box) });
 			assert.equal(result.shipped, false, what);
 			assert.match(result.shipped ? "" : result.reason, reason, what);
+			assert.equal(result.shipped ? "" : result.kind, kind, what);
 			assert.equal(git(t.remote, "rev-parse", "main"), before, `${what}: the remote is untouched`);
 		} finally {
 			t.done();
 		}
 	}
+});
+
+test("a push the upstream refuses because it moved is upstream_moved, and one that can't reach it is push_failed", async () => {
+	for (const [what, kind] of [["moved", "upstream_moved"], ["unreachable", "push_failed"]] as const) {
+		const t = setup();
+		try {
+			writeFileSync(join(t.box, "b.txt"), "agent\n");
+			git(t.box, "add", "b.txt");
+			git(t.box, "commit", "-q", "-m", "agent's work");
+			const result = await ship(t.host, 3, {
+				ask: async () => {
+					git(t.box, "rebase", "-q", "refs/aludra/base");
+					// While the session works, the upstream moves, or goes away.
+					if (what === "moved") {
+						const other = join(t.root, "other");
+						execFileSync("git", ["clone", "-q", t.remote, other]);
+						git(other, "commit", "-q", "--allow-empty", "-m", "moved");
+						git(other, "push", "-q", "origin", "main");
+					} else rmSync(t.remote, { recursive: true, force: true });
+					return { status: "done", answer: "SHIP-READY" };
+				},
+			});
+			assert.equal(result.shipped, false, what);
+			assert.equal(result.shipped ? "" : result.kind, kind, `${what}: ${result.shipped ? "" : result.reason}`);
+		} finally {
+			t.done();
+		}
+	}
+});
+
+test("the ship prompt carries the user's note first", () => {
+	assert.match(shipPrompt("origin/main", "0123456789abcdef", "keep the old title"), /^A note from the user about this ship: keep the old title\n\nShip this work/);
+	assert.match(shipPrompt("origin/main", "0123456789abcdef", "  "), /^Ship this work/);
 });

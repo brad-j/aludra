@@ -61,3 +61,10 @@ test("archiving triggers it; other updates, local sessions and removed sandboxes
 	assert.deepEqual(calls, ["sync 9", "forget 9"]);
 	assert.match(lines.join("\n"), /session 9 archived: sandbox 3 deleted after fetching 1 commit to sandbox\/3/);
 });
+
+test("a session whose branch was discarded loses its sandbox without a fetch", async () => {
+	const { host, calls } = fakeHost();
+	const outcome = await removeSandboxOf(host, record({ archived: true, sandboxDiscarded: true }));
+	assert.deepEqual(outcome, { removed: true });
+	assert.deepEqual(calls, ["forget 9"]);
+});

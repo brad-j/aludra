@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
@@ -12,7 +13,9 @@ import { createApi } from "../src/api.ts";
 import { type Json, translateFixture } from "../src/amyrlin/translate.ts";
 import { context, conversationId } from "../src/host.ts";
 import { PAGE_CSP, Pages } from "../src/pages.ts";
-import { makeProject, PNG, testHost } from "./helpers.ts";
+import { removeSandboxesOnArchive } from "../src/sandbox-cleanup.ts";
+import type { Sandboxes } from "../src/sandboxes.ts";
+import { fakeSandboxes, git, gitProject, makeProject, PNG, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
 const FIXTURES = join(import.meta.dirname, "fixtures", "amyrlin");
@@ -29,8 +32,12 @@ test("the translation matches amyrlin's expected frames for every recorded scena
 
 const lastUser = (ctx: TranscriptContext) => JSON.stringify(ctx.messages.findLast((m) => m.role === "user")?.content ?? "");
 
-/** A faux host and its API on a free port. "push" asks to run git push (which waits for approval); anything else is answered. */
-async function api(t: TestContext) {
+/**
+ * A faux host and its API on a free port. "push" asks to run git push (which waits for approval); "commit NAME" writes
+ * NAME.txt and commits it; a ship prompt rebases onto refs/aludra/base and says SHIP-READY, or SHIP-BLOCKED when the
+ * ship's note says "block"; anything else is answered. With `sandboxes`, the host has a sandbox host.
+ */
+async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: string; settings?: Record<string, unknown> } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000 }, { id: "faux-2", name: "Faux 2" }] });
 	const prompts: string[] = [];
 	faux.setResponses(Array.from({ length: 100 }, () => (ctx: TranscriptContext) => {
@@ -38,14 +45,21 @@ async function api(t: TestContext) {
 		const last = ctx.messages.at(-1);
 		if (last?.role === "toolResult" && /pwd/.test(JSON.stringify(ctx.messages))) return fauxAssistantMessage(fauxText(`cwd: ${JSON.stringify(last.content)}`));
 		if (/where are you/.test(lastUser(ctx))) return fauxAssistantMessage(fauxToolCall("bash", { command: "pwd" }), { stopReason: "toolUse" });
+		const user = lastUser(ctx);
+		if (last?.role === "toolResult" && /refs\/aludra\/base/.test(user)) return fauxAssistantMessage(fauxText("Rebased and tested.\nSHIP-READY"));
+		if (last?.role === "toolResult" && /commit \w+/.test(user)) return fauxAssistantMessage(fauxText(`Committed: ${JSON.stringify(last.content)}`));
 		if (last?.role === "toolResult") return fauxAssistantMessage(fauxText(`The push call ${last.isError ? "was blocked" : "ran"}.`));
-		if (/push/.test(lastUser(ctx))) return fauxAssistantMessage(fauxToolCall("bash", { command: "git push --dry-run 2>&1 || true" }), { stopReason: "toolUse" });
+		if (/refs\/aludra\/base/.test(user) && /block/.test(user)) return fauxAssistantMessage(fauxText("A conflict needs you.\nSHIP-BLOCKED: which title to keep"));
+		if (/refs\/aludra\/base/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "git rebase -q refs/aludra/base 2>&1" }), { stopReason: "toolUse" });
+		const name = /commit (\w+)/.exec(user)?.[1];
+		if (name !== undefined) return fauxAssistantMessage(fauxToolCall("bash", { command: `echo ${name} > ${name}.txt && git add ${name}.txt && git -c user.name=t -c user.email=t@example.com commit -q -m ${name} && git log -1 --format=%s` }), { stopReason: "toolUse" });
+		if (/push/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "git push --dry-run 2>&1 || true" }), { stopReason: "toolUse" });
 		return fauxAssistantMessage(fauxText("Hello from the faux model."));
 	}));
 	const models = createModels();
 	models.setProvider(faux.provider);
-	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" } });
-	const project = makeProject(dir, "one");
+	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(options.sandboxes === undefined ? {} : { sandboxes: options.sandboxes, settings: { ...SANDBOX_SETTINGS, ...options.settings } }), ...(options.dir === undefined ? {} : { dir: options.dir }) });
+	const project = options.dir !== undefined || options.sandboxes !== undefined ? { workspace: "test", name: "one", path: "Software/one", dir: join(dir, "Projects", "Software", "one") } : makeProject(dir, "one");
 	const server = createApi(host, { users: [USER], name: "test-host" });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
@@ -468,3 +482,184 @@ test("a video sent from the Mac is saved on the host, and the message says where
 	assert.equal((await send()).duplicate, true);
 	assert.equal(readdirSync(dirname(path!)).length, 2);
 });
+
+/** A host with sandboxes over pi-env's local daemon, and project "one" in git with origin/main a bare repository. */
+async function sandboxApi(t: TestContext) {
+	const root = tempDir(t);
+	const { project, remote } = gitProject(root, "one", { "a.txt": "one\n" }, { remote: true });
+	const fake = fakeSandboxes(root);
+	t.after(() => fake.close());
+	const served = await api(t, { sandboxes: fake.sandboxes, dir: root });
+	return { ...served, project, remote: remote!, fake, root };
+}
+
+const updated = (id: number, test: (c: Json) => boolean) => (e: Json) => e.type === "conversation.updated" && e.conversation.id === id && test(e.conversation);
+
+test("a sandbox session from the Mac answers at once, holds its first message while it's made, then runs in it", async (t) => {
+	const { url, project, fake } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const info = await mac.request("host.info");
+	assert.deepEqual(info.sandboxes, { shipTo: "main", afterRun: "fetch" });
+	const list = (await mac.request("host.watch")).subscription;
+	await mac.event(list, type("host.snapshot"), "the host snapshot");
+
+	fake.control.hold = true;
+	const created = await mac.request("conversations.create", { requestId: "sb-1", project: project.dir, text: "commit hello", sandbox: true });
+	const id = created.conversation.id;
+	assert.equal(created.conversation.sandbox.state, "preparing");
+	assert.equal(created.conversation.sandbox.number, 0);
+	assert.equal(created.conversation.sandbox.branch, "sandbox/0");
+	assert.equal(created.conversation.source, project.dir);
+	assert.equal(created.conversation.status, "busy", "a held message counts as work going on");
+	// The step can be in the answer already, or come after it.
+	if (created.conversation.sandbox.step !== "cloning") await mac.event(list, updated(id, (c) => c.sandbox.step === "cloning"), "the cloning step");
+	// A second message waits too, in order.
+	const queued = await mac.request("submit", { conversationId: id, requestId: "sb-2", text: "commit again" });
+	assert.equal(queued.submission.status, "queued");
+	assert.equal((await mac.request("conversations.create", { requestId: "sb-1", project: project.dir, text: "commit hello", sandbox: true })).duplicate, true);
+
+	fake.control.release();
+	const ready = await mac.event(list, updated(id, (c) => c.sandbox.state === "ready" && c.status === "idle" && c.updatedAt > c.createdAt), "the runs in the sandbox");
+	const summary = ready.findLast(updated(id, (c) => c.sandbox.state === "ready")).conversation;
+	assert.equal(summary.sandbox.base, git(project.dir, "rev-parse", "HEAD"));
+	assert.equal(summary.sandbox.step, undefined);
+	assert.equal(summary.dir, fake.made[0]!.dir, "dir is in the sandbox");
+	const box = fake.made[0]!.dir;
+	// Both messages ran in the sandbox, in order, and nothing was written to the project here.
+	await waitFor(() => git(box, "log", "--format=%s").split("\n").length === 3, "both commits in the sandbox");
+	assert.deepEqual(git(box, "log", "--format=%s").split("\n"), ["again", "hello", "first"]);
+	assert.equal(git(project.dir, "status", "--porcelain"), "");
+	const history = await mac.request("conversation.history", { conversationId: id, limit: 50 });
+	const users = history.items.filter((i: Json) => i.type === "user").map((i: Json) => i.content[0].text);
+	assert.deepEqual(users, ["commit hello", "commit again"]);
+});
+
+test("sandbox.sync brings the branch home, sandbox.discard deletes it, and refusals say why", async (t) => {
+	const { url, host, project, fake } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const id = (await mac.request("conversations.create", { requestId: "c", project: project.dir, text: "commit work", sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(id);
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(fake.made[0]!.dir, "log", "--format=%s").startsWith("work"), "the commit");
+
+	const synced = await mac.request("sandbox.sync", { conversationId: id });
+	assert.equal(synced.branch, "sandbox/0");
+	assert.equal(synced.commits, 1);
+	assert.equal(synced.uncommitted, 0);
+	assert.equal(synced.merged, undefined);
+	assert.equal(git(project.dir, "rev-parse", "sandbox/0"), git(fake.made[0]!.dir, "rev-parse", "HEAD"));
+	const merged = await mac.request("sandbox.sync", { conversationId: id, merge: true });
+	assert.equal(merged.merged, true);
+	assert.equal(git(project.dir, "log", "-1", "--format=%s", "main"), "work", "main fast-forwarded");
+
+	assert.deepEqual(await mac.request("sandbox.discard", { conversationId: id }), { branch: "sandbox/0", deleted: true });
+	assert.equal(git(project.dir, "branch", "--list", "sandbox/0"), "");
+	assert.deepEqual(await mac.request("sandbox.discard", { conversationId: id }), { branch: "sandbox/0", deleted: false });
+	assert.equal((await host.sessions.get(id))?.sandboxDiscarded, true);
+
+	// Archived after a discard, the sandbox goes without its branch coming back. `aludra serve` runs this cleanup.
+	const cleanup = removeSandboxesOnArchive(host, () => {});
+	t.after(cleanup.stop);
+	await mac.request("conversations.archive", { conversationId: id, archived: true });
+	await waitFor(async () => (await host.sessions.get(id))?.sandboxRemoved === true, "the sandbox removed");
+	assert.equal(git(project.dir, "branch", "--list", "sandbox/0"), "");
+	assert.deepEqual(fake.removed, [0]);
+	await waitFor(async () => (await mac.request("conversations.list", { includeArchived: true })).conversations.find((c: Json) => c.id === id).sandbox.state === "removed", "the summary to say removed");
+
+	const local = (await mac.request("conversations.create", { requestId: "here", project: project.dir })).conversation.id;
+	await assert.rejects(mac.request("sandbox.sync", { conversationId: local }), { code: "bad_request" });
+	await assert.rejects(mac.request("sandbox.ship", { conversationId: local }), { code: "bad_request" });
+	await assert.rejects(mac.request("sandbox.sync", { conversationId: id }), { code: "bad_request", message: /deleted/ });
+	await assert.rejects(mac.request("conversations.create", { requestId: "x", project: project.dir, approvals: "off" }), { code: "bad_request" });
+});
+
+test("a sandbox that can't be made leaves the session stuck with the reason, and its message unsent", async (t) => {
+	const { url, project, fake } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const list = (await mac.request("host.watch")).subscription;
+	fake.control.fail = "the template's install failed";
+	await mac.event(list, type("host.snapshot"), "the host snapshot");
+	const created = (await mac.request("conversations.create", { requestId: "f", project: project.dir, text: "commit x", sandbox: true })).conversation;
+	const id = created.id;
+	// The failure can beat the answer, or come after it.
+	const failed = created.status === "stuck" ? created : (await mac.event(list, updated(id, (c) => c.status === "stuck"), "the failure")).findLast(updated(id, (c) => c.status === "stuck")).conversation;
+	assert.match(failed.sandbox.reason, /install failed/);
+	assert.equal(failed.status, "stuck");
+	assert.equal(failed.stuck.reason, "sandbox_failed");
+	await assert.rejects(mac.request("submit", { conversationId: id, requestId: "f2", text: "again" }), { code: "bad_request", message: /couldn't be made/ });
+	const history = await mac.request("conversation.history", { conversationId: id });
+	assert.equal(history.items.filter((i: Json) => i.type === "user").length, 0);
+});
+
+test("a message held while the sandbox is made survives a restart, and is sent once the sandbox is ready", async (t) => {
+	const root = tempDir(t);
+	const { project } = gitProject(root, "one");
+	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
+	faux.setResponses(Array.from({ length: 10 }, () => (ctx: TranscriptContext) => (ctx.messages.at(-1)?.role === "toolResult" ? fauxAssistantMessage(fauxText("done")) : fauxAssistantMessage(fauxToolCall("bash", { command: "echo kept > kept.txt && git add kept.txt && git -c user.name=t -c user.email=t@example.com commit -q -m kept" }), { stopReason: "toolUse" }))));
+	const models = createModels();
+	models.setProvider(faux.provider);
+	const model = { provider: "faux", modelId: "faux-1" };
+	const first = fakeSandboxes(root);
+	first.control.hold = true;
+	const before = await testHost(t, { dir: root, sandboxes: first.sandboxes, settings: SANDBOX_SETTINGS, models, model });
+	const record = await before.host.sessions.startSandbox(project, "commit kept");
+	assert.equal(await before.host.sandboxes.hold(record.id, "commit kept", "k1"), true);
+	assert.equal(await before.host.sandboxes.hold(record.id, "commit kept", "k1"), true, "a retry holds nothing twice");
+	assert.equal((await before.host.sandboxes.held(record.id)).length, 1);
+	await before.host.close();
+	first.close();
+
+	// The next process finds it preparing and makes the sandbox again.
+	const second = fakeSandboxes(root);
+	t.after(() => second.close());
+	const after = await testHost(t, { dir: root, sandboxes: second.sandboxes, settings: SANDBOX_SETTINGS, models, model });
+	await waitFor(async () => (await after.host.sessions.get(record.id))?.sandboxState !== "preparing", "the sandbox made after the restart");
+	const rec = await after.host.sessions.get(record.id);
+	assert.equal(rec?.sandboxState, "ready", rec?.sandboxReason ?? "");
+	await waitFor(() => second.made.length === 1 && git(second.made[0]!.dir, "log", "-1", "--format=%s") === "kept", "the held message run");
+	assert.deepEqual(await after.host.sandboxes.held(record.id), []);
+});
+
+test("sandbox.ship lands the work on origin/main and tells host watchers, and a blocked ship says so with its kind", async (t) => {
+	const { url, host, project, remote, fake, root } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const list = (await mac.request("host.watch")).subscription;
+	const id = (await mac.request("conversations.create", { requestId: "s", project: project.dir, text: "commit feature", sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(id);
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(fake.made[0]!.dir, "log", "-1", "--format=%s") === "feature", "the commit");
+	// Meanwhile origin/main moves.
+	const other = join(root, "other");
+	execFileSync("git", ["clone", "-q", remote, other]);
+	git(other, "commit", "-q", "--allow-empty", "-m", "someone else's");
+	git(other, "push", "-q", "origin", "main");
+
+	const from = mac.count(list);
+	assert.deepEqual(await mac.request("sandbox.ship", { conversationId: id }), { started: true });
+	await assert.rejects(mac.request("sandbox.ship", { conversationId: id }), { code: "busy" });
+	const shipped = (await mac.event(list, type("sandbox.shipped"), "sandbox.shipped", from)).find(type("sandbox.shipped"));
+	assert.equal(shipped.shipped, true, JSON.stringify(shipped));
+	assert.equal(shipped.conversationId, id);
+	assert.equal(shipped.to, "main");
+	assert.equal(shipped.pushed, "origin/main");
+	assert.equal(shipped.commits, 1);
+	assert.deepEqual(git(remote, "log", "--format=%s", "main").split("\n"), ["feature", "someone else's", "first"]);
+	assert.equal((await host.sessions.get(id))?.shipping, undefined, "the ship is done in the record");
+
+	// A note that blocks it: the session says SHIP-BLOCKED, and nothing is pushed.
+	git(fake.made[0]!.dir, "commit", "-q", "--allow-empty", "-m", "more");
+	const before = git(remote, "rev-parse", "main");
+	const next = mac.count(list);
+	await mac.request("sandbox.ship", { conversationId: id, note: "block it" });
+	const stopped = (await mac.event(list, type("sandbox.shipped"), "the blocked ship", next)).find(type("sandbox.shipped"));
+	assert.equal(stopped.shipped, false);
+	assert.equal(stopped.kind, "blocked");
+	assert.match(stopped.reason, /which title to keep/);
+	assert.equal(git(remote, "rev-parse", "main"), before);
+});
+
+async function waitFor(check: () => boolean | Promise<boolean>, what: string, ms = 8000) {
+	const deadline = Date.now() + ms;
+	while (!(await check())) {
+		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+}

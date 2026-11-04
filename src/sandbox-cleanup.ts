@@ -1,12 +1,13 @@
 // A sandbox session's sandbox goes when the session is archived: its commits are fetched first (src/sandboxes.ts),
 // then the sandbox is deleted on its host and the session marked, so a later message or `aludra sync` says so instead
 // of failing on a sandbox that isn't there. A sandbox holding uncommitted files is kept, since deleting it would lose
-// them; the session can be asked to commit, or unarchived and archived again. Nothing here throws.
+// them; the session can be asked to commit, or unarchived and archived again. A session whose branch was discarded
+// (sandbox.discard) isn't fetched again: its work was thrown away, so the sandbox goes as it is. Nothing here throws.
 import type { Host, SessionRecord } from "./host.ts";
 import type { SyncResult } from "./sandboxes.ts";
 
 export type CleanupOutcome =
-	| { removed: true; sync: SyncResult }
+	| { removed: true; sync?: SyncResult }
 	| { removed: false; reason: string };
 
 /** Fetches then deletes archived session `record`'s sandbox, unless it holds uncommitted files. */
@@ -15,6 +16,14 @@ export async function removeSandboxOf(host: Pick<Host, "sandboxes" | "sessions">
 	// Archiving only hides a session, so one can be archived mid-run; its sandbox stays until it's idle and archived again.
 	const state = (await host.sessions.states()).get(record.id);
 	if (state === "running" || state === "waiting") return { removed: false, reason: `kept: the session is ${state}` };
+	if (record.sandboxDiscarded === true) {
+		try {
+			await host.sandboxes.forget(record.id);
+		} catch (error) {
+			return { removed: false, reason: `couldn't delete it: ${error instanceof Error ? error.message : String(error)}` };
+		}
+		return { removed: true };
+	}
 	let sync: SyncResult;
 	try {
 		sync = await host.sandboxes.sync(record.id);
@@ -40,7 +49,9 @@ export function removeSandboxesOnArchive(
 		if (record.archived !== true || record.sandbox === undefined || record.sandboxRemoved === true) return;
 		const run = removeSandboxOf(host, record).then((outcome) => {
 			log(outcome.removed
-				? `[sandbox] session ${record.id} archived: sandbox ${record.sandbox} deleted after fetching ${outcome.sync.commits} commit${outcome.sync.commits === 1 ? "" : "s"} to ${outcome.sync.branch}`
+				? outcome.sync === undefined
+					? `[sandbox] session ${record.id} archived: sandbox ${record.sandbox} deleted; its branch was discarded, so nothing was fetched`
+					: `[sandbox] session ${record.id} archived: sandbox ${record.sandbox} deleted after fetching ${outcome.sync.commits} commit${outcome.sync.commits === 1 ? "" : "s"} to ${outcome.sync.branch}`
 				: `[sandbox] session ${record.id} archived: sandbox ${record.sandbox} not deleted, ${outcome.reason}`);
 		});
 		going.add(run);

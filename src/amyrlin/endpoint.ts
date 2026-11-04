@@ -13,11 +13,15 @@
 //   aludra's own apps do; host.watch carries archived sessions and the client filters.
 // - `settings.get` and `settings.set` are aludra's own, not in protocol v1: the host's settings, each described for a
 //   form (src/settings.ts). A host without them answers `unknown_method`.
+// - Sandbox tasks (amyrlin's protocol section 10 item 19) are aludra's own too: `conversations.create` with `sandbox`,
+//   the summary's `sandbox` and `source`, `sandbox.sync`, `sandbox.ship` with its `sandbox.shipped` event on host.watch,
+//   and `sandbox.discard`, over src/sandboxes.ts, src/ship.ts and src/sandbox-cleanup.ts.
 import { randomUUID } from "node:crypto";
 import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
-import { context, conversationId, type Host, type SessionRecord } from "../host.ts";
+import { context, conversationId, type Host, isSandboxSession, SandboxNotReady, sandboxBranch, type SessionRecord } from "../host.ts";
+import { ShipRefused, type ShipResult } from "../ship.ts";
 import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
 import { PAGE_CSP } from "../pages.ts";
 import { checkFiles, type FileInput, MAX_FILE_BYTES, MAX_FILES, PASTE_BYTES } from "../files.ts";
@@ -70,6 +74,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 	const summaries = new Map<number, Json>();
 	const summaryListeners = new Set<(summary: Json) => void>();
 	const approvalListeners = new Set<(conversation: number, event: Json) => void>();
+	/** Events for every host watcher that aren't a summary, such as `sandbox.shipped`. */
+	const hostListeners = new Set<(event: Json) => void>();
 	const callIds = new Map<string, string>();
 	const dirty = new Set<number>();
 	let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -136,10 +142,12 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		]);
 		const newest = conversation === undefined ? undefined : (await conversation.entries({}, 1, undefined, context)).items[0];
 		const pending = state === "waiting" ? (await approvals.pending()).filter((r) => r.conversationId === record.id).length : 0;
+		const sandbox = isSandboxSession(record) ? await sandboxOf(record) : undefined;
 		return {
 			id: record.id,
 			title: record.title,
-			status: state === "waiting" ? "needsApproval" : state === "running" ? "busy" : "idle",
+			status: state === "waiting" ? "needsApproval" : state === "running" ? "busy" : sandbox?.held === true ? (record.sandboxState === "failed" ? "stuck" : "busy") : "idle",
+			...(sandbox?.held === true && record.sandboxState === "failed" ? { stuck: { reason: "sandbox_failed", detail: record.sandboxReason ?? "" } } : {}),
 			archived: record.archived === true,
 			parent: null,
 			model: agent?.model ?? host.model,
@@ -153,9 +161,47 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			// A no-project session has no `project`; its `dir` is its scratch directory.
 			...(record.scratch === true ? {} : { project: record.project }),
 			dir: record.dir,
+			...(sandbox === undefined ? {} : { sandbox: sandbox.wire, ...(record.source === undefined ? {} : { source: record.source }) }),
 			...(allowed.length > 0 ? { alwaysAllowed: allowed } : {}),
 		};
 	}
+
+	/** Sandbox states on the sandbox host (running, paused, stopped) as last read; refreshed each minute while a client watches. */
+	let hostStates = new Map<number, string>();
+
+	/** A sandbox session's `sandbox` for its summary, and whether a message waits for its sandbox. */
+	async function sandboxOf(record: SessionRecord): Promise<{ wire: Json; held: boolean }> {
+		const held = record.sandbox === undefined && (await host.sandboxes.held(record.id)).length > 0;
+		const state = record.sandboxRemoved === true ? "removed"
+			: record.sandboxState === "failed" ? "failed"
+			: record.sandbox === undefined ? "preparing"
+			: hostStates.get(record.sandbox) === "paused" ? "paused"
+			: "ready";
+		return {
+			held,
+			wire: {
+				number: record.sandboxNumber ?? record.sandbox,
+				branch: sandboxBranch(record),
+				state,
+				...(record.sandboxBase === undefined ? {} : { base: record.sandboxBase }),
+				...(state === "preparing" && record.sandboxStep !== undefined ? { step: record.sandboxStep } : {}),
+				...(state === "failed" && record.sandboxReason !== undefined ? { reason: record.sandboxReason } : {}),
+			},
+		};
+	}
+
+	/** Reads the sandbox host's states, and marks the sessions whose sandbox paused or woke. */
+	async function refreshHostStates() {
+		const live = listSummaries().filter((c) => c.sandbox !== undefined && (c.sandbox.state === "ready" || c.sandbox.state === "paused"));
+		if (live.length === 0 || hostListeners.size === 0 || host.sandboxSettings() === undefined) return;
+		const before = hostStates;
+		hostStates = await host.sandboxes.states();
+		for (const record of await host.sessions.list()) {
+			if (record.sandbox !== undefined && before.get(record.sandbox) !== hostStates.get(record.sandbox)) markDirty(record.id);
+		}
+	}
+	const statePoll = setInterval(() => void refreshHostStates().catch((error) => console.error(`[amyrlin] sandbox states: ${error instanceof Error ? error.message : String(error)}`)), 60_000);
+	statePoll.unref();
 
 	async function refreshAll(): Promise<void> {
 		const states = await host.sessions.states();
@@ -226,6 +272,25 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		return { record, conversation: await host.conversation(id) };
 	}
 
+	/** A sandbox session's record, or the error saying it isn't one. */
+	async function sandboxSession(id: unknown): Promise<SessionRecord> {
+		const { record } = await session(id);
+		if (!isSandboxSession(record)) throw new ProtocolError("bad_request", `Session ${record.id} isn't in a sandbox`);
+		if (record.source === undefined) throw new ProtocolError("bad_request", `Session ${record.id} is in a sandbox with no project, so it has no branch here`);
+		return record;
+	}
+
+	/** Runs `work`, answering a git or sandbox refusal (not ready, gone, checked out, rewrote history) as bad_request. */
+	async function sandboxCall<T>(work: () => Promise<T>): Promise<T> {
+		try {
+			return await work();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (/isn't ready|was deleted|checked out|rewrote history|isn't in a sandbox|has no project/.test(message)) throw new ProtocolError("bad_request", message);
+			throw error;
+		}
+	}
+
 	async function checkpointOf(id: number, checkpoint: unknown): Promise<number> {
 		if (typeof checkpoint !== "number") throw new ProtocolError("bad_request", "checkpoint should be a number");
 		if (!(await host.checkpoints.list(id)).some((c) => c.id === checkpoint)) throw new ProtocolError("not_found", `No checkpoint ${checkpoint}`);
@@ -291,12 +356,31 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		if (p.settings?.model != null) agent.model = modelOf(p.settings.model);
 		if (p.settings?.thinkingLevel != null) agent.thinking = thinkingOf(p.settings.thinkingLevel);
 		const title = hasFirst ? titleOf(text, images, videos.length, files.map((f) => f.name)) : typeof p.title === "string" && p.title.trim() !== "" ? p.title : "New session";
-		const record = project === undefined ? await host.sessions.createScratch(title, agent) : await host.sessions.create(project, title, agent);
+		if (p.sandbox != null && typeof p.sandbox !== "boolean") throw new ProtocolError("bad_request", "sandbox should be true or false");
+		if (p.approvals != null && p.approvals !== "ask" && p.approvals !== "off") throw new ProtocolError("bad_request", "approvals should be ask or off");
+		if (p.approvals != null && p.sandbox !== true) throw new ProtocolError("bad_request", "approvals is for a sandbox session");
+		const sandboxed = p.sandbox === true;
+		if (sandboxed && host.sandboxSettings() === undefined) throw new ProtocolError("unsupported", "This host has no sandbox host in its settings");
+		const record = sandboxed ? await host.sessions.startSandbox(project, title, agent, p.approvals == null ? {} : { approvals: p.approvals })
+			: project === undefined ? await host.sessions.createScratch(title, agent)
+			: await host.sessions.create(project, title, agent);
 		await host.root.commit(async (tx) => {
 			(await tx.doc(AmyrlinDoc)).created[p.requestId] = record.id;
 		}, context);
-		if (hasFirst) await host.submit(record.id, content(text, images, [...(await host.files(record.id, files)), ...(await host.videos(record.id, videos))]), { requestId: `${p.requestId}:first` });
-		const summary = await summaryOf(record, hasFirst ? "running" : "idle");
+		let state: "running" | "idle" = hasFirst ? "running" : "idle";
+		if (hasFirst) {
+			const message = content(text, images, [...(await host.files(record.id, files)), ...(await host.videos(record.id, videos))]);
+			const requestId = `${p.requestId}:first`;
+			// A sandbox session's first message waits in the database for its sandbox (src/host.ts, hold).
+			const held = sandboxed && (await host.sandboxes.hold(record.id, message, requestId, true));
+			if (!held) await host.submit(record.id, message, { requestId });
+			else {
+				state = "idle";
+				// The sandbox may have failed before the message was held; watchers hear the session is stuck.
+				markDirty(record.id);
+			}
+		}
+		const summary = await summaryOf((await host.sessions.get(record.id)) ?? record, state);
 		summaries.set(record.id, summary);
 		return { conversation: summary, duplicate: false };
 	}
@@ -317,6 +401,18 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		}
 		// A retry gets the first message's submission back, whatever it carries, so its files and videos aren't saved again.
 		const message = before === undefined ? content(p.text, images, [...(await host.files(record.id, files)), ...(await host.videos(record.id, videos))]) : p.text;
+		// A sandbox session's messages wait while its sandbox is made, and are sent in order once it's ready.
+		if (before === undefined && isSandboxSession(record) && record.sandbox === undefined) {
+			try {
+				if (await host.sandboxes.hold(record.id, message, p.requestId)) {
+					markDirty(record.id);
+					return { submission: { requestId: p.requestId, type: "input", status: "queued" }, duplicate: false };
+				}
+			} catch (error) {
+				if (error instanceof SandboxNotReady) throw new ProtocolError("bad_request", error.message);
+				throw error;
+			}
+		}
 		const submission = await host.submit(record.id, message, { requestId: p.requestId, steer: whenBusy === "steer" });
 		const status = await submission.status(context);
 		const wire: Json = { id: status.id, type: status.type, status: status.status };
@@ -480,9 +576,28 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			// Sessions can publish pages (src/pages.ts); conversation.page fetches one.
 			pages: true,
 			files: { maxFiles: MAX_FILES, maxBytes: MAX_FILE_BYTES, pasteBytes: PASTE_BYTES, keepDays: UPLOAD_DAYS, maxMessageBytes: MAX_MESSAGE_BYTES },
+			// Sessions may run in sandboxes (protocol section 10 item 19); a host without a sandbox host leaves this out.
+			...sandboxInfo(),
 			...(await monthCostOf()),
 		};
 	}
+
+	function sandboxInfo(): Json {
+		const settings = host.sandboxSettings();
+		return settings === undefined ? {} : { sandboxes: { shipTo: settings.shipTo, afterRun: settings.afterRun } };
+	}
+
+	/** `sandbox.shipped` for host watchers. */
+	function shippedEvent(id: number, result: ShipResult): Json {
+		return result.shipped
+			? { type: "sandbox.shipped", conversationId: id, shipped: true, to: result.mode, pushed: result.pushed, head: result.head, commits: result.commits, ...(result.pr === undefined ? {} : { pr: result.pr }) }
+			: { type: "sandbox.shipped", conversationId: id, shipped: false, kind: result.kind, reason: result.reason };
+	}
+	const stopShipped = host.ships.onShipped((id, result) => {
+		markDirty(id);
+		const event = shippedEvent(id, result);
+		for (const listener of hostListeners) listener(event);
+	});
 
 	// Watching one session (sections 6.1 and 7)
 
@@ -626,14 +741,17 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 						const id = `s${nextSubscription++}`;
 						const send = subscriber(id);
 						const onSummary = (conversation: Json) => void send([{ type: "conversation.updated", conversation }]);
+						const onHostEvent = (event: Json) => void send([event]);
 						let stopColors = () => {};
 						subscriptions.set(id, async () => {
 							summaryListeners.delete(onSummary);
+							hostListeners.delete(onHostEvent);
 							stopColors();
 						});
 						respond({ subscription: id });
 						await send([{ type: "host.snapshot", host: await identity(), spend: await hostSpend(), ...(await monthCostOf()), conversations: listSummaries(), projectColors: await host.colors.list() }]);
 						summaryListeners.add(onSummary);
+						hostListeners.add(onHostEvent);
 						if (subscriptions.has(id)) stopColors = host.colors.onChange((projectColors) => void send([{ type: "host.projectColors", projectColors }]));
 						return;
 					}
@@ -792,6 +910,37 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 						throw error;
 					}
 				}
+				// aludra's own: sandbox tasks (protocol section 10 item 19).
+				case "sandbox.sync": {
+					const record = await sandboxSession(p.conversationId);
+					if (p.merge != null && typeof p.merge !== "boolean") throw new ProtocolError("bad_request", "merge should be true or false");
+					const synced = await sandboxCall(() => host.sandboxes.sync(record.id, undefined, { merge: p.merge === true }));
+					markDirty(record.id);
+					return {
+						branch: synced.branch,
+						head: synced.head,
+						commits: synced.commits,
+						uncommitted: synced.uncommitted,
+						...(synced.merge === undefined ? {} : { merged: synced.merge.merged ? true : { reason: synced.merge.reason } }),
+					};
+				}
+				case "sandbox.ship": {
+					const record = await sandboxSession(p.conversationId);
+					if (p.to != null && p.to !== "main" && p.to !== "branch") throw new ProtocolError("bad_request", "to should be main or branch");
+					if (p.note != null && typeof p.note !== "string") throw new ProtocolError("bad_request", "note should be text");
+					try {
+						await host.ships.start(record.id, { mode: p.to ?? host.shipMode(), ...(p.note == null ? {} : { note: p.note }) });
+					} catch (error) {
+						if (error instanceof ShipRefused) throw new ProtocolError(error.code, error.message);
+						throw error;
+					}
+					return { started: true };
+				}
+				case "sandbox.discard": {
+					const record = await sandboxSession(p.conversationId);
+					const discarded = await sandboxCall(() => host.sandboxes.discard(record.id));
+					return { branch: discarded.branch, deleted: discarded.head !== undefined };
+				}
 				case "conversation.history":
 					return history(p);
 				case "conversation.image":
@@ -806,6 +955,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		connect,
 		close() {
 			clearTimeout(flushTimer);
+			clearInterval(statePoll);
+			stopShipped();
 			stopApprovals();
 			stopCommits();
 			stopCreated();

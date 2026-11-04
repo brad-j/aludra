@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createDecipheriv, createECDH, type ECDH, hkdfSync, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { TestContext } from "node:test";
 import type { SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
 import type { Provider } from "@earendil-works/pi-ai/models";
 import { fauxProvider, type FauxResponseStep } from "@earendil-works/pi-ai/providers/faux";
+import { Connection, localDaemon } from "@earendil-works/pi-env";
 import { configFor } from "../src/config.ts";
 import { openHost, type HostOptions } from "../src/host.ts";
 import type { Project } from "../src/projects.ts";
+import { createSandboxes, type Sandboxes } from "../src/sandboxes.ts";
 
 export function tempDir(t: TestContext, name = "aludra-test-"): string {
 	// Resolved, since a process's cwd is (macOS's temporary directory is under the /var symlink).
@@ -49,11 +52,12 @@ export function fakeClaudeCode(responses: FauxResponseStep[]) {
 
 /**
  * A host on a temp data directory with `options`, closed after the test. With `settingsFile`, its settings are read from
- * config.json in the temp directory, so they can be changed.
+ * config.json in the temp directory, so they can be changed. `settings` are added to the settings file's, and `dir`
+ * opens a host on another host's directory, as a restart does.
  */
-export async function testHost(t: TestContext, options: Omit<HostOptions, "config"> & { approvalHosts?: string[]; settingsFile?: boolean } = {}) {
-	const dir = tempDir(t);
-	const text = JSON.stringify({ dataDir: join(dir, "data"), workspaces: [{ name: "test", roots: [join(dir, "Projects", "*", "*")] }], approvals: { hosts: options.approvalHosts ?? ["build-box"] } }, null, "\t");
+export async function testHost(t: TestContext, options: Omit<HostOptions, "config"> & { approvalHosts?: string[]; settingsFile?: boolean; settings?: Record<string, unknown>; dir?: string } = {}) {
+	const dir = options.dir ?? tempDir(t);
+	const text = JSON.stringify({ dataDir: join(dir, "data"), workspaces: [{ name: "test", roots: [join(dir, "Projects", "*", "*")] }], approvals: { hosts: options.approvalHosts ?? ["build-box"] }, ...options.settings }, null, "\t");
 	const { config } = configFor(text, {});
 	if (options.settingsFile === true) {
 		config.file = join(dir, "config.json");
@@ -91,3 +95,70 @@ export function device() {
 
 /** A 1×1 PNG, base64. */
 export const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+export const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+export const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", env: GIT_ENV }).trim();
+
+/** Settings naming a sandbox host, for a host given fakeSandboxes: only the parts the settings check. */
+export const SANDBOX_SETTINGS = { sandboxes: { ssh: "unused", gateKey: "/dev/null", knownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA" } };
+
+/**
+ * Sandboxes on this machine: each "sandbox" is a clone of its project in `root`, with no remote, as a template makes,
+ * reached through pi-env's local daemon, so tools, sync and ship run for real. `create` waits for `release()` while
+ * `hold` is set, and fails with `fail`'s message when that's set. Numbers count from 0 like stedding's.
+ */
+export function fakeSandboxes(root: string) {
+	const real = createSandboxes({ ssh: "unused", gateKey: "/dev/null", hostKnownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA", dataDir: root }, { connect: () => new Connection({ command: [localDaemon()] }) });
+	let next = 0;
+	const made: { n: number; dir: string }[] = [];
+	const removed: number[] = [];
+	const control = {
+		hold: false,
+		fail: undefined as string | undefined,
+		releases: [] as (() => void)[],
+		release() {
+			for (const release = control.releases.splice(0); release.length > 0;) release.shift()!();
+		},
+	};
+	const sandboxes: Sandboxes = {
+		...real,
+		configured: () => true,
+		dirFor: (project) => join(root, "sandboxes", project.name),
+		async create(project, _onProgress, onStep) {
+			onStep?.("cloning");
+			if (control.hold) await new Promise<void>((resolve) => control.releases.push(resolve));
+			if (control.fail !== undefined) throw new Error(control.fail);
+			onStep?.("starting");
+			const n = next++;
+			const dir = join(root, "sandboxes", `${n}`, project?.name ?? "bare");
+			mkdirSync(dirname(dir), { recursive: true });
+			if (project === undefined) mkdirSync(dir, { recursive: true });
+			else {
+				execFileSync("git", ["clone", "-q", project.dir, dir], { env: GIT_ENV });
+				git(dir, "remote", "remove", "origin");
+			}
+			made.push({ n, dir });
+			return { sandbox: n, dir, ...(project === undefined ? {} : { base: git(project.dir, "rev-parse", "HEAD") }) };
+		},
+		async remove(n) {
+			removed.push(n);
+		},
+		status: async (n) => `sandbox=${n} state=running`,
+		states: async () => new Map(made.map((m) => [m.n, "running"])),
+	};
+	return { sandboxes, control, made, removed, close: () => real.close() };
+}
+
+/** `makeProject` in git, with one commit, and with `remote` a bare repository it tracks as origin/main. */
+export function gitProject(root: string, name: string, files: Record<string, string> = { "a.txt": "one\n" }, options: { remote?: boolean } = {}) {
+	const project = makeProject(root, name, files);
+	git(project.dir, "init", "-q", "-b", "main");
+	git(project.dir, "add", "-A");
+	git(project.dir, "commit", "-q", "-m", "first");
+	if (options.remote !== true) return { project };
+	const remote = join(root, `${name}.git`);
+	execFileSync("git", ["init", "-q", "--bare", "-b", "main", remote]);
+	git(project.dir, "remote", "add", "origin", remote);
+	git(project.dir, "push", "-q", "-u", "origin", "main");
+	return { project, remote };
+}

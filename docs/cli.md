@@ -57,7 +57,7 @@ With `--project`, starts a session in that project, or with `--sandbox` in a san
 
 With a sandbox host in the settings (`sandboxes`), `ask --sandbox` runs the new session's tools in a Firecracker VM of its own on that host, a copy of the project's last commit with its dependencies installed. The model and the transcript stay on this machine. The sandbox reaches the internet and nothing else, holds no keys, and can't push. The first sandbox session of a project at a new commit waits while the project's template is made (a clone and an install, printed as it goes); later ones start in about a second.
 
-When a sandbox session's run ends, its commits come home by themselves, as `sandboxes.afterRun` says:
+A sandbox session's branch is `sandbox/N`, where N is the session's own sandbox number: one count across projects, given out by aludra and never reused (sessions from before it use the sandbox host's number). When a sandbox session's run ends, its commits come home by themselves, as `sandboxes.afterRun` says:
 
 - `fetch` (the default): into the branch `sandbox/N` in the project's checkout here, created or fast-forwarded. The checked-out branch and the working tree aren't touched.
 - `merge`: the same, then the checked-out branch is fast-forwarded to `sandbox/N` when that's safe: it's on a branch, `sandbox/N` contains it, and no uncommitted change touches a file the new commits change. Otherwise it's left alone, and the service log says why. It never makes a merge commit.

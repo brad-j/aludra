@@ -50,6 +50,17 @@ export function run(cmd: string, args: readonly string[], input?: string): Promi
 	});
 }
 
+/** What making a session's sandbox is doing: waiting for a template another session is making, or a stage of its own. */
+export type SandboxStep = "waiting" | "cloning" | "installing" | "saving" | "starting";
+
+/** Printed by the template script before the install, so the step can follow it. */
+const STEP_MARK = "@@aludra-step ";
+
+/** A project's directory in its sandboxes. */
+export function sandboxDir(project: Pick<ProjectSource, "name">): string {
+	return `/home/user/work/${project.name}`;
+}
+
 /** A template name for `project` at `commit`: safe for stedding, stable while the commit is. */
 export function templateName(project: string, commit: string): string {
 	return `${project.replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[^A-Za-z0-9]+/, "p")}-${commit.slice(0, 12)}`;
@@ -141,15 +152,19 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 	 * from a bundle, runs `.agents/setup` if the project has one, else installs with the lockfile's package manager,
 	 * and is saved. Concurrent calls for one template share the work.
 	 */
-	async function template(project: ProjectSource, onProgress?: (line: string) => void): Promise<string> {
+	async function template(project: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void): Promise<{ name: string; commit: string }> {
 		const commit = (await run("git", ["-C", project.dir, "rev-parse", "HEAD"])).trim();
 		const name = templateName(project.name, commit);
 		const existing = (await stedding("templates")).split("\n").map((l) => /^template=(\S+) age=(\d+)/.exec(l)).find((m) => m?.[1] === name);
-		if (existing && Number(existing[2]) < TEMPLATE_MAX_AGE_S) return name;
+		if (existing && Number(existing[2]) < TEMPLATE_MAX_AGE_S) return { name, commit };
 		const already = making.get(name);
-		if (already !== undefined) return already;
+		if (already !== undefined) {
+			onStep?.("waiting");
+			return { name: await already, commit };
+		}
 		const made = (async () => {
 			onProgress?.(`making the ${project.name} template at ${commit.slice(0, 12)}`);
+			onStep?.("cloning");
 			const n = Number((await stedding("new")).trim());
 			try {
 				const env = await prepared(n);
@@ -163,13 +178,14 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 					const [userName, userEmail] = [await who("user.name"), await who("user.email")];
 					const put = await env.writeFile("/home/user/project.bundle", await readFile(bundle), BACKGROUND);
 					if (!put.ok) throw put.error;
-					const dir = `/home/user/work/${project.name}`;
+					const dir = sandboxDir(project);
 					const script = [
 						"set -euo pipefail",
 						`git clone -q --branch ${branch === "HEAD" ? "HEAD" : shellQuote(branch)} ~/project.bundle ${shellQuote(dir)} 2>/dev/null || git clone -q ~/project.bundle ${shellQuote(dir)}`,
 						`cd ${shellQuote(dir)} && git remote remove origin && rm ~/project.bundle`,
 						...(userName === "" ? [] : [`git config --global user.name ${shellQuote(userName)}`]),
 						...(userEmail === "" ? [] : [`git config --global user.email ${shellQuote(userEmail)}`]),
+						`echo ${STEP_MARK}installing`,
 						"if [ -x .agents/setup ]; then .agents/setup",
 						"elif [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile",
 						"elif [ -f package-lock.json ]; then npm ci",
@@ -180,13 +196,19 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 						"sync",
 					].join("\n");
 					let out = "";
-					const result = await env.exec(["bash", "-lc", script], { onOutput: (text) => { out += text; onProgress?.(text.trimEnd()); }, timeout: 20 * 60_000 }, BACKGROUND);
+					const onOutput = (text: string) => {
+						out += text;
+						if (text.includes(`${STEP_MARK}installing`)) onStep?.("installing");
+						onProgress?.(text.replace(`${STEP_MARK}installing\n`, "").trimEnd());
+					};
+					const result = await env.exec(["bash", "-lc", script], { onOutput, timeout: 20 * 60_000 }, BACKGROUND);
 					if (!result.ok) throw result.error;
 					if (result.value.exitCode !== 0) throw new Error(`setting up ${project.name} failed (exit ${result.value.exitCode}):\n${out.slice(-2000)}`);
 				} finally {
 					await rm(scratch, { recursive: true, force: true });
 				}
 				close(n);
+				onStep?.("saving");
 				await stedding("save", String(n), name);
 				onProgress?.(`saved ${name}`);
 				return name;
@@ -198,7 +220,7 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 		})();
 		making.set(name, made);
 		try {
-			return await made;
+			return { name: await made, commit };
 		} finally {
 			making.delete(name);
 		}
@@ -280,12 +302,18 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 		configured: () => host !== undefined,
 		sync,
 		receiveBase,
-		/** A new sandbox for a session: from `project`'s template, or the base image with none. Returns its number. */
-		async create(project?: ProjectSource, onProgress?: (line: string) => void): Promise<{ sandbox: number; dir: string }> {
+		/**
+		 * A new sandbox for a session: from `project`'s template, or the base image with none. Returns its number, the
+		 * project's directory in it, and the commit it was made from. `onStep` hears each stage as it starts.
+		 */
+		async create(project?: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void): Promise<{ sandbox: number; dir: string; base?: string }> {
 			if (project === undefined) return { sandbox: Number((await stedding("new")).trim()), dir: "/home/user" };
-			const name = await template(project, onProgress);
-			return { sandbox: Number((await stedding("new", "--template", name)).trim()), dir: `/home/user/work/${project.name}` };
+			const { name, commit } = await template(project, onProgress, onStep);
+			onStep?.("starting");
+			return { sandbox: Number((await stedding("new", "--template", name)).trim()), dir: sandboxDir(project), base: commit };
 		},
+		/** Where `project` is in its sandboxes. */
+		dirFor: (project: ProjectSource) => sandboxDir(project),
 		/** The environment for a session on sandbox `n` working in `cwd`; equal ids see the same files. */
 		env(n: number, cwd: string): ExecutionEnv {
 			return new RemoteExecutionEnv({ connection: connection(n), id: `stedding:${n}`, cwd });
@@ -296,6 +324,15 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 			await stedding("rm", String(n));
 		},
 		status: (n: number) => stedding("status", String(n)).then((s) => s.trim()),
+		/** Every sandbox's state on its host: running, paused or stopped. */
+		async states(): Promise<Map<number, string>> {
+			const out = new Map<number, string>();
+			for (const line of (await stedding("status")).split("\n")) {
+				const m = /^sandbox=(\d+) state=(\w+)/.exec(line);
+				if (m !== null) out.set(Number(m[1]), m[2]!);
+			}
+			return out;
+		},
 		/** Whether this process holds a connection to sandbox `n`. */
 		connected: (n: number) => live.has(n),
 		/** Drops sandbox `n`'s connection, or all, as being idle would. */
@@ -343,6 +380,20 @@ export async function fastForward(local: string, branch: string): Promise<MergeR
 	return { merged: true, onto, commits };
 }
 
+/**
+ * Deletes branch `branch` of the local checkout `local`, unmerged commits and all, unless it's checked out. Returns the
+ * commit it was at, or undefined when there was no such branch.
+ */
+export async function deleteBranch(local: string, branch: string): Promise<string | undefined> {
+	const git = (...args: string[]) => run("git", ["-C", local, ...args]);
+	const head = (await git("rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).catch(() => "")).trim();
+	if (head === "") return undefined;
+	const current = (await git("symbolic-ref", "--quiet", "--short", "HEAD").catch(() => "")).trim();
+	if (current === branch) throw new Error(`${branch} is checked out in ${local}; switch away from it first`);
+	// Only if it's still where it was read, so a sync landing meanwhile isn't lost.
+	await git("update-ref", "-d", `refs/heads/${branch}`, head);
+	return head;
+}
 
 function shellQuote(text: string): string {
 	return `'${text.replaceAll("'", "'\\''")}'`;
