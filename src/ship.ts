@@ -47,7 +47,7 @@ export function shipPrompt(base: string, sha: string, note?: string): string {
 		"2. Rebase the work onto refs/aludra/base: `git rebase refs/aludra/base`. Resolve conflicts by keeping both sides' intent; if a conflict needs a decision only the user can make, stop and ask.",
 		"3. Run the project's tests and checks. If one fails, fix it, unless it also fails on refs/aludra/base without this work; check that before calling it unrelated.",
 		"4. Don't push, and don't change git remotes: the host pushes once you're done.",
-		"End your reply with one line on its own: `SHIP-READY` when HEAD is the rebased, tested work, or `SHIP-BLOCKED: <why>` when it isn't.",
+		"End your reply with one line on its own: `SHIP-READY` when HEAD is the rebased, tested work, or `SHIP-BLOCKED: <why>` when it isn't. Put the result block after it, as for any reply; when you're blocked on a decision only the user can make, its question names the choices as options.",
 	].join("\n");
 }
 

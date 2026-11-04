@@ -256,6 +256,10 @@ export async function serve(config: Config) {
 	// A sandbox session's commits come home when its run ends (src/sandbox-sync.ts).
 	const sandboxSync = sandboxSyncAfterRuns(host, () => config.sandboxes?.afterRun);
 	const stopSandboxSync = live.onRunEnd((summary) => sandboxSync.onRunEnd(summary));
+	// The project's declared checks run in its sandbox once a run ends with an answer (src/results.ts).
+	const stopChecks = live.onRunEnd((summary) => {
+		if (summary.state === "done") void host.results.afterRun(summary.id);
+	});
 	// And its sandbox goes when it's archived (src/sandbox-cleanup.ts).
 	const sandboxCleanup = removeSandboxesOnArchive(host);
 	const server = listen(host, socketPath, watchers);
@@ -273,8 +277,9 @@ export async function serve(config: Config) {
 		stopBackups();
 		stopArchive();
 		stopSandboxSync();
+		stopChecks();
 		sandboxCleanup.stop();
-		await Promise.all([sandboxSync.settled(), sandboxCleanup.settled()]);
+		await Promise.all([sandboxSync.settled(), sandboxCleanup.settled(), host.results.settled()]);
 		await api?.close();
 		server.close();
 		for (const socket of watchers) socket.destroy();

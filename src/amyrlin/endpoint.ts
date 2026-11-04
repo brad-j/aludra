@@ -15,13 +15,15 @@
 //   form (src/settings.ts). A host without them answers `unknown_method`.
 // - Sandbox tasks (amyrlin's protocol section 10 item 19) are aludra's own too: `conversations.create` with `sandbox`,
 //   the summary's `sandbox` and `source`, `sandbox.sync`, `sandbox.ship` with its `sandbox.shipped` event on host.watch,
-//   and `sandbox.discard`, over src/sandboxes.ts, src/ship.ts and src/sandbox-cleanup.ts.
+//   and `sandbox.discard`, over src/sandboxes.ts, src/ship.ts and src/sandbox-cleanup.ts; the summary's `line`,
+//   `task.result` and `task.code` over src/results.ts.
 import { randomUUID } from "node:crypto";
 import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, isSandboxSession, SandboxNotReady, sandboxBranch, type SessionRecord } from "../host.ts";
 import { ShipRefused, type ShipResult } from "../ship.ts";
+import { codeChanges, codeDiff } from "../results.ts";
 import { type Checkout, watchCheckouts } from "../checkout.ts";
 import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
 import { PAGE_CSP } from "../pages.ts";
@@ -148,6 +150,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		const newest = conversation === undefined ? undefined : (await conversation.entries({}, 1, undefined, context)).items[0];
 		const pending = state === "waiting" ? (await approvals.pending()).filter((r) => r.conversationId === record.id).length : 0;
 		const sandbox = isSandboxSession(record) ? await sandboxOf(record) : undefined;
+		const line = await lineOf(record, state, newest?.id === undefined ? "" : String(newest.id));
 		return {
 			id: record.id,
 			title: record.title,
@@ -167,8 +170,29 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			...(record.scratch === true ? {} : { project: record.project }),
 			dir: record.dir,
 			...(sandbox === undefined ? {} : { sandbox: sandbox.wire, ...(record.source === undefined ? {} : { source: record.source }) }),
+			...(line === undefined || line === "" ? {} : { line }),
 			...(allowed.length > 0 ? { alwaysAllowed: allowed } : {}),
 		};
+	}
+
+	/** Each session's last `line` from its transcript, stamped with its newest entry and state; checks changing clears it. */
+	const lines = new Map<number, { stamp: string; line: string | undefined }>();
+
+	/** A summary's `line`: where the session stands in a sentence, from its sandbox, its plan or its result (src/results.ts). */
+	async function lineOf(record: SessionRecord, state: "running" | "waiting" | "idle", newest: string): Promise<string | undefined> {
+		if (record.sandboxRemoved !== true && isSandboxSession(record) && record.sandbox === undefined) {
+			if (record.sandboxState === "failed") return "Its sandbox couldn't be made";
+			return `Making its sandbox${record.sandboxStep === undefined ? "" : ` · ${record.sandboxStep}`}`;
+		}
+		if (record.shipping !== undefined) return state === "idle" ? "Shipping" : "Shipping · getting it ready";
+		if (state === "waiting") return "Waiting for your approval";
+		// Read again only when an entry lands or the run starts or ends, not on every streamed change.
+		const stamp = `${newest}:${state}`;
+		const last = lines.get(record.id);
+		if (last?.stamp === stamp) return last.line;
+		const line = await host.results.line(record.id, state === "running").catch(() => undefined);
+		lines.set(record.id, { stamp, line });
+		return line;
 	}
 
 	/** Sandbox states on the sandbox host (running, paused, stopped) as last read; refreshed each minute while a client watches. */
@@ -252,6 +276,10 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 	});
 	const stopCreated = host.sessions.onCreate((record) => markDirty(record.id));
 	const stopUpdated = host.sessions.onUpdate((record) => markDirty(record.id));
+	const stopResults = host.results.onChange((id) => {
+		lines.delete(id);
+		markDirty(id);
+	});
 	const ready = refreshAll();
 
 	const listSummaries = () => [...summaries.values()].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -952,6 +980,25 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 					const discarded = await sandboxCall(() => host.sandboxes.discard(record.id));
 					return { branch: discarded.branch, deleted: discarded.head !== undefined };
 				}
+				// aludra's own: a sandbox task's result, its code and its screenshots (protocol section 10 item 19).
+				case "task.result": {
+					const { record } = await session(p.conversationId);
+					return { result: (await host.results.result(record.id)) as unknown as Json ?? null };
+				}
+				case "task.code": {
+					const record = await sandboxSession(p.conversationId);
+					if (record.sandboxBase === undefined) throw new ProtocolError("bad_request", `Session ${record.id}'s sandbox has no starting commit to compare with`);
+					if (p.path === undefined) return { changes: await codeChanges(record.source!, record.sandboxBase, sandboxBranch(record)) as unknown as Json };
+					if (typeof p.path !== "string") throw new ProtocolError("bad_request", "path should be a string");
+					try {
+						return { path: p.path, patch: await codeDiff(record.source!, record.sandboxBase, sandboxBranch(record), p.path) };
+					} catch (error) {
+						throw new ProtocolError("not_found", error instanceof Error ? error.message : String(error));
+					}
+				}
+				case "task.shot":
+					// Screenshots are step 5; no result names one yet.
+					throw new ProtocolError("not_found", "No such screenshot");
 				case "conversation.history":
 					return history(p);
 				case "conversation.image":
@@ -973,6 +1020,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			stopCommits();
 			stopCreated();
 			stopUpdated();
+			stopResults();
 		},
 	};
 }

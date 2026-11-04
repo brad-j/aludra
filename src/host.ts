@@ -27,6 +27,7 @@ import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
 import { askSession, createShips, type Shipping } from "./ship.ts";
+import { createResults, TurnChecks } from "./results.ts";
 import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
 import { type Json, ParseError } from "./parse.ts";
@@ -1016,6 +1017,33 @@ export async function openHost(options: HostOptions) {
 		},
 	});
 
+	/** Sandbox sessions' results (src/results.ts): read from the transcript, with checks run after each run. */
+	const resultListeners = new Set<(id: number) => void>();
+	const results = createResults({
+		entries: (id) => async (cursor) => {
+			const found = await conversation(id);
+			// SAFETY: the cursor is one this function returned.
+			return found.entries({}, 50, cursor as Parameters<typeof found.entries>[2], context);
+		},
+		running: async (id) => (await states()).get(id) !== "idle",
+		sandbox: async (id) => {
+			const record = await get(id);
+			if (record?.sandbox === undefined || record.source === undefined || record.sandboxRemoved === true) return undefined;
+			return {
+				env: sandboxes.env(record.sandbox, record.dir),
+				dir: record.dir,
+				source: record.source,
+				branch: sandboxBranch(record),
+				...(record.sandboxBase === undefined ? {} : { base: record.sandboxBase }),
+				shipping: record.shipping !== undefined,
+			};
+		},
+		readChecks: (id) => harness.snapshot(TurnChecks, String(id), context),
+		writeChecks: (id, state) => root.commit(async (tx) => void Object.assign(await tx.doc(TurnChecks, String(id), null), state), context),
+		changed: (id) => resultListeners.forEach((listener) => listener(id)),
+		context,
+	});
+
 	const settingListeners = new Set<() => void>();
 
 	/** The settings as clients see them (src/settings.ts). */
@@ -1135,6 +1163,19 @@ export async function openHost(options: HostOptions) {
 			prepared: (id: number) => prepareSandbox(id),
 		},
 		sessions: { list, get, create, createScratch, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
+		/** Sandbox sessions' results (src/results.ts). */
+		results: {
+			result: results.result,
+			line: results.line,
+			/** Runs the project's declared checks once session `id`'s run has ended with an answer; never throws. */
+			afterRun: results.afterRun,
+			settled: results.settled,
+			/** Calls `listener` with a session whose checks started or finished. */
+			onChange(listener: (id: number) => void): () => void {
+				resultListeners.add(listener);
+				return () => resultListeners.delete(listener);
+			},
+		},
 		checkpoints: {
 			list: checkpoints.list,
 			changes: checkpoints.changes,

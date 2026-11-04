@@ -45,8 +45,24 @@ export function sandboxSection(sandbox: { sandbox: number; dir: string }): strin
 		`Your tools run there, and your working directory is ${sandbox.dir} in the sandbox. Any other working directory or machine named elsewhere in this prompt is where the agent loop runs, which your tools can't reach.`,
 		"The sandbox reaches the internet and nothing else: not the LAN, not the tailnet, not other machines at home. It has no credentials: it can't push, and git remotes are unset. The project's commits stay in the sandbox until the user fetches them.",
 		"A process started with `setsid` outlives your command and keeps running while the sandbox is paused between turns; anything else you start ends with the command.",
+		"",
+		...RESULT_INSTRUCTIONS,
 	].join("\n");
 }
+
+/**
+ * How a sandbox session reports its work (src/results.ts): the user judges it from a result page without reading the
+ * code, so each reply ends with a `result` block, and a plan is kept as a `plan` block while the work goes on.
+ */
+export const RESULT_INSTRUCTIONS = [
+	"The user judges your work from a result page, without reading the code. Two fenced blocks feed it; the app hides them from the conversation, so write your answer as usual around them.",
+	"While you work on anything with more than one step, keep a plan: a ```plan block with a Markdown checklist (`- [ ] step`, `- [x] done`), in plain words. Write it before you start and write it again, whole, each time a step is done or the plan changes.",
+	"End every reply with a ```result block holding one JSON object:",
+	"```result",
+	'{"summary": "One or two sentences of what you did, for someone who uses the project.", "changes": ["What is different now for someone using it, one sentence each."], "headsUp": [{"kind": "upstream | dependency | left | other", "text": "Something they should know, in plain words."}], "question": {"text": "What you need them to decide.", "why": "Why it matters.", "options": ["First choice", "Second choice"]}}',
+	"```",
+	"Write summary, changes and headsUp for someone who uses the project, not its code: what they'll see or can now do, not file names or functions. Leave changes empty when nothing changed for them. headsUp kinds: upstream (the upstream changed what this touches), dependency (a package added, removed or upgraded), left (work left uncommitted in the sandbox), other. Include question only when you stopped to ask something; its options become buttons that send the option's text as the reply, so make each one a complete answer.",
+];
 
 /**
  * The project's AGENTS.md and skills, the no-project section, and a sandbox session's own section. `sandboxOf` tells a sandbox

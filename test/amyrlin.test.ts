@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -30,6 +30,17 @@ test("the translation matches amyrlin's expected frames for every recorded scena
 	}
 });
 
+/** The faux model's answer to "report NAME": prose, a done plan and a result block that asks something. */
+const REPORTED = [
+	"I wrote the file.",
+	"",
+	"```plan\n- [x] Write the file\n```",
+	"",
+	"```result",
+	JSON.stringify({ summary: "The file is written. It's small.", changes: ["There's a new file."], headsUp: [{ kind: "left", text: "Nothing left over." }], question: { text: "Keep it short?", options: ["Yes", "No"] } }),
+	"```",
+].join("\n");
+
 const lastUser = (ctx: TranscriptContext) => JSON.stringify(ctx.messages.findLast((m) => m.role === "user")?.content ?? "");
 
 /**
@@ -47,10 +58,14 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 		if (/where are you/.test(lastUser(ctx))) return fauxAssistantMessage(fauxToolCall("bash", { command: "pwd" }), { stopReason: "toolUse" });
 		const user = lastUser(ctx);
 		if (last?.role === "toolResult" && /refs\/aludra\/base/.test(user)) return fauxAssistantMessage(fauxText("Rebased and tested.\nSHIP-READY"));
+		if (last?.role === "toolResult" && /report \w+/.test(user)) return fauxAssistantMessage(fauxText(REPORTED));
 		if (last?.role === "toolResult" && /commit \w+/.test(user)) return fauxAssistantMessage(fauxText(`Committed: ${JSON.stringify(last.content)}`));
 		if (last?.role === "toolResult") return fauxAssistantMessage(fauxText(`The push call ${last.isError ? "was blocked" : "ran"}.`));
-		if (/refs\/aludra\/base/.test(user) && /block/.test(user)) return fauxAssistantMessage(fauxText("A conflict needs you.\nSHIP-BLOCKED: which title to keep"));
+		if (/refs\/aludra\/base/.test(user) && /note from the user[^\\]*block/.test(user)) return fauxAssistantMessage(fauxText("A conflict needs you.\nSHIP-BLOCKED: which title to keep"));
 		if (/refs\/aludra\/base/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "git rebase -q refs/aludra/base 2>&1" }), { stopReason: "toolUse" });
+		// "report NAME" commits NAME.txt with a plan, then answers with a result block.
+		const reported = /report (\w+)/.exec(user)?.[1];
+		if (reported !== undefined) return fauxAssistantMessage([fauxText("```plan\n- [ ] Write the file\n```"), fauxToolCall("bash", { command: `echo ${reported} > ${reported}.txt && echo more >> a.txt && git add a.txt ${reported}.txt && git -c user.name=t -c user.email=t@example.com commit -q -m ${reported} && pnpm test 2>&1 || true` })], { stopReason: "toolUse" });
 		const name = /commit (\w+)/.exec(user)?.[1];
 		if (name !== undefined) return fauxAssistantMessage(fauxToolCall("bash", { command: `echo ${name} > ${name}.txt && git add ${name}.txt && git -c user.name=t -c user.email=t@example.com commit -q -m ${name} && git log -1 --format=%s` }), { stopReason: "toolUse" });
 		if (/push/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "git push --dry-run 2>&1 || true" }), { stopReason: "toolUse" });
@@ -663,6 +678,56 @@ async function waitFor(check: () => boolean | Promise<boolean>, what: string, ms
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
 }
+
+test("a sandbox task's result: what it said, its checks run in the sandbox, its code, and its line", async (t) => {
+	const { url, host, project, fake, prompts } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const list = (await mac.request("host.watch")).subscription;
+	await mac.event(list, type("host.snapshot"), "the host snapshot");
+	fake.control.hold = true;
+	const created = (await mac.request("conversations.create", { requestId: "r", project: project.dir, text: "report notes", sandbox: true })).conversation;
+	const id = created.id;
+	assert.deepEqual(await mac.request("task.result", { conversationId: id }), { result: null });
+	if (created.line !== "Making its sandbox · cloning") await mac.event(list, updated(id, (c) => c.line === "Making its sandbox · cloning"), "the line while it's made");
+	fake.control.release();
+	await host.sandboxes.prepared(id);
+	// The project declares one check that passes and one that fails; aludra serve runs them once a run ends.
+	const box = fake.made[0]!.dir;
+	mkdirSync(join(box, ".agents"), { recursive: true });
+	writeFileSync(join(box, ".agents", "project.json"), JSON.stringify({ checks: ["true", { name: "fails", command: "echo broken; exit 3" }] }));
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(box, "log", "-1", "--format=%s") === "notes", "the run");
+	await host.sandboxes.sync(id);
+
+	// Before the declared checks run, checks come from the turn's own test and build calls: its pnpm test, ended `|| true`.
+	const before = (await mac.request("task.result", { conversationId: id })).result;
+	assert.deepEqual(before.checks, [{ name: "pnpm test", ok: true }]);
+	assert.equal(before.summary, "The file is written. It's small.");
+	assert.deepEqual(before.changes, ["There's a new file."]);
+	assert.deepEqual(before.headsUp, [{ kind: "left", text: "Nothing left over." }]);
+	assert.deepEqual(before.question, { text: "Keep it short?", options: ["Yes", "No"] });
+	assert.deepEqual(before.plan, [{ text: "Write the file", done: true }]);
+	assert.deepEqual(before.shots, []);
+	assert.deepEqual(before.code, { commits: 1, files: 2, add: 2, del: 0 });
+	assert.equal(typeof before.at, "number");
+
+	await host.results.afterRun(id);
+	const after = (await mac.request("task.result", { conversationId: id })).result;
+	assert.deepEqual(after.checks.map((c: Json) => [c.name, c.ok]), [["true", true], ["fails", false]]);
+	assert.match(after.checks[1].detail, /broken/);
+	// The line says what it asks, as the question is open.
+	await mac.event(list, updated(id, (c) => c.line === "Asks: Keep it short?"), "the line");
+
+	const code = await mac.request("task.code", { conversationId: id });
+	assert.deepEqual(code.changes.files.map((f: Json) => [f.path, f.status]).sort(), [["a.txt", "modified"], ["notes.txt", "added"]]);
+	assert.match((await mac.request("task.code", { conversationId: id, path: "notes.txt" })).patch, /\+notes/);
+	await assert.rejects(mac.request("task.code", { conversationId: id, path: "nope.txt" }), { code: "not_found" });
+	await assert.rejects(mac.request("task.shot", { conversationId: id, shot: "x" }), { code: "not_found" });
+
+	assert.match(prompts.find((p) => p.includes("```result")) ?? "", /```plan/, "the sandbox section asks for both blocks");
+	const local = (await mac.request("conversations.create", { requestId: "here", project: project.dir })).conversation.id;
+	assert.deepEqual(await mac.request("task.result", { conversationId: local }), { result: null });
+	await assert.rejects(mac.request("task.code", { conversationId: local }), { code: "bad_request" });
+});
 
 test("host.info carries each project's checkout, and host.watch sends host.projects when one changes", async (t) => {
 	const { url, project } = await sandboxApi(t);
