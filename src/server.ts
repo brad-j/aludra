@@ -256,7 +256,7 @@ export async function serve(config: Config) {
 	// A sandbox session's commits come home when its run ends (src/sandbox-sync.ts).
 	const sandboxSync = sandboxSyncAfterRuns(host, () => config.sandboxes?.afterRun);
 	const stopSandboxSync = live.onRunEnd((summary) => sandboxSync.onRunEnd(summary));
-	// The project's declared checks run in its sandbox once a run ends with an answer (src/results.ts).
+	// The project's declared checks and screenshots run in its sandbox once a run ends with an answer (src/results.ts).
 	const stopChecks = live.onRunEnd((summary) => {
 		if (summary.state === "done") void host.results.afterRun(summary.id);
 	});

@@ -28,6 +28,7 @@ import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
 import { askSession, createShips, type Shipping } from "./ship.ts";
 import { createResults, TurnChecks } from "./results.ts";
+import { readShot } from "./shots.ts";
 import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
 import { type Json, ParseError } from "./parse.ts";
@@ -339,7 +340,11 @@ export async function openHost(options: HostOptions) {
 	const scratchRoot = resolve(config.dataDir, "scratch");
 	/** Where videos sent with messages are kept, one directory per session, until sweepUploads takes them. */
 	const uploads = resolve(config.dataDir, "uploads");
-	const sweep = () => void sweepUploads(uploads).catch((error) => console.error(`[uploads] ${error instanceof Error ? error.message : String(error)}`));
+	/** Where sandbox sessions' screenshots are kept, one directory per session, swept with the uploads (src/shots.ts). */
+	const shotsDir = resolve(config.dataDir, "shots");
+	const sweep = () => {
+		for (const dir of [uploads, shotsDir]) void sweepUploads(dir).catch((error) => console.error(`[uploads] ${error instanceof Error ? error.message : String(error)}`));
+	};
 	sweep();
 	const sweeper = setInterval(sweep, 3_600_000);
 	sweeper.unref();
@@ -1008,7 +1013,11 @@ export async function openHost(options: HostOptions) {
 		sessions: { get },
 		sandboxes: sandboxApi,
 		states,
-		ask: (id, prompt, requestId) => askSession({ submit, harness }, id, prompt, requestId),
+		// After the checks and screenshots of the run before, so a ship never runs beside them.
+		ask: async (id, prompt, requestId) => {
+			await results.idle(id);
+			return askSession({ submit, harness }, id, prompt, requestId);
+		},
 		mark: async (id, shipping) => {
 			await changeRecord(id, (r) => {
 				if (shipping === undefined) delete r.shipping;
@@ -1040,6 +1049,7 @@ export async function openHost(options: HostOptions) {
 		},
 		readChecks: (id) => harness.snapshot(TurnChecks, String(id), context),
 		writeChecks: (id, state) => root.commit(async (tx) => void Object.assign(await tx.doc(TurnChecks, String(id), null), state), context),
+		shotsDir,
 		changed: (id) => resultListeners.forEach((listener) => listener(id)),
 		context,
 	});
@@ -1170,6 +1180,8 @@ export async function openHost(options: HostOptions) {
 			/** Runs the project's declared checks once session `id`'s run has ended with an answer; never throws. */
 			afterRun: results.afterRun,
 			settled: results.settled,
+			/** Session `id`'s screenshot `shot` as PNG bytes, or undefined when there's none (src/shots.ts). */
+			shot: (id: number, shot: string) => readShot(shotsDir, id, shot),
 			/** Calls `listener` with a session whose checks started or finished. */
 			onChange(listener: (id: number) => void): () => void {
 				resultListeners.add(listener);

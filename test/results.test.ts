@@ -4,6 +4,7 @@ import type { Message } from "@earendil-works/pi-ai";
 import { callChecks, checkSegments, firstParagraph, parsePlan, parseProjectConfig, parseSaid, prose, taskLine, type Turn } from "../src/results.ts";
 import { RESULT_INSTRUCTIONS, sandboxSection } from "../src/context.ts";
 import { shipPrompt } from "../src/ship.ts";
+import { pagesToShoot, routesFromFiles } from "../src/shots.ts";
 
 const answer = [
 	"I grouped the packing list by bag.",
@@ -66,11 +67,49 @@ test("a project's checks are read from .agents/project.json, as commands or name
 		{ name: "pnpm test", command: "pnpm test" },
 		{ name: "types", command: "pnpm exec tsc --noEmit" },
 	]);
-	assert.deepEqual(parseProjectConfig(undefined), { checks: [] });
-	assert.deepEqual(parseProjectConfig("{"), { checks: [] });
+	assert.deepEqual(parseProjectConfig(undefined), { checks: [], pages: [] });
+	assert.deepEqual(parseProjectConfig("{"), { checks: [], pages: [] });
 });
 
-test("a task's line says the step it's on, what it asks, or how its checks went", () => {
+test("a project's dev server and pages are read leniently, and pages default to /", () => {
+	assert.deepEqual(parseProjectConfig(JSON.stringify({ checks: ["pnpm test"], devServer: { command: "pnpm dev", port: "4380" }, pages: ["/", "settings", { path: "/map", label: "Map" }, { label: "no path" }, "https://x.test/", 4] })), {
+		checks: [{ name: "pnpm test", command: "pnpm test" }],
+		devServer: { command: "pnpm dev", port: 4380 },
+		pages: [{ path: "/" }, { path: "/settings" }, { path: "/map", label: "Map" }],
+	});
+	assert.deepEqual(parseProjectConfig(JSON.stringify({ devServer: { command: "pnpm dev", port: 3000 } })), { checks: [], devServer: { command: "pnpm dev", port: 3000 }, pages: [{ path: "/" }] });
+	// Without a usable dev server, pages mean nothing.
+	for (const devServer of [{ command: "pnpm dev" }, { command: "", port: 3000 }, { command: "pnpm dev", port: 70000 }, "pnpm dev"]) {
+		assert.deepEqual(parseProjectConfig(JSON.stringify({ devServer, pages: ["/x"] })), { checks: [], pages: [] });
+	}
+});
+
+test("the pages a turn's changed files make, for file-based routers", () => {
+	assert.deepEqual(routesFromFiles([
+		"src/routes/index.tsx",
+		"src/routes/settings.tsx",
+		"src/routes/posts/index.tsx",
+		"src/routes/posts.$id.tsx",
+		"src/routes/__root.tsx",
+		"src/routes/_auth/login.tsx",
+		"src/routes/-components/Card.tsx",
+		"src/routeTree.gen.ts",
+		"src/routes/about.test.tsx",
+		"src/routes/flights/map.tsx",
+		"src/routes/style.css",
+		"src/pages/index.astro",
+		"src/pages/blog/first.md",
+		"src/pages/_draft.astro",
+		"src/pages/[slug].astro",
+		"app/(marketing)/pricing/page.tsx",
+		"src/routes/account/+page.svelte",
+		"src/routes/+layout.svelte",
+		"README.md",
+	]).sort(), ["/", "/account", "/blog/first", "/flights/map", "/login", "/posts", "/pricing", "/settings"]);
+	assert.deepEqual(pagesToShoot([{ path: "/" }, { path: "/map", label: "Map" }], ["/", "/settings", "/a", "/b", "/c", "/d", "/e"]).map((p) => p.path), ["/", "/map", "/settings", "/a", "/b", "/c"]);
+});
+
+test("a task's line says the step it's on, what it asks, or how its checks and screenshots went", () => {
 	const said = { summary: "Grouped the list by bag. Also tidied.", changes: [], headsUp: [] };
 	assert.equal(taskLine({ running: true, plan: [{ text: "Read it", done: true }, { text: "Grouping items by bag", done: false }] }), "Grouping items by bag");
 	assert.equal(taskLine({ running: true }), "Working");
@@ -78,6 +117,7 @@ test("a task's line says the step it's on, what it asks, or how its checks went"
 	assert.equal(taskLine({ running: false, said, checks: { running: false, checks: [{ name: "a", ok: true }] } }), "Grouped the list by bag. · checks pass");
 	assert.equal(taskLine({ running: false, said, checks: { running: false, checks: [{ name: "a", ok: false }] } }), "Grouped the list by bag. · 1 check fails");
 	assert.equal(taskLine({ running: false, said, checks: { running: true, checks: [] } }), "Grouped the list by bag. · running checks");
+	assert.equal(taskLine({ running: false, said, checks: { running: false, checks: [] }, shooting: true }), "Grouped the list by bag. · taking screenshots");
 	assert.equal(taskLine({ running: false }), undefined);
 });
 

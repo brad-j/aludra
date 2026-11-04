@@ -729,6 +729,105 @@ test("a sandbox task's result: what it said, its checks run in the sandbox, its 
 	await assert.rejects(mac.request("task.code", { conversationId: local }), { code: "bad_request" });
 });
 
+/** A stand-in for Playwright's chromium: each "screenshot" is a PNG header followed by the page's HTML, as fetched. */
+const FAKE_PLAYWRIGHT = `exports.chromium = {
+	executablePath: () => process.execPath,
+	launch: async () => ({
+		close: async () => {},
+		newContext: async () => ({
+			newPage: async () => {
+				let html = "";
+				return {
+					goto: async (url) => { const r = await fetch(url); html = await r.text(); return { status: () => r.status }; },
+					waitForLoadState: async () => {},
+					waitForTimeout: async () => {},
+					screenshot: async ({ path }) => require("node:fs").writeFileSync(path, Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.from(html)])),
+					close: async () => {},
+				};
+			},
+		}),
+	}),
+};
+`;
+
+/** A free TCP port on this machine. */
+async function freePort(): Promise<number> {
+	const { createServer } = await import("node:net");
+	const server = createServer();
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	const { port } = server.address() as AddressInfo;
+	await new Promise((resolve) => server.close(resolve));
+	return port;
+}
+
+test("a sandbox task's screenshots: before at base and after at HEAD, each in a worktree, served by task.shot", async (t) => {
+	const { url, host, project, fake } = await sandboxApi(t);
+	const port = await freePort();
+	// The dev server serves a.txt as the page, so before and after differ; routes/notes.tsx is a changed route.
+	writeFileSync(join(project.dir, "server.mjs"), `import { createServer } from "node:http";\nimport { existsSync, readFileSync } from "node:fs";\ncreateServer((q, s) => q.url === "/" || (q.url === "/notes" && existsSync("src/routes/notes.tsx")) ? s.end("<p>" + q.url + " " + readFileSync("a.txt", "utf8") + "</p>") : (s.statusCode = 404, s.end())).listen(Number(process.env.PORT), "127.0.0.1");\n`);
+	writeFileSync(join(project.dir, ".gitignore"), "node_modules\n");
+	mkdirSync(join(project.dir, ".agents"), { recursive: true });
+	writeFileSync(join(project.dir, ".agents", "project.json"), JSON.stringify({ devServer: { command: "node server.mjs", port }, pages: [{ path: "/", label: "Home" }, "/missing"] }));
+	git(project.dir, "add", "-A");
+	git(project.dir, "commit", "-q", "-m", "serve");
+	const mac = await client(t, url);
+	const id = (await mac.request("conversations.create", { requestId: "s", project: project.dir, text: "report notes", sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(id);
+	const box = fake.made[0]!.dir;
+	// The project's Playwright, as its .agents/setup would install it; ignored, so the worktrees get it from here.
+	mkdirSync(join(box, "node_modules", "playwright"), { recursive: true });
+	writeFileSync(join(box, "node_modules", "playwright", "index.js"), FAKE_PLAYWRIGHT);
+	writeFileSync(join(box, "node_modules", "playwright", "package.json"), JSON.stringify({ name: "playwright", main: "index.js" }));
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(box, "log", "-1", "--format=%s") === "notes", "the run");
+	// A route the turn changes is shot too.
+	mkdirSync(join(box, "src", "routes"), { recursive: true });
+	writeFileSync(join(box, "src", "routes", "notes.tsx"), "export {}\n");
+	git(box, "add", "src");
+	git(box, "commit", "-q", "-m", "route");
+	const status = git(box, "status", "--porcelain");
+	await host.results.afterRun(id);
+
+	const result = (await mac.request("task.result", { conversationId: id })).result;
+	// /missing answers 404 on both sides, so it's left out; /notes doesn't exist at base, so it has only an after.
+	assert.deepEqual(result.shots.map((s: Json) => [s.side, s.label, s.path]), [["after", "Home", "/"], ["after", "/notes", "/notes"], ["before", "Home", "/"]]);
+	assert.deepEqual(result.checks, [{ name: "pnpm test", ok: true }], "no declared checks, so the turn's own");
+	const shot = async (s: Json) => Buffer.from((await mac.request("task.shot", { conversationId: id, shot: s.id })).data, "base64").toString();
+	const after = await mac.request("task.shot", { conversationId: id, shot: result.shots[0].id });
+	assert.equal(after.mimeType, "image/png");
+	assert.match(await shot(result.shots[0]), /<p>\/ one\nmore\n<\/p>/);
+	assert.match(await shot(result.shots[2]), /<p>\/ one\n<\/p>/);
+	await assert.rejects(mac.request("task.shot", { conversationId: id, shot: "nope" }), { code: "not_found" });
+	await assert.rejects(mac.request("task.shot", { conversationId: id, shot: "../x" }), { code: "not_found" });
+
+	// The agent's files are as they were, the worktrees are gone, and the server was stopped.
+	assert.equal(git(box, "status", "--porcelain"), status);
+	assert.equal(git(box, "worktree", "list").split("\n").length, 1);
+	await assert.rejects(fetch(`http://127.0.0.1:${port}/`));
+	assert.ok(readdirSync(join(host.uploads, "..", "shots", String(id))).length === 3);
+
+	// Once per answer: running it again takes none anew.
+	await host.results.afterRun(id);
+	assert.deepEqual((await mac.request("task.result", { conversationId: id })).result.shots, result.shots);
+});
+
+test("without a browser in the sandbox, a project with a dev server has no screenshots and says nothing", async (t) => {
+	const { url, host, project, fake } = await sandboxApi(t);
+	mkdirSync(join(project.dir, ".agents"), { recursive: true });
+	writeFileSync(join(project.dir, ".agents", "project.json"), JSON.stringify({ checks: ["true"], devServer: { command: "sleep 30", port: await freePort() } }));
+	git(project.dir, "add", "-A");
+	git(project.dir, "commit", "-q", "-m", "serve");
+	const mac = await client(t, url);
+	const id = (await mac.request("conversations.create", { requestId: "s", project: project.dir, text: "report notes", sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(id);
+	const box = fake.made[0]!.dir;
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(box, "log", "-1", "--format=%s") === "notes", "the run");
+	await host.results.afterRun(id);
+	const result = (await mac.request("task.result", { conversationId: id })).result;
+	assert.deepEqual(result.shots, []);
+	assert.deepEqual(result.checks, [{ name: "true", ok: true }]);
+	assert.equal(result.headsUp.length, 1, "only the agent's own heads-up");
+});
+
 test("host.info carries each project's checkout, and host.watch sends host.projects when one changes", async (t) => {
 	const { url, project } = await sandboxApi(t);
 	const mac = await client(t, url);

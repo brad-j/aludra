@@ -4,7 +4,8 @@
 // works; the host reads them from the transcript when asked, so nothing is stored for them. What the agent can't be
 // trusted to say comes from elsewhere: checks from the project's declared commands, run in the sandbox once the run
 // ends (`.agents/project.json`, `checks`), or from the turn's own test and build calls when none are declared; and the
-// code's size from `sandbox/N` against the commit the sandbox was made from, in the local checkout.
+// code's size from `sandbox/N` against the commit the sandbox was made from, in the local checkout; and screenshots, for
+// a project that declares a dev server, taken after the checks (src/shots.ts).
 import { relative } from "node:path";
 import { realpath } from "node:fs/promises";
 import type { Context } from "@earendil-works/chord";
@@ -14,6 +15,7 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import type { Changes } from "./api-types.ts";
 import { changesBetween, fileDiffBetween, type Snapshot } from "./changes.ts";
 import { run } from "./sandboxes.ts";
+import { MAX_PAGES, takeShots, type DevServer, type Page, type Shot } from "./shots.ts";
 import { textOf } from "./transcript.ts";
 
 export type HeadsUp = { kind: "upstream" | "dependency" | "left" | "other"; text: string };
@@ -25,7 +27,7 @@ export type Code = { commits: number; files: number; add: number; del: number };
 /** What the agent said in its answer: its result block, or the answer's first paragraph without one. */
 export type Said = { summary: string; changes: string[]; headsUp: HeadsUp[]; question?: Question };
 
-export type TaskResult = Said & { at: number; checks: Check[]; shots: never[]; code: Code; plan?: PlanStep[] };
+export type TaskResult = Said & { at: number; checks: Check[]; shots: Shot[]; code: Code; plan?: PlanStep[] };
 
 const HEADS_UP_KINDS = new Set(["upstream", "dependency", "left", "other"]);
 /** Longest summary, change or heads-up kept; a model that writes more is cut, not refused. */
@@ -214,20 +216,52 @@ const tail = (text: string, max = 2000) => {
 	return trimmed.length > max ? `…${trimmed.slice(-max)}` : trimmed;
 };
 
-/** The project's own settings for aludra, `.agents/project.json`: what to run as checks once a turn ends. */
-export type ProjectConfig = { checks: { name: string; command: string }[] };
+/**
+ * The project's own settings for aludra, `.agents/project.json`: what to run as checks once a turn ends, and the dev
+ * server and pages to screenshot after them.
+ */
+export type ProjectConfig = { checks: { name: string; command: string }[]; devServer?: DevServer; pages: Page[] };
 
-/** `.agents/project.json` read leniently: `checks` as commands, or `{ name, command }`. Missing or unreadable is none. */
+/** `devServer` read leniently: `{ command, port }`, the port a number or a string of one. */
+function parseDevServer(value: unknown): DevServer | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const { command, port } = value as Record<string, unknown>;
+	const number = typeof port === "string" && /^\d+$/.test(port.trim()) ? Number(port) : port;
+	if (typeof command !== "string" || command.trim() === "" || typeof number !== "number" || !Number.isInteger(number) || number < 1 || number > 65535) return undefined;
+	return { command: command.trim(), port: number };
+}
+
+/** `pages` read leniently: paths, or `{ path, label? }`; a path without its leading slash gets one. "/" without any. */
+function parsePages(value: unknown): Page[] {
+	const list = Array.isArray(value) ? value : [];
+	const pages = list.flatMap((p): Page[] => {
+		const { path, label } = typeof p === "string" ? { path: p, label: undefined } : typeof p === "object" && p !== null ? (p as Record<string, unknown>) : {};
+		if (typeof path !== "string" || path.trim() === "" || /^[a-z]+:/i.test(path.trim()) || /\s/.test(path.trim())) return [];
+		const at = path.trim().startsWith("/") ? path.trim() : `/${path.trim()}`;
+		return [{ path: at, ...(typeof label === "string" && label.trim() !== "" ? { label: cut(label.trim()) } : {}) }];
+	});
+	return pages.length === 0 ? [{ path: "/" }] : pages.slice(0, MAX_PAGES);
+}
+
+/**
+ * `.agents/project.json` read leniently: `checks` as commands, or `{ name, command }`; `devServer` as `{ command, port }`
+ * with `pages`. Missing or unreadable is none of them, and a part that doesn't read is left out.
+ */
 export function parseProjectConfig(text: string | undefined): ProjectConfig {
-	if (text === undefined) return { checks: [] };
+	const none: ProjectConfig = { checks: [], pages: [] };
+	if (text === undefined) return none;
 	let value: unknown;
 	try {
 		value = JSON.parse(text);
 	} catch {
-		return { checks: [] };
+		return none;
 	}
-	const list = typeof value === "object" && value !== null ? (value as Record<string, unknown>).checks : undefined;
-	if (!Array.isArray(list)) return { checks: [] };
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return none;
+	const v = value as Record<string, unknown>;
+	const devServer = parseDevServer(v.devServer);
+	const shots = devServer === undefined ? { pages: [] } : { devServer, pages: parsePages(v.pages) };
+	const list = v.checks;
+	if (!Array.isArray(list)) return { checks: [], ...shots };
 	const checks = list.flatMap((c): ProjectConfig["checks"] => {
 		if (typeof c === "string" && c.trim() !== "") return [{ name: c.trim(), command: c.trim() }];
 		if (typeof c !== "object" || c === null) return [];
@@ -235,7 +269,7 @@ export function parseProjectConfig(text: string | undefined): ProjectConfig {
 		if (typeof command !== "string" || command.trim() === "") return [];
 		return [{ name: typeof name === "string" && name.trim() !== "" ? name.trim() : command.trim(), command: command.trim() }];
 	});
-	return { checks: checks.slice(0, 10) };
+	return { checks: checks.slice(0, 10), ...shots };
 }
 
 /** How long one declared check may run, in seconds. */
@@ -290,8 +324,11 @@ export async function answeredTurn(page: EntryPages, maxEntries = 2000): Promise
 	return undefined;
 }
 
-/** Checks run once a run ended, by session: for the answer at `at`, `running` until they're done. */
-export type TurnCheckState = { at: number; running: boolean; checks: Check[] };
+/**
+ * Checks run once a run ended, by session: for the answer at `at`, `running` until they're done; then the screenshots,
+ * `shooting` until they're taken.
+ */
+export type TurnCheckState = { at: number; running: boolean; checks: Check[]; shooting?: boolean; shots?: Shot[] };
 export const TurnChecks = defineDocFamily<TurnCheckState, null>({
 	kind: "aludra.turn-checks",
 	version: 1,
@@ -349,6 +386,8 @@ export type ResultsHost = {
 	/** Session `id`'s recorded checks, and recording them (the TurnChecks document). */
 	readChecks(id: number): Promise<TurnCheckState | undefined>;
 	writeChecks(id: number, state: TurnCheckState): Promise<void>;
+	/** Where screenshots are saved, a directory per session. */
+	shotsDir: string;
 	/** Tells listeners session `id`'s result changed. */
 	changed(id: number): void;
 	context: Context;
@@ -365,7 +404,8 @@ export function createResults(host: ResultsHost) {
 	 */
 	async function checksFor(id: number, at: number, turn: Turn): Promise<{ running: boolean; checks: Check[] }> {
 		const stored = await host.readChecks(id);
-		if (stored === undefined || stored.at !== at || (stored.running && !going.has(id))) return { running: false, checks: callChecks(turn) };
+		// Recorded without checks when the project declares only a dev server.
+		if (stored === undefined || stored.at !== at || (stored.running && !going.has(id)) || (!stored.running && stored.checks.length === 0)) return { running: false, checks: callChecks(turn) };
 		return stored.running ? { running: true, checks: callChecks(turn) } : { running: false, checks: stored.checks };
 	}
 
@@ -384,9 +424,11 @@ export function createResults(host: ResultsHost) {
 		const said = parseSaid(textOf(answer.content));
 		const sandbox = await host.sandbox(id);
 		const { checks } = await checksFor(id, answer.timestamp, turn);
+		const stored = await host.readChecks(id);
+		const shots = stored?.at === answer.timestamp && stored.shooting !== true ? stored.shots ?? [] : [];
 		const code = sandbox?.base === undefined ? { commits: 0, files: 0, add: 0, del: 0 } : await codeCounts(sandbox.source, sandbox.base, sandbox.branch).catch(() => ({ commits: 0, files: 0, add: 0, del: 0 }));
 		const plan = planOf(turn);
-		return { at: answer.timestamp, ...said, checks, shots: [], code, ...(plan === undefined ? {} : { plan }) };
+		return { at: answer.timestamp, ...said, checks, shots, code, ...(plan === undefined ? {} : { plan }) };
 	}
 
 	/** Session `id`'s one line for the task list, or undefined when there's nothing to say yet. */
@@ -399,13 +441,15 @@ export function createResults(host: ResultsHost) {
 		const answer = turn === undefined ? undefined : finalAnswer(turn);
 		if (answer === undefined) return undefined;
 		const checks = await checksFor(id, answer.timestamp, turn!);
-		return taskLine({ running: false, said: parseSaid(textOf(answer.content)), checks });
+		const stored = await host.readChecks(id);
+		const shooting = stored?.at === answer.timestamp && stored.shooting === true && going.has(id);
+		return taskLine({ running: false, said: parseSaid(textOf(answer.content)), checks, shooting });
 	}
 
 	/**
 	 * After session `id`'s run ends with an answer: runs the project's declared checks in its sandbox, once per answer, and
-	 * records them. Nothing for a session outside a sandbox, one shipping (a check's build output would be left
-	 * uncommitted), or a project that declares none. Never throws.
+	 * records them, then takes its screenshots when it declares a dev server. Nothing for a session outside a sandbox,
+	 * one shipping (a check's build output would be left uncommitted), or a project that declares neither. Never throws.
 	 */
 	function afterRun(id: number): Promise<void> {
 		const running = going.get(id);
@@ -417,14 +461,34 @@ export function createResults(host: ResultsHost) {
 			const answer = turn === undefined ? undefined : finalAnswer(turn);
 			if (answer === undefined) return;
 			const stored = await host.readChecks(id);
-			if (stored?.at === answer.timestamp && !stored.running) return;
+			if (stored?.at === answer.timestamp && !stored.running && stored.shooting !== true) return;
 			const config = await readProjectConfig(sandbox.env, sandbox.dir, host.context);
-			if (config.checks.length === 0) return;
-			await host.writeChecks(id, { at: answer.timestamp, running: true, checks: [] });
+			const { devServer } = config;
+			if (config.checks.length === 0 && devServer === undefined) return;
+			const at = answer.timestamp;
+			let checks: Check[] = [];
+			// Checks a restart left finished, with only the screenshots cut off, aren't run again.
+			if (stored?.at === at && !stored.running && stored.shooting === true) checks = stored.checks;
+			else if (config.checks.length > 0) {
+				await host.writeChecks(id, { at, running: true, checks: [] });
+				host.changed(id);
+				checks = await runChecks(sandbox.env, sandbox.dir, config.checks, host.context);
+				log(`session ${id}: ${checks.filter((c) => c.ok).length} of ${checks.length} checks pass`);
+			}
+			if (devServer === undefined) {
+				await host.writeChecks(id, { at, running: false, checks });
+				host.changed(id);
+				return;
+			}
+			await host.writeChecks(id, { at, running: false, checks, shooting: true, shots: [] });
 			host.changed(id);
-			const checks = await runChecks(sandbox.env, sandbox.dir, config.checks, host.context);
-			await host.writeChecks(id, { at: answer.timestamp, running: false, checks });
-			log(`session ${id}: ${checks.filter((c) => c.ok).length} of ${checks.length} checks pass`);
+			const shots = await takeShots(sandbox, id, at, devServer, config.pages, host.shotsDir, host.context, log).catch((error) => {
+				log(`session ${id}: screenshots: ${error instanceof Error ? error.message : String(error)}`);
+				return [];
+			});
+			// A ship that started meanwhile has the sandbox now; the shots stay as taken, from their own worktrees.
+			await host.writeChecks(id, { at, running: false, checks, shooting: false, shots });
+			if (shots.length > 0) log(`session ${id}: ${shots.length} screenshot${shots.length === 1 ? "" : "s"}`);
 			host.changed(id);
 		})().catch((error) => log(`session ${id}: checks: ${error instanceof Error ? error.message : String(error)}`)).finally(() => going.delete(id));
 		going.set(id, work);
@@ -437,6 +501,8 @@ export function createResults(host: ResultsHost) {
 		afterRun,
 		/** Resolves once the checks going now are done; for shutdown and tests. */
 		settled: () => Promise.all(going.values()).then(() => undefined),
+		/** Resolves once session `id`'s checks and screenshots, if any are going, are done; a ship waits for them. */
+		idle: (id: number) => going.get(id) ?? Promise.resolve(),
 	};
 }
 
@@ -450,7 +516,7 @@ export function firstSentence(text: string, max = 120): string {
  * A task's one line, from what's known of it: the open question, the step of the plan it's on, checks running or
  * failing, or the result's summary.
  */
-export function taskLine(input: { running: boolean; plan?: PlanStep[]; said?: Said; checks?: { running: boolean; checks: Check[] } }): string | undefined {
+export function taskLine(input: { running: boolean; plan?: PlanStep[]; said?: Said; checks?: { running: boolean; checks: Check[] }; shooting?: boolean }): string | undefined {
 	if (input.running) {
 		const step = input.plan?.find((s) => !s.done);
 		return step === undefined ? "Working" : firstSentence(step.text);
@@ -459,6 +525,7 @@ export function taskLine(input: { running: boolean; plan?: PlanStep[]; said?: Sa
 	if (input.said.question !== undefined) return `Asks: ${firstSentence(input.said.question.text)}`;
 	const summary = firstSentence(input.said.summary) || "Done";
 	if (input.checks?.running === true) return `${summary} · running checks`;
+	if (input.shooting === true) return `${summary} · taking screenshots`;
 	const failed = input.checks?.checks.filter((c) => !c.ok).length ?? 0;
 	if (failed > 0) return `${summary} · ${failed} check${failed === 1 ? "" : "s"} fail${failed === 1 ? "s" : ""}`;
 	if ((input.checks?.checks.length ?? 0) > 0) return `${summary} · checks pass`;

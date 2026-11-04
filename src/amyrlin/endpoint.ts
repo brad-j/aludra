@@ -16,7 +16,7 @@
 // - Sandbox tasks (amyrlin's protocol section 10 item 19) are aludra's own too: `conversations.create` with `sandbox`,
 //   the summary's `sandbox` and `source`, `sandbox.sync`, `sandbox.ship` with its `sandbox.shipped` event on host.watch,
 //   and `sandbox.discard`, over src/sandboxes.ts, src/ship.ts and src/sandbox-cleanup.ts; the summary's `line`,
-//   `task.result` and `task.code` over src/results.ts.
+//   `task.result` and `task.code` over src/results.ts, and `task.shot` over src/shots.ts.
 import { randomUUID } from "node:crypto";
 import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import type { WebSocket } from "ws";
@@ -996,9 +996,13 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 						throw new ProtocolError("not_found", error instanceof Error ? error.message : String(error));
 					}
 				}
-				case "task.shot":
-					// Screenshots are step 5; no result names one yet.
-					throw new ProtocolError("not_found", "No such screenshot");
+				case "task.shot": {
+					const { record } = await session(p.conversationId);
+					if (typeof p.shot !== "string") throw new ProtocolError("bad_request", "shot should be a string");
+					const png = await host.results.shot(record.id, p.shot);
+					if (png === undefined) throw new ProtocolError("not_found", "No such screenshot; it may have been deleted after its days");
+					return { mimeType: "image/png", data: png.toString("base64") };
+				}
 				case "conversation.history":
 					return history(p);
 				case "conversation.image":

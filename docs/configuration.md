@@ -137,11 +137,22 @@ A sandbox host, if sessions may run in sandboxes: Firecracker VMs from stedding 
 - `approvals`: whether sandbox sessions' tools wait for approvals as other sessions' do. `off` (default) runs `git push` and SSH to the approval hosts without asking, since a sandbox has no remotes, keys or route to those hosts; `ask` waits as usual. A session made from amyrlin can choose for itself. The protected-path gate applies either way.
 
 A project can declare checks for its sandbox sessions in `.agents/project.json` in its repository, `{ "checks": ["pnpm test", { "name": "types", "command": "pnpm exec tsc --noEmit" }] }`; `aludra serve` runs them in the sandbox after each run that ends with an answer, and amyrlin shows them on the task's result ([api.md](api.md#sandbox-tasks)).
+
+A project with pages can have screenshots on the result too, before and after each run's work. It declares its dev server and the pages to shoot in the same file, `"devServer": { "command": "pnpm dev", "port": 4380 }, "pages": ["/", { "path": "/settings", "label": "Settings" }]` (`pages` defaults to `/`, at most 6), and installs Playwright and Chromium in its `.agents/setup`, since the sandbox's base image has no browser:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+pnpm install --frozen-lockfile
+pnpm exec playwright install --with-deps chromium
+```
+
+`playwright` or `@playwright/test` has to be among the project's dependencies; aludra uses the project's own. The dev server should listen on the declared port (it gets `PORT` too) and answer `/` on it. Pages the run's changed routes make, for file-based routers (TanStack Router, Remix, SvelteKit, Astro, Next's app router), are shot too. Without a dev server declared, or without Playwright and its Chromium in the sandbox, there are no screenshots and nothing says so.
 - `shipTo`: where `aludra ship` lands work by default: `main` (the default) pushes to the project's upstream branch, `branch` pushes a branch of its own and opens a pull request with `gh`.
 
 ### `dataDir`
 
-Where the database, keys, scratch directories and uploaded videos go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.
+Where the database, keys, scratch directories, uploaded videos and screenshots go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.
 
 ## Environment variables
 
@@ -166,6 +177,7 @@ Where the database, keys, scratch directories and uploaded videos go. Default `~
 | `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |
 | `scratch/<id>/` | The working directory of each no-project session. |
 | `uploads/<id>/` | Videos and files sent with a session's messages, and messages too long to send whole, deleted 14 days after they arrive. |
+| `shots/<id>/` | Screenshots of sandbox sessions' pages, deleted 14 days after they're taken. |
 | `backups/` | Copies of the database, unless `backup.dir` says otherwise. |
 | `tailscale/` | Only with aludra's own Tailscale node ([setup.md](setup.md#optional-a-tailscale-node-of-aludras-own-linux)). |
 
