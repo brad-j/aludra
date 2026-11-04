@@ -126,7 +126,7 @@ aludra runs the Claude Code you installed and logged in to, as `claude -p`, for 
 
 ### `sandboxes`
 
-A sandbox host, if sessions may run in sandboxes: Firecracker VMs from stedding on another machine, one per session, holding a copy of the project's last commit. Absent, `--sandbox` is refused. Only the settings file sets it.
+A sandbox host, if sessions may run in sandboxes: Firecracker VMs from stedding on another machine, one per session, holding a copy of the project's last commit. Absent, `--sandbox` is refused. Only the settings file sets it. A project's template sets `vm.overcommit_memory=1` in the sandbox, since tools that reserve a large address range up front, such as oxlint, fail under the kernel's default in a VM with no swap; templates made before this change lack it until they're a day old and made again.
 
 - `ssh`: the sandbox host's SSH destination, such as `user@host`.
 - `gateKey`: a key for it whose `authorized_keys` line forces `stedding gate`, so it can only manage and reach sandboxes.

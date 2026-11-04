@@ -183,6 +183,9 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 						"set -euo pipefail",
 						`git clone -q --branch ${branch === "HEAD" ? "HEAD" : shellQuote(branch)} ~/project.bundle ${shellQuote(dir)} 2>/dev/null || git clone -q ~/project.bundle ${shellQuote(dir)}`,
 						`cd ${shellQuote(dir)} && git remote remove origin && rm ~/project.bundle`,
+						// Tools that reserve a large address range up front (oxlint's allocator pool) fail under the kernel's overcommit
+						// heuristic in a VM with no swap. A throwaway sandbox has nothing the heuristic protects; set at every boot.
+						"echo vm.overcommit_memory=1 | sudo tee /etc/sysctl.d/60-aludra.conf >/dev/null && sudo sysctl -q vm.overcommit_memory=1",
 						...(userName === "" ? [] : [`git config --global user.name ${shellQuote(userName)}`]),
 						...(userEmail === "" ? [] : [`git config --global user.email ${shellQuote(userEmail)}`]),
 						`echo ${STEP_MARK}installing`,
