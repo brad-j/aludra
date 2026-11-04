@@ -6,7 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { Connection, localDaemon } from "@earendil-works/pi-env";
 import { context } from "../src/host.ts";
-import { createSandboxes, templateName } from "../src/sandboxes.ts";
+import { createSandboxes, fastForward, templateName } from "../src/sandboxes.ts";
+import { sandboxSyncAfterRuns } from "../src/sandbox-sync.ts";
 import { parseClientMessage } from "../src/server.ts";
 
 test("a sandbox's connection opens on first use, stays open while a command runs, and closes once idle", async () => {
@@ -120,4 +121,82 @@ test("the socket's ask takes a sandbox flag only for a new session, and sync nee
 	assert.throws(() => parseClientMessage('{"type":"ask","content":"hi","session":3,"sandbox":true}'), /new session/);
 	assert.deepEqual(parseClientMessage('{"type":"sync","session":3,"into":"try"}'), { type: "sync", session: 3, into: "try" });
 	assert.throws(() => parseClientMessage('{"type":"sync"}'), /needs a session/);
+});
+
+test("fastForward moves the checked-out branch only when nothing is lost and no uncommitted change is in the way", async () => {
+	const root = mkdtempSync(join(tmpdir(), "aludra-ff-"));
+	const repo = join(root, "repo");
+	mkdirSync(repo);
+	try {
+		git(repo, "init", "-q", "-b", "main");
+		writeFileSync(join(repo, "a.txt"), "one\n");
+		writeFileSync(join(repo, "b.txt"), "one\n");
+		git(repo, "add", "-A");
+		git(repo, "commit", "-q", "-m", "first");
+		git(repo, "branch", "sandbox/1");
+		git(repo, "checkout", "-q", "sandbox/1");
+		writeFileSync(join(repo, "a.txt"), "two\n");
+		git(repo, "commit", "-q", "-am", "agent's change");
+		git(repo, "checkout", "-q", "main");
+
+		// An uncommitted change to a file the sandbox changed blocks it; one to another file doesn't.
+		writeFileSync(join(repo, "a.txt"), "mine\n");
+		const blocked = await fastForward(repo, "sandbox/1");
+		assert.equal(blocked.merged, false);
+		assert.match(blocked.merged ? "" : blocked.reason, /uncommitted changes to a\.txt/);
+		assert.equal(readFileSync(join(repo, "a.txt"), "utf8"), "mine\n", "the change is still there");
+		git(repo, "checkout", "-q", "--", "a.txt");
+		writeFileSync(join(repo, "b.txt"), "mine\n");
+		assert.deepEqual(await fastForward(repo, "sandbox/1"), { merged: true, onto: "main", commits: 1 });
+		assert.equal(readFileSync(join(repo, "a.txt"), "utf8"), "two\n");
+		assert.equal(readFileSync(join(repo, "b.txt"), "utf8"), "mine\n", "the unrelated change stays");
+		assert.deepEqual(await fastForward(repo, "sandbox/1"), { merged: false, reason: "main already has it" });
+
+		// A main that moved on isn't fast-forwarded: that's a real merge, left to the user.
+		git(repo, "checkout", "-q", "sandbox/1");
+		writeFileSync(join(repo, "c.txt"), "agent\n");
+		git(repo, "add", "c.txt");
+		git(repo, "commit", "-q", "-m", "agent again");
+		git(repo, "checkout", "-q", "main");
+		git(repo, "commit", "-q", "-am", "my own commit");
+		const diverged = await fastForward(repo, "sandbox/1");
+		assert.equal(diverged.merged, false);
+		assert.match(diverged.merged ? "" : diverged.reason, /has commits sandbox\/1 doesn't/);
+		assert.equal(git(repo, "log", "-1", "--format=%s"), "my own commit");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("after a sandbox run ends, its commits are synced once, again if it ends meanwhile, and never for other sessions", async () => {
+	const calls: { id: number; merge?: boolean }[] = [];
+	const records = new Map<number, { sandbox?: number; source?: string }>([[1, { sandbox: 4, source: "/p" }], [2, {}]]);
+	let release: () => void = () => {};
+	const host = {
+		sessions: { get: async (id: number) => records.get(id) },
+		sandboxes: {
+			sync: async (id: number, _into: string | undefined, options: { merge?: boolean }) => {
+				calls.push({ id, ...options });
+				if (calls.length === 1) await new Promise<void>((resolve) => (release = resolve));
+				return { sandbox: 4, dir: "/p", branch: "sandbox/4", head: "abc", commits: 2, uncommitted: 0, sandboxHead: "abc", ...(options.merge ? { merge: { merged: true as const, onto: "main", commits: 2 } } : {}) };
+			},
+		},
+	};
+	const lines: string[] = [];
+	let mode: "off" | "fetch" | "merge" = "merge";
+	// SAFETY: the sync only calls sessions.get and sandboxes.sync.
+	const sync = sandboxSyncAfterRuns(host as never, () => mode, (id, line) => lines.push(`${id}: ${line}`));
+	sync.onRunEnd({ id: 1, state: "done" });
+	sync.onRunEnd({ id: 1, state: "done" });
+	sync.onRunEnd({ id: 1, state: "running" });
+	sync.onRunEnd({ id: 2, state: "done" });
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	release();
+	await sync.settled();
+	assert.deepEqual(calls, [{ id: 1, merge: true }, { id: 1, merge: true }], "once, then once more for the run that ended meanwhile");
+	assert.deepEqual(lines, ["1: 2 commits on sandbox/4, fast-forwarded main", "1: 2 commits on sandbox/4, fast-forwarded main"]);
+	mode = "off";
+	sync.onRunEnd({ id: 1, state: "done" });
+	await sync.settled();
+	assert.equal(calls.length, 2, "off syncs nothing");
 });

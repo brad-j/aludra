@@ -38,7 +38,18 @@ export type Thinking = (typeof THINKING)[number];
 export type Workspace = { name: string; roots: string[] };
 
 /** The sandbox host (spike, src/sandboxes.ts): `ssh` is its destination, `gateKey` a key restricted to `stedding gate` there, `knownHosts` its host key; `sandboxKey` opens sandboxes, whose host key is `sandboxHostKey`. */
-export type SandboxSetting = { ssh: string; gateKey: string; knownHosts: string; sandboxKey: string; sandboxHostKey: string };
+export type SandboxSetting = {
+	ssh: string;
+	gateKey: string;
+	knownHosts: string;
+	sandboxKey: string;
+	sandboxHostKey: string;
+	/**
+	 * When a sandbox session's run ends: `fetch` (the default) brings its commits to `sandbox/N` in the project, `merge`
+	 * also fast-forwards the checked-out branch when it's safe, `off` leaves it to `aludra sync`.
+	 */
+	afterRun: "off" | "fetch" | "merge";
+};
 
 /** The model providers: Claude Code through pi-claude-code, OpenAI on a ChatGPT sign-in, OpenRouter, and the scripted faux model. */
 export const PROVIDERS = ["claude-bridge", "openai", "openrouter", "faux"] as const;
@@ -115,7 +126,7 @@ const settingsFile = object({
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	archive: optional(object({ afterDays: optional(number) })),
 	mcp: optional(object({ write: optional(boolean) })),
-	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string })),
+	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")) })),
 	dataDir: optional(string),
 });
 
@@ -175,6 +186,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 			knownHosts: resolve(expandHome(file.sandboxes.knownHosts)),
 			sandboxKey: resolve(expandHome(file.sandboxes.sandboxKey)),
 			sandboxHostKey: file.sandboxes.sandboxHostKey.trim(),
+			afterRun: file.sandboxes.afterRun ?? "fetch",
 		} }),
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
 		backup: { ...DEFAULTS.backup, dir: "" },

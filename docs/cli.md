@@ -57,11 +57,17 @@ With `--project`, starts a session in that project, or with `--sandbox` in a san
 
 With a sandbox host in the settings (`sandboxes`), `ask --sandbox` runs the new session's tools in a Firecracker VM of its own on that host, a copy of the project's last commit with its dependencies installed. The model and the transcript stay on this machine. The sandbox reaches the internet and nothing else, holds no keys, and can't push. The first sandbox session of a project at a new commit waits while the project's template is made (a clone and an install, printed as it goes); later ones start in about a second.
 
+When a sandbox session's run ends, its commits come home by themselves, as `sandboxes.afterRun` says:
+
+- `fetch` (the default): into the branch `sandbox/N` in the project's checkout here, created or fast-forwarded. The checked-out branch and the working tree aren't touched.
+- `merge`: the same, then the checked-out branch is fast-forwarded to `sandbox/N` when that's safe: it's on a branch, `sandbox/N` contains it, and no uncommitted change touches a file the new commits change. Otherwise it's left alone, and the service log says why. It never makes a merge commit.
+- `off`: nothing until `aludra sync`.
+
 ```
-aludra sync --session ID [--into BRANCH]
+aludra sync --session ID [--into BRANCH] [--merge]
 ```
 
-Fetches the sandbox session's commits into the project's checkout here as the branch `sandbox/N` (or `BRANCH`), creating or fast-forwarding it. The checked-out branch and the working tree aren't touched; merge or check out the branch yourself. Uncommitted files in the sandbox are counted, not fetched. If the sandbox rewrote history the branch already has, sync refuses; sync into another branch.
+Does the same by hand: fetches into `sandbox/N` (or `BRANCH`), and with `--merge` fast-forwards the checked-out branch under the same rules, printing what it did or why not. Uncommitted files in the sandbox are counted, not fetched; ask the session to commit them. If the sandbox rewrote history the branch already has, sync refuses; sync into another branch.
 
 Leaving with Ctrl+C doesn't stop the run. To reattach to a follow-up, rerun it with the same `--id REQUEST`: the host finds the message it already has instead of sending it twice, and prints the answer when it comes. Without `--id`, each `ask` gets a fresh one.
 

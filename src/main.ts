@@ -33,8 +33,10 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   search [--session ID] [--reindex] WORDS...
                                          find messages and answers with all the words, across sessions or in one
   page --session ID PAGE                  write a page the agent published to a file, to open in a browser
-  sync --session ID [--into BRANCH]      fetch a sandbox session's commits into its project as a branch
-                                         (default sandbox/N); the checked-out branch and files aren't touched
+  sync --session ID [--into BRANCH] [--merge]
+                                         fetch a sandbox session's commits into its project as a branch
+                                         (default sandbox/N); with --merge, then fast-forward the checked-out
+                                         branch to it when that's safe. A run's end does the fetch by itself
   checkpoints --session ID               list a session's checkpoints, one as each turn started, with its changes
   restore --session ID CHECKPOINT        put the project's files back to a checkpoint (undoable)
   approvals                              list calls waiting for approval
@@ -58,6 +60,7 @@ const { values, positionals } = parseArgs({
 		steer: { type: "boolean" },
 		sandbox: { type: "boolean" },
 		into: { type: "string" },
+		merge: { type: "boolean" },
 		id: { type: "string" },
 		root: { type: "string", multiple: true },
 		user: { type: "string", multiple: true },
@@ -150,8 +153,8 @@ switch (command) {
 	case "watch":
 		process.exit(await talk(config, values.session === undefined ? { type: "watch" } : { type: "watch", session: sessionId() }));
 	case "sync":
-		if (values.session === undefined) fail("usage: aludra sync --session ID [--into BRANCH]");
-		process.exit(await talk(config, { type: "sync", session: sessionId(), ...(values.into === undefined ? {} : { into: values.into }) }));
+		if (values.session === undefined) fail("usage: aludra sync --session ID [--into BRANCH] [--merge]");
+		process.exit(await talk(config, { type: "sync", session: sessionId(), ...(values.into === undefined ? {} : { into: values.into }), ...(values.merge === true ? { merge: true } : {}) }));
 	case "sessions":
 		process.exit(await talk(config, { type: "sessions", listing: true }));
 	case "stop":

@@ -124,6 +124,17 @@ aludra runs the Claude Code you installed and logged in to, as `claude -p`, for 
 
 - `write`: whether agents on `/mcp` may start sessions, send them messages and stop them, besides reading. Default `false`. Only the settings file sets it, never a client, so nothing reaching the host can turn it on; it applies after a restart. [security.md](security.md#mcp) says what it gives away.
 
+### `sandboxes`
+
+A sandbox host, if sessions may run in sandboxes: Firecracker VMs from stedding on another machine, one per session, holding a copy of the project's last commit. Absent, `--sandbox` is refused. Only the settings file sets it.
+
+- `ssh`: the sandbox host's SSH destination, such as `user@host`.
+- `gateKey`: a key for it whose `authorized_keys` line forces `stedding gate`, so it can only manage and reach sandboxes.
+- `knownHosts`: a known-hosts file with the sandbox host's key; it's checked strictly.
+- `sandboxKey`: the key sandboxes accept for their user.
+- `sandboxHostKey`: the sandboxes' own host key, `ssh-ed25519 AAAA…`, as `stedding hostkey` prints it without the comment.
+- `afterRun`: what happens to a sandbox session's commits when its run ends. `fetch` (default) brings them to `sandbox/N` in the project; `merge` also fast-forwards the checked-out branch when it's safe; `off` waits for `aludra sync` ([cli.md](cli.md#sandboxes)).
+
 ### `dataDir`
 
 Where the database, keys, scratch directories and uploaded videos go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.

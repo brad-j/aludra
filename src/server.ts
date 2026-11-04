@@ -25,6 +25,7 @@ import { createInterface } from "node:readline";
 import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchEvents } from "@earendil-works/pi-durable";
 import type { SessionSummary, Settings } from "./api-types.ts";
 import { createApi } from "./api.ts";
+import { sandboxSyncAfterRuns } from "./sandbox-sync.ts";
 import { createLive, monthSpend, readSummary } from "./live.ts";
 import { scheduleArchive } from "./archive.ts";
 import { scheduleBackups } from "./backup.ts";
@@ -40,7 +41,7 @@ export const socketPathFor = (config: Config) => resolve(config.dataDir, "aludra
 export type ClientMessage =
 	| { type: "ask"; content: string; project?: string; session?: number; requestId?: string; steer?: boolean; sandbox?: boolean }
 	/** A sandbox session's commits fetched into its project's checkout, as the branch `into` (src/sandboxes.ts). */
-	| { type: "sync"; session: number; into?: string }
+	| { type: "sync"; session: number; into?: string; merge?: boolean }
 	| { type: "watch"; session?: number }
 	| { type: "sessions"; listing?: boolean }
 	| { type: "stop"; session: number }
@@ -68,6 +69,7 @@ const clientMessage = object({
 	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints", "search", "page", "sync"),
 	sandbox: optional(boolean),
 	into: optional(string),
+	merge: optional(boolean),
 	page: optional(integer),
 	query: optional(string),
 	reindex: optional(boolean),
@@ -115,7 +117,7 @@ export function parseClientMessage(line: string): ClientMessage {
 			return { type: "ask", content: m.content, ...(m.project === undefined ? {} : { project: m.project }), ...(m.session === undefined ? {} : { session: m.session }), ...(m.requestId === undefined ? {} : { requestId: m.requestId }), ...(m.steer === undefined ? {} : { steer: m.steer }), ...(m.sandbox === true ? { sandbox: true } : {}) };
 		case "sync":
 			if (m.session === undefined) throw new ParseError("a sync needs a session");
-			return { type: "sync", session: m.session, ...(m.into === undefined ? {} : { into: m.into }) };
+			return { type: "sync", session: m.session, ...(m.into === undefined ? {} : { into: m.into }), ...(m.merge === true ? { merge: true } : {}) };
 		case "watch":
 			return m.session === undefined ? { type: "watch" } : { type: "watch", session: m.session };
 		case "sessions":
@@ -240,6 +242,9 @@ export async function serve(config: Config) {
 	host.resume();
 	// The live feed behind /api/live and the amyrlin endpoint.
 	const live = createLive(host);
+	// A sandbox session's commits come home when its run ends (src/sandbox-sync.ts).
+	const sandboxSync = sandboxSyncAfterRuns(host, () => config.sandboxes?.afterRun);
+	const stopSandboxSync = live.onRunEnd((summary) => sandboxSync.onRunEnd(summary));
 	const server = listen(host, socketPath, watchers);
 	console.error(`aludra listening on ${socketPath}, model ${host.model.provider}/${host.model.modelId}`);
 	const stopBackups = scheduleBackups(config);
@@ -254,6 +259,8 @@ export async function serve(config: Config) {
 	async function shutdown() {
 		stopBackups();
 		stopArchive();
+		stopSandboxSync();
+		await sandboxSync.settled();
 		await api?.close();
 		server.close();
 		for (const socket of watchers) socket.destroy();
@@ -346,10 +353,12 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 			case "ask":
 				return ask(socket, request);
 			case "sync": {
-				const synced = await host.sandboxes.sync(request.session, request.into);
+				const synced = await host.sandboxes.sync(request.session, request.into, { merge: request.merge === true });
+				const merge = synced.merge;
 				return finish([synced.commits === 0
 					? `nothing new: ${synced.branch} in ${synced.dir} is at the sandbox's ${synced.head.slice(0, 12)}`
 					: `${synced.commits} commit${synced.commits === 1 ? "" : "s"} from sandbox ${synced.sandbox} on ${synced.branch} in ${synced.dir}, at ${synced.head.slice(0, 12)}`,
+				...(merge === undefined ? [] : [merge.merged ? `fast-forwarded ${merge.onto} by ${merge.commits} commit${merge.commits === 1 ? "" : "s"}` : `not merged: ${merge.reason}`]),
 				...(synced.uncommitted > 0 ? [`${synced.uncommitted} uncommitted file${synced.uncommitted === 1 ? "" : "s"} in the sandbox weren't fetched; ask the session to commit them`] : [])]);
 			}
 			case "watch":

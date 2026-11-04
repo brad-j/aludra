@@ -11,7 +11,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { createSandboxes } from "./sandboxes.ts";
+import { createSandboxes, fastForward, type MergeResult, type SyncResult } from "./sandboxes.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice, Settings } from "./api-types.ts";
@@ -837,13 +837,18 @@ export async function openHost(options: HostOptions) {
 			connected: (n: number) => sandboxes.connected(n),
 			status: sandboxes.status,
 			remove: sandboxes.remove,
-			/** Fetches sandbox session `id`'s commits into its project's local checkout, as `into` (default sandbox/<n>). */
-			async sync(id: number, into?: string) {
+			/**
+			 * Fetches sandbox session `id`'s commits into its project's local checkout, as `into` (default sandbox/<n>);
+			 * with `merge`, then fast-forwards the checked-out branch to them when that's safe (src/sandboxes.ts).
+			 */
+			async sync(id: number, into?: string, options: { merge?: boolean } = {}): Promise<SyncResult & { merge?: MergeResult }> {
 				const record = await get(id);
 				if (record === undefined) throw new Error(`no session ${id}`);
 				if (record.sandbox === undefined) throw new Error(`session ${id} isn't in a sandbox`);
 				if (record.source === undefined) throw new Error(`session ${id} has no project to sync into`);
-				return sandboxes.sync(record.sandbox, record.dir, record.source, into);
+				const synced = await sandboxes.sync(record.sandbox, record.dir, record.source, into);
+				if (options.merge !== true) return synced;
+				return { ...synced, merge: await fastForward(record.source, synced.branch) };
 			},
 		},
 		sessions: { list, get, create, createScratch, createSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },

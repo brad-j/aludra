@@ -285,6 +285,38 @@ export type Sandboxes = ReturnType<typeof createSandboxes>;
 /** What a sync brought back: `commits` new on `branch` in `dir` since it last was synced (or since it forked from HEAD). */
 export type SyncResult = { sandbox: number; dir: string; branch: string; head: string; commits: number; uncommitted: number; sandboxHead: string };
 
+/** What `fastForward` did: moved `onto` to `branch`'s head, or why it didn't. */
+export type MergeResult = { merged: true; onto: string; commits: number } | { merged: false; reason: string };
+
+/**
+ * Fast-forwards the branch checked out in `local` to `branch`, if that's safe: the checkout is on a branch, `branch`
+ * contains it (so nothing on it is lost and no merge commit is made), and no uncommitted change touches a file the
+ * new commits change. Otherwise it changes nothing and says why. `git merge --ff-only` does the work, so a change it
+ * would overwrite still stops it.
+ */
+export async function fastForward(local: string, branch: string): Promise<MergeResult> {
+	const git = (...args: string[]) => run("git", ["-C", local, ...args]);
+	const onto = (await git("symbolic-ref", "--quiet", "--short", "HEAD").catch(() => "")).trim();
+	if (onto === "") return { merged: false, reason: "the checkout isn't on a branch" };
+	if (onto === branch) return { merged: false, reason: `${branch} is the checked-out branch` };
+	const head = (await git("rev-parse", "HEAD")).trim();
+	const tip = (await git("rev-parse", `refs/heads/${branch}`)).trim();
+	if (head === tip) return { merged: false, reason: `${onto} already has it` };
+	const contains = await git("merge-base", "--is-ancestor", head, tip).then(() => true, () => false);
+	if (!contains) return { merged: false, reason: `${onto} has commits ${branch} doesn't; merge it yourself (git merge ${branch})` };
+	const changed = new Set((await git("diff", "--name-only", head, tip)).split("\n").filter(Boolean));
+	const dirty = (await git("status", "--porcelain", "-z")).split("\0").filter(Boolean).map((line) => line.slice(3));
+	const clash = dirty.filter((path) => changed.has(path));
+	if (clash.length > 0) return { merged: false, reason: `uncommitted changes to ${clash.slice(0, 3).join(", ")}${clash.length > 3 ? ` and ${clash.length - 3} more` : ""} would be overwritten` };
+	const commits = Number((await git("rev-list", "--count", `${head}..${tip}`)).trim());
+	try {
+		await git("merge", "--ff-only", "--quiet", tip);
+	} catch (error) {
+		return { merged: false, reason: `git merge --ff-only refused: ${error instanceof Error ? error.message.split("\n").slice(-1)[0] : String(error)}` };
+	}
+	return { merged: true, onto, commits };
+}
+
 
 function shellQuote(text: string): string {
 	return `'${text.replaceAll("'", "'\\''")}'`;
