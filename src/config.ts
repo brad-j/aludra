@@ -49,6 +49,8 @@ export type SandboxSetting = {
 	 * also fast-forwards the checked-out branch when it's safe, `off` leaves it to `aludra sync`.
 	 */
 	afterRun: "off" | "fetch" | "merge";
+	/** Where `aludra ship` lands work: the upstream branch itself (`main`, the default), or a branch of its own with a pull request. */
+	shipTo: "main" | "branch";
 };
 
 /** The model providers: Claude Code through pi-claude-code, OpenAI on a ChatGPT sign-in, OpenRouter, and the scripted faux model. */
@@ -126,7 +128,7 @@ const settingsFile = object({
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	archive: optional(object({ afterDays: optional(number) })),
 	mcp: optional(object({ write: optional(boolean) })),
-	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")) })),
+	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")) })),
 	dataDir: optional(string),
 });
 
@@ -187,6 +189,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 			sandboxKey: resolve(expandHome(file.sandboxes.sandboxKey)),
 			sandboxHostKey: file.sandboxes.sandboxHostKey.trim(),
 			afterRun: file.sandboxes.afterRun ?? "fetch",
+			shipTo: file.sandboxes.shipTo ?? "main",
 		} }),
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
 		backup: { ...DEFAULTS.backup, dir: "" },

@@ -40,7 +40,7 @@ type Live = { connection: Connection; inFlight: number; timer?: NodeJS.Timeout }
 
 const TEMPLATE_MAX_AGE_S = 24 * 3600;
 
-function run(cmd: string, args: readonly string[], input?: string): Promise<string> {
+export function run(cmd: string, args: readonly string[], input?: string): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const child = execFile(cmd, args, { maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
 			if (error) reject(new Error(`${cmd} ${args.at(-1)}: ${stderr.trim() || error.message}`));
@@ -218,7 +218,7 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 	 * `sandbox/<n>`), creating or fast-forwarding it, never touching the checked-out branch or the working tree. A
 	 * non-fast-forward (the sandbox rewrote history) is refused. Uncommitted work in the sandbox is counted, not fetched.
 	 */
-	async function sync(n: number, dir: string, local: string, into = `sandbox/${n}`): Promise<SyncResult> {
+	async function sync(n: number, dir: string, local: string, into = `sandbox/${n}`, options: { force?: boolean } = {}): Promise<SyncResult> {
 		if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(into) || into.includes("..") || into.endsWith(".lock") || into.endsWith("/")) throw new Error(`not a branch name: ${into}`);
 		const env = new RemoteExecutionEnv({ connection: connection(n), id: `stedding:${n}`, cwd: dir });
 		const bundle = `/tmp/aludra-sync-${Date.now().toString(36)}.bundle`;
@@ -238,7 +238,8 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 			// The checked-out branch can't be fetched into; a sandbox branch never is checked out unless someone did it by hand.
 			const current = (await run("git", ["-C", local, "symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
 			if (current === into) throw new Error(`${into} is checked out in ${local}; switch away from it first, or sync into another branch`);
-			await run("git", ["-C", local, "fetch", file, `HEAD:refs/heads/${into}`]).catch((error: Error) => {
+			// Forced only for a ship, whose rebase rewrites what the branch had.
+			await run("git", ["-C", local, "fetch", file, `${options.force === true ? "+" : ""}HEAD:refs/heads/${into}`]).catch((error: Error) => {
 				if (/rejected|non-fast-forward/.test(error.message)) throw new Error(`sandbox ${n} rewrote history that ${into} already has; sync into another branch with --into`);
 				throw error;
 			});
@@ -251,9 +252,34 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 		}
 	}
 
+	/**
+	 * Puts `ref` of the local checkout `local` into sandbox `n`'s repository at `dir` as `refs/aludra/base`, through a
+	 * bundle, for the agent to rebase onto; returns the commit it names.
+	 */
+	async function receiveBase(n: number, dir: string, local: string, ref: string): Promise<string> {
+		const sha = (await run("git", ["-C", local, "rev-parse", "--verify", `${ref}^{commit}`])).trim();
+		const scratch = await mkdtemp(join(tmpdir(), "aludra-base-"));
+		try {
+			const file = join(scratch, "base.bundle");
+			await run("git", ["-C", local, "bundle", "create", "-q", file, ref]);
+			const env = new RemoteExecutionEnv({ connection: connection(n), id: `stedding:${n}`, cwd: dir });
+			const remote = `/tmp/aludra-base-${Date.now().toString(36)}.bundle`;
+			const put = await env.writeFile(remote, await readFile(file), BACKGROUND);
+			if (!put.ok) throw put.error;
+			let out = "";
+			const fetched = await env.exec(["bash", "-c", `set -e; git fetch -q ${remote} +${ref}:refs/aludra/base; rm -f ${remote}; git rev-parse refs/aludra/base`], { onOutput: (t) => (out += t) }, BACKGROUND);
+			if (!fetched.ok) throw fetched.error;
+			if (fetched.value.exitCode !== 0 || out.trim().split("\n").at(-1) !== sha) throw new Error(`giving sandbox ${n} the base failed: ${out.trim().slice(-500)}`);
+			return sha;
+		} finally {
+			await rm(scratch, { recursive: true, force: true });
+		}
+	}
+
 	return {
 		configured: () => host !== undefined,
 		sync,
+		receiveBase,
 		/** A new sandbox for a session: from `project`'s template, or the base image with none. Returns its number. */
 		async create(project?: ProjectSource, onProgress?: (line: string) => void): Promise<{ sandbox: number; dir: string }> {
 			if (project === undefined) return { sandbox: Number((await stedding("new")).trim()), dir: "/home/user" };

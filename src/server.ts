@@ -26,6 +26,7 @@ import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchE
 import type { SessionSummary, Settings } from "./api-types.ts";
 import { createApi } from "./api.ts";
 import { removeSandboxesOnArchive } from "./sandbox-cleanup.ts";
+import { ship } from "./ship.ts";
 import { sandboxSyncAfterRuns } from "./sandbox-sync.ts";
 import { createLive, monthSpend, readSummary } from "./live.ts";
 import { scheduleArchive } from "./archive.ts";
@@ -43,6 +44,8 @@ export type ClientMessage =
 	| { type: "ask"; content: string; project?: string; session?: number; requestId?: string; steer?: boolean; sandbox?: boolean }
 	/** A sandbox session's commits fetched into its project's checkout, as the branch `into` (src/sandboxes.ts). */
 	| { type: "sync"; session: number; into?: string; merge?: boolean }
+	/** A sandbox session's work rebased and tested in the sandbox, then pushed from here (src/ship.ts). */
+	| { type: "ship"; session: number; to?: "main" | "branch" }
 	| { type: "watch"; session?: number }
 	| { type: "sessions"; listing?: boolean }
 	| { type: "stop"; session: number }
@@ -67,7 +70,8 @@ export type ServerMessage =
 	| { type: "done"; status: string };
 
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints", "search", "page", "sync"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints", "search", "page", "sync", "ship"),
+	to: optional(literal("main", "branch")),
 	sandbox: optional(boolean),
 	into: optional(string),
 	merge: optional(boolean),
@@ -119,6 +123,9 @@ export function parseClientMessage(line: string): ClientMessage {
 			if ((m.project === undefined) === (m.session === undefined)) throw new ParseError("an ask needs a project or a session");
 			if (m.sandbox === true && m.project === undefined) throw new ParseError("a sandbox is for a new session: give a project");
 			return { type: "ask", content: m.content, ...(m.project === undefined ? {} : { project: m.project }), ...(m.session === undefined ? {} : { session: m.session }), ...(m.requestId === undefined ? {} : { requestId: m.requestId }), ...(m.steer === undefined ? {} : { steer: m.steer }), ...(m.sandbox === true ? { sandbox: true } : {}) };
+		case "ship":
+			if (m.session === undefined) throw new ParseError("a ship needs a session");
+			return { type: "ship", session: m.session, ...(m.to === undefined ? {} : { to: m.to }) };
 		case "sync":
 			if (m.session === undefined) throw new ParseError("a sync needs a session");
 			return { type: "sync", session: m.session, ...(m.into === undefined ? {} : { into: m.into }), ...(m.merge === true ? { merge: true } : {}) };
@@ -359,6 +366,25 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 		switch (request.type) {
 			case "ask":
 				return ask(socket, request);
+			case "ship": {
+				const { events } = await follow(socket, request.session, "");
+				const result = await ship(host, request.session, {
+					mode: request.to ?? host.shipMode(),
+					onProgress: (text) => line(socket, `→ ${text}`),
+					ask: async (id, prompt) => {
+						const settled = await (await host.submit(id, prompt)).wait(context);
+						const answer = settled.status === "done" && settled.type === "input" ? describeAnswer(await host.harness.commit((tx) => tx.entry(settled.answer), context)) : undefined;
+						return { status: settled.status, ...(answer === undefined ? {} : { answer }) };
+					},
+				}).catch((error: Error) => ({ shipped: false as const, reason: error.message }));
+				await events.stop();
+				if (!result.shipped) return finish([`! not shipped: ${result.reason}`], "failed");
+				return finish([
+					`shipped ${result.commits} commit${result.commits === 1 ? "" : "s"} to ${result.pushed}, at ${result.head.slice(0, 12)}`,
+					...(result.pr === undefined ? [] : [`pull request: ${result.pr}`]),
+					...(result.local === undefined ? [] : [result.local.merged ? `fast-forwarded ${result.local.onto} here` : `${result.local.reason}`]),
+				]);
+			}
 			case "sync": {
 				const synced = await host.sandboxes.sync(request.session, request.into, { merge: request.merge === true });
 				const merge = synced.merge;

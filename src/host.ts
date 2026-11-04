@@ -458,6 +458,16 @@ export async function openHost(options: HostOptions) {
 		return record!;
 	}
 
+	/** Sandbox session `id`'s record, for work with its sandbox and its local project; throws when it has neither. */
+	async function sandboxRecord(id: number): Promise<SessionRecord & { sandbox: number; source: string }> {
+		const record = await get(id);
+		if (record === undefined) throw new Error(`no session ${id}`);
+		if (record.sandbox === undefined) throw new Error(`session ${id} isn't in a sandbox`);
+		if (record.sandboxRemoved === true) throw new Error(`session ${id}'s sandbox was deleted when it was archived; its commits were fetched then`);
+		if (record.source === undefined) throw new Error(`session ${id} has no project to sync into`);
+		return record as SessionRecord & { sandbox: number; source: string };
+	}
+
 	/** Calls `listener` with each session created from now on. */
 	function onCreate(listener: (session: SessionRecord) => void): () => void {
 		created.add(listener);
@@ -828,6 +838,8 @@ export async function openHost(options: HostOptions) {
 		archiveAfterDays: () => config.archive.afterDays,
 		/** Whether the MCP endpoint may start, message and stop sessions (the settings file's mcp.write). */
 		mcpWrite: () => config.mcp.write,
+		/** Where a ship lands by default (src/ship.ts). */
+		shipMode: (): "main" | "branch" => config.sandboxes?.shipTo ?? "main",
 		choices,
 		/** Whether `provider` has model `id`. */
 		hasModel: (provider: string, id: string) => models.getProvider(provider) !== undefined && models.getModel(provider, id) !== undefined,
@@ -841,6 +853,11 @@ export async function openHost(options: HostOptions) {
 			connected: (n: number) => sandboxes.connected(n),
 			status: sandboxes.status,
 			remove: sandboxes.remove,
+			/** Puts `ref` of sandbox session `id`'s local project into its sandbox as refs/aludra/base (src/ship.ts). */
+			async receiveBase(id: number, ref: string): Promise<string> {
+				const record = await sandboxRecord(id);
+				return sandboxes.receiveBase(record.sandbox, record.dir, record.source, ref);
+			},
 			/** Deletes sandbox session `id`'s sandbox on its host and marks the session; nothing is fetched first. */
 			async forget(id: number): Promise<void> {
 				const record = await get(id);
@@ -858,13 +875,9 @@ export async function openHost(options: HostOptions) {
 			 * Fetches sandbox session `id`'s commits into its project's local checkout, as `into` (default sandbox/<n>);
 			 * with `merge`, then fast-forwards the checked-out branch to them when that's safe (src/sandboxes.ts).
 			 */
-			async sync(id: number, into?: string, options: { merge?: boolean } = {}): Promise<SyncResult & { merge?: MergeResult }> {
-				const record = await get(id);
-				if (record === undefined) throw new Error(`no session ${id}`);
-				if (record.sandbox === undefined) throw new Error(`session ${id} isn't in a sandbox`);
-				if (record.sandboxRemoved === true) throw new Error(`session ${id}'s sandbox was deleted when it was archived; its commits were fetched then`);
-				if (record.source === undefined) throw new Error(`session ${id} has no project to sync into`);
-				const synced = await sandboxes.sync(record.sandbox, record.dir, record.source, into);
+			async sync(id: number, into?: string, options: { merge?: boolean; force?: boolean } = {}): Promise<SyncResult & { merge?: MergeResult }> {
+				const record = await sandboxRecord(id);
+				const synced = await sandboxes.sync(record.sandbox, record.dir, record.source, into, { force: options.force === true });
 				if (options.merge !== true) return synced;
 				return { ...synced, merge: await fastForward(record.source, synced.branch) };
 			},

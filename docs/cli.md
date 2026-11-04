@@ -67,6 +67,12 @@ When a sandbox session's run ends, its commits come home by themselves, as `sand
 aludra sync --session ID [--into BRANCH] [--merge]
 ```
 
+```
+aludra ship --session ID [--to main|branch]
+```
+
+Lands a sandbox session's work, as Amp's Ship does, with the push made here so the sandbox never holds a key. aludra fetches the project's upstream (its branch's upstream, or `origin`'s default branch) and puts it in the sandbox; the session commits what belongs to the work, rebases onto it, resolves conflicts (asking you when one needs a decision), runs the tests, and ends with `SHIP-READY` or `SHIP-BLOCKED: why`. When it's ready, aludra fetches the result, checks that it sits on the upstream and that nothing is left uncommitted, and pushes with this machine's git: to the upstream branch itself (`--to main`, the default from `sandboxes.shipTo`), or to a branch of its own with a pull request through `gh` (`--to branch`). After a push to the branch you have checked out, that branch is fast-forwarded here when it's safe. Nothing is ever force-pushed; if the upstream moved during the ship, the push fails and shipping again rebases onto it. Running `ship` counts as your approval of the push.
+
 Archiving a sandbox session deletes its sandbox, once its commits are fetched to `sandbox/N`. A sandbox with uncommitted files is kept, and so is one whose session is still running; the service log says so. After that the session's tools have nowhere to run, and `sync` says the sandbox is gone; start a new sandbox session to keep going. `aludra sessions` lists a project's sandbox sessions as a group of their own, "in sandboxes", under the project's path here.
 
 `sync` does the same by hand: fetches into `sandbox/N` (or `BRANCH`), and with `--merge` fast-forwards the checked-out branch under the same rules, printing what it did or why not. Uncommitted files in the sandbox are counted, not fetched; ask the session to commit them. If the sandbox rewrote history the branch already has, sync refuses; sync into another branch.

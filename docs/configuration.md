@@ -134,6 +134,7 @@ A sandbox host, if sessions may run in sandboxes: Firecracker VMs from stedding 
 - `sandboxKey`: the key sandboxes accept for their user.
 - `sandboxHostKey`: the sandboxes' own host key, `ssh-ed25519 AAAA…`, as `stedding hostkey` prints it without the comment.
 - `afterRun`: what happens to a sandbox session's commits when its run ends. `fetch` (default) brings them to `sandbox/N` in the project; `merge` also fast-forwards the checked-out branch when it's safe; `off` waits for `aludra sync` ([cli.md](cli.md#sandboxes)).
+- `shipTo`: where `aludra ship` lands work by default: `main` (the default) pushes to the project's upstream branch, `branch` pushes a branch of its own and opens a pull request with `gh`.
 
 ### `dataDir`
 

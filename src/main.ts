@@ -37,6 +37,9 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
                                          fetch a sandbox session's commits into its project as a branch
                                          (default sandbox/N); with --merge, then fast-forward the checked-out
                                          branch to it when that's safe. A run's end does the fetch by itself
+  ship --session ID [--to main|branch]   land a sandbox session's work: it rebases onto the upstream and runs
+                                         the tests in the sandbox, then this machine pushes it to main, or to
+                                         a branch with a pull request (sandboxes.shipTo)
   checkpoints --session ID               list a session's checkpoints, one as each turn started, with its changes
   restore --session ID CHECKPOINT        put the project's files back to a checkpoint (undoable)
   approvals                              list calls waiting for approval
@@ -61,6 +64,7 @@ const { values, positionals } = parseArgs({
 		sandbox: { type: "boolean" },
 		into: { type: "string" },
 		merge: { type: "boolean" },
+		to: { type: "string" },
 		id: { type: "string" },
 		root: { type: "string", multiple: true },
 		user: { type: "string", multiple: true },
@@ -152,6 +156,12 @@ switch (command) {
 	}
 	case "watch":
 		process.exit(await talk(config, values.session === undefined ? { type: "watch" } : { type: "watch", session: sessionId() }));
+	case "ship": {
+		if (values.session === undefined) fail("usage: aludra ship --session ID [--to main|branch]");
+		if (values.to !== undefined && values.to !== "main" && values.to !== "branch") fail("--to is main or branch");
+		const to = values.to as "main" | "branch" | undefined;
+		process.exit(await talk(config, { type: "ship", session: sessionId(), ...(to === undefined ? {} : { to }) }, "lost the server while shipping; the session's run goes on. aludra watch --session ID follows it."));
+	}
 	case "sync":
 		if (values.session === undefined) fail("usage: aludra sync --session ID [--into BRANCH] [--merge]");
 		process.exit(await talk(config, { type: "sync", session: sessionId(), ...(values.into === undefined ? {} : { into: values.into }), ...(values.merge === true ? { merge: true } : {}) }));
