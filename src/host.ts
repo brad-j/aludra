@@ -11,6 +11,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { type CompactionPolicy, configure as configureAgent, type ConversationId, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { createOrbs } from "./orbs.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice, Settings } from "./api-types.ts";
@@ -55,6 +56,8 @@ export type SessionRecord = {
 	baseError?: string;
 	/** A no-project session: `dir` is its own scratch directory, and `project` is NO_PROJECT. */
 	scratch?: boolean;
+	/** An orb session (spike): its tools run on this orb, and `dir` is a directory there. */
+	orb?: string;
 };
 
 /** The project name of a session that isn't in a project (T3 Code's "no project" threads). */
@@ -207,6 +210,14 @@ export async function openHost(options: HostOptions) {
 	const real = options.models === undefined && options.claudeCode === undefined && config.model.provider !== "faux";
 	const titler = options.titler ?? (real ? modelTitler(models, titleModels(models, config)) : undefined);
 
+	const orbs = createOrbs(Object.fromEntries(config.orbs.map((o) => [o.name, {
+		host: o.host,
+		knownHostsFile: o.knownHosts,
+		hostKeyAlias: o.hostKeyAlias,
+		...(o.user === undefined ? {} : { user: o.user }),
+		...(o.identityFile === undefined ? {} : { identityFile: o.identityFile }),
+		...(o.sshConfig === undefined ? {} : { configFile: o.sshConfig }),
+	}])));
 	let approvals: ApprovalService | undefined;
 	let opened: Harness | undefined;
 	const checkpoints = createCheckpoints({ harness: () => opened!, context, baseOf: async (id) => (await get(id))?.base });
@@ -224,7 +235,11 @@ export async function openHost(options: HostOptions) {
 			models,
 			registry,
 			...(options.compaction === undefined ? {} : { settings: { compaction: options.compaction } }),
-			env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? homedir() }),
+			env: async ({ conversationId: id, cwd, read }, ctx) => {
+				const orb = (await read.snapshot(Sessions, ctx))?.sessions[String(id)]?.orb;
+				if (orb !== undefined) return orbs.env(orb, cwd ?? "/home/user");
+				return new NodeExecutionEnv({ cwd: cwd ?? homedir() });
+			},
 			onReport: (error) => console.error("[report]", error),
 		},
 		context,
@@ -393,6 +408,35 @@ export async function openHost(options: HostOptions) {
 			},
 		}, context);
 		mkdirSync(record!.dir, { recursive: true, mode: 0o700 });
+		untitled.add(record!.id);
+		for (const listener of created) listener(record!);
+		return record!;
+	}
+
+	/**
+	 * A session on orb `orb` (spike), working in `dir` there: its tools run on the orb, its model and transcript stay
+	 * here. No changes view or checkpoints, which read files on this machine.
+	 */
+	async function createOrb(orb: string, dir: string, prompt: string, agent: { model?: string; thinking?: Thinking } = {}): Promise<SessionRecord> {
+		if (!orbs.has(orb)) throw new Error(`no orb named ${orb}; the settings name ${orbs.names().join(", ") || "none"}`);
+		let record: SessionRecord | undefined;
+		await harness.createConversation({
+			ownership: { kind: "ownerless" },
+			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? config.model.thinking, cwd: dir },
+			init: async (tx, id) => {
+				record = {
+					id,
+					workspace: `orb:${orb}`,
+					project: dir.split("/").filter(Boolean).at(-1) ?? orb,
+					dir,
+					title: prompt.split("\n")[0]!.slice(0, 80),
+					createdAt: Date.now(),
+					baseError: "An orb session's files are on the orb.",
+					orb,
+				};
+				(await tx.doc(Sessions)).sessions[String(id)] = record;
+			},
+		}, context);
 		untitled.add(record!.id);
 		for (const listener of created) listener(record!);
 		return record!;
@@ -775,7 +819,7 @@ export async function openHost(options: HostOptions) {
 		catalog: () => catalog.list(),
 		modelInfo,
 		projects,
-		sessions: { list, get, create, createScratch, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
+		sessions: { list, get, create, createScratch, createOrb, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		checkpoints: {
 			list: checkpoints.list,
 			changes: checkpoints.changes,
@@ -820,6 +864,7 @@ export async function openHost(options: HostOptions) {
 			await caughtUp;
 			await harness.close(context);
 			searchIndex.close();
+			orbs.close();
 		},
 	};
 }

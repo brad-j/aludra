@@ -56,6 +56,16 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces.
 
+## Orbs spike (2026-11-03, branch orb-spike)
+
+A session's tools can run in an orb, a Firecracker microVM from stedding (`../stedding`) on matrim, while its model, transcript and approvals stay on egwene. It's the remote workspace line 23 anticipated.
+
+- **pi-env 1.3.0** (Earendil's, MIT) does the remote side: a small Rust daemon it deploys over SSH (verified by SHA-256 before each start) and `RemoteExecutionEnv`, a Pi Durable `ExecutionEnv` that matches `NodeExecutionEnv` on the far machine. Pinned to 1.3.0 with the rest of Pi; 1.5.0 is out and waits for the lockstep upgrade. Through it, an orb passes all 29 cases of Pi Durable's env conformance suite (with `listFiles`) in under 5 s.
+- **`src/orbs.ts`**: one lazy `sshConnection` per orb, named in a new `orbs` setting (host, SSH config, key, known-hosts file and host-key alias). The Harness's `env` reads the session's record and returns the orb's environment for an orb session, `NodeExecutionEnv` otherwise. `sessions.createOrb(orb, dir, prompt)` makes one; nothing in the API or amyrlin does yet.
+- **Left out on purpose**: changes and checkpoints (they read git on this machine), project context and skills from the orb (read here, so an orb session gets only the global AGENTS.md), and the permissions gate's path checks (they resolve paths here). In an orb that holds no keys, the gate matters less; `git push` and homelab SSH would still be asked about.
+- **Claude Code's directory**: pi-claude-code changes into the session's directory around each request; an orb session's directory isn't on this machine, so it now stays in the host's.
+- **Live** (`scripts/orb-check.ts`, Opus 5.5 at low thinking, 32 s): the session cloned a repo on the orb, installed with pnpm, ran its tests in four bash calls, and reported the orb's own uname and hostname. The clone was on the orb and not here.
+
 ## From T3 Code (2026-10-30)
 
 Brad picked these from a read of [T3 Code](https://github.com/pingdotgg/t3code)'s server and user docs, in this order. None is started.

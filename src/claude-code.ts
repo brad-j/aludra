@@ -19,7 +19,7 @@
 // an API key or another backend, and fails a turn that was charged to usage credits rather than the plan.
 //
 // It's pinned to a commit; upgrade it deliberately and rerun scripts/live-check.ts.
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Api, AssistantMessageEventStream, Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
@@ -86,7 +86,8 @@ export function claudeCodeProvider(inner: Provider) {
 		const cwd = options?.sessionId === undefined ? undefined : cwds.get(options.sessionId);
 		const before = process.cwd();
 		try {
-			if (cwd !== undefined) process.chdir(cwd);
+			// An orb session's directory is on the orb, not here; Claude Code then runs from the host's directory.
+			if (cwd !== undefined && existsSync(cwd)) process.chdir(cwd);
 			return inner.streamSimple(model, context, options);
 		} finally {
 			process.chdir(before);
