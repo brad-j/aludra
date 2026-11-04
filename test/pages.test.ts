@@ -87,3 +87,19 @@ test("the agent publishes a page: it's sealed and stored with the session, numbe
 	assert.match(refused.content[0]!.text ?? "", /limit is 5 MB/);
 	assert.ok(calls >= 3);
 });
+
+test("a page's images can come from the session's environment rather than this machine", async (t) => {
+	const dir = tempDir(t);
+	const reads: string[] = [];
+	const files = {
+		size: async (path: string) => (path.endsWith("shot.png") ? 68 : undefined),
+		read: async (path: string) => {
+			reads.push(path);
+			return Buffer.from(PNG, "base64");
+		},
+	};
+	const sealed = await sealPage('<img src="shot.png"><img src="here-only.png">', dir, files);
+	assert.equal(sealed.images, 1);
+	assert.deepEqual(reads, [join(dir, "shot.png")]);
+	assert.deepEqual(sealed.missing, ["here-only.png"]);
+});

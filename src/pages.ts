@@ -14,6 +14,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute, resolve } from "node:path";
 import type { Context } from "@earendil-works/chord";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { Type } from "@earendil-works/pi-ai";
 import { defineDocFamily, defineExtension, defineTool, type Harness } from "@earendil-works/pi-durable";
 import { classifyProtectedPath } from "./protected-paths.ts";
@@ -59,11 +60,35 @@ function isLocal(ref: string): boolean {
 	return ref !== "" && !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(ref);
 }
 
+/** Reads a file for a page: its size, then its bytes; undefined when it isn't there. */
+export type PageFiles = { size(path: string): Promise<number | undefined>; read(path: string): Promise<Uint8Array | undefined> };
+
+/** This machine's files. */
+const localFiles: PageFiles = {
+	size: (path) => stat(path).then((s) => s.size, () => undefined),
+	read: (path) => readFile(path).catch(() => undefined),
+};
+
+/** The files a session's tools see: a sandbox session's are in its sandbox, not on this machine. */
+export function envFiles(env: ExecutionEnv, context: Context): PageFiles {
+	return {
+		size: async (path) => {
+			const info = await env.fileInfo(path, context);
+			return info.ok && info.value.kind === "file" ? info.value.size : undefined;
+		},
+		read: async (path) => {
+			const bytes = await env.readBinaryFile(path, context);
+			return bytes.ok ? bytes.value : undefined;
+		},
+	};
+}
+
 /**
  * `html` with local images inlined and the CSP added: the sealed page, how many images went in, and the references that
- * couldn't be (missing, not an image, protected, too big). Relative paths are from `cwd`.
+ * couldn't be (missing, not an image, protected, too big). Relative paths are from `cwd`, and files are read through
+ * `files`: this machine's, unless the session's tools run elsewhere.
  */
-export async function sealPage(html: string, cwd: string): Promise<{ html: string; images: number; missing: string[] }> {
+export async function sealPage(html: string, cwd: string, files: PageFiles = localFiles): Promise<{ html: string; images: number; missing: string[] }> {
 	const refs = new Set<string>();
 	for (const match of html.matchAll(/\bsrc\s*=\s*(["'])(.*?)\1/gi)) refs.add(match[2]!);
 	for (const match of html.matchAll(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi)) refs.add(match[2]!);
@@ -78,15 +103,13 @@ export async function sealPage(html: string, cwd: string): Promise<{ html: strin
 			missing.push(ref);
 			continue;
 		}
-		try {
-			if ((await stat(full)).size > MAX_IMAGE_BYTES) {
-				missing.push(ref);
-				continue;
-			}
-			inlined.set(ref, `data:${type};base64,${(await readFile(full)).toString("base64")}`);
-		} catch {
+		const size = await files.size(full);
+		const bytes = size === undefined || size > MAX_IMAGE_BYTES ? undefined : await files.read(full);
+		if (bytes === undefined) {
 			missing.push(ref);
+			continue;
 		}
+		inlined.set(ref, `data:${type};base64,${Buffer.from(bytes).toString("base64")}`);
 	}
 	let sealed = html;
 	for (const [ref, data] of inlined) {
@@ -121,7 +144,8 @@ export function pagesExtension(options: { harness: () => Harness; context: Conte
 		async execute({ title, html }, api, context) {
 			if (html.trim() === "") return { output: [{ type: "text", text: "The page is empty." }], isError: true };
 			const agent = await api.agent(context);
-			const sealed = await sealPage(html, agent.cwd ?? process.cwd());
+			// Through the call's environment, so a sandbox session's page has the sandbox's images and none of this machine's.
+			const sealed = await sealPage(html, agent.cwd ?? process.cwd(), api.env === undefined ? undefined : envFiles(api.env, context));
 			const bytes = Buffer.byteLength(sealed.html, "utf8");
 			if (bytes > MAX_PAGE_BYTES) {
 				return { output: [{ type: "text", text: `The page is ${(bytes / 1048576).toFixed(1)} MB with its images; the limit is ${MAX_PAGE_BYTES / 1048576} MB. Use fewer or smaller images.` }], isError: true };

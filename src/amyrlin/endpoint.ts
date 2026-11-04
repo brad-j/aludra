@@ -183,6 +183,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 				number: record.sandboxNumber ?? record.sandbox,
 				branch: sandboxBranch(record),
 				state,
+				// aludra's addition to item 19: whether this session asks, so the app can show it on a task.
+				approvals: host.sandboxApprovals(record),
 				...(record.sandboxBase === undefined ? {} : { base: record.sandboxBase }),
 				...(state === "preparing" && record.sandboxStep !== undefined ? { step: record.sandboxStep } : {}),
 				...(state === "failed" && record.sandboxReason !== undefined ? { reason: record.sandboxReason } : {}),
@@ -584,7 +586,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 
 	function sandboxInfo(): Json {
 		const settings = host.sandboxSettings();
-		return settings === undefined ? {} : { sandboxes: { shipTo: settings.shipTo, afterRun: settings.afterRun } };
+		return settings === undefined ? {} : { sandboxes: { shipTo: settings.shipTo, afterRun: settings.afterRun, approvals: settings.approvals } };
 	}
 
 	/** `sandbox.shipped` for host watchers. */

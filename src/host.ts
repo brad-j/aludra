@@ -76,7 +76,7 @@ export type SessionRecord = {
 	sandboxReason?: string;
 	/** The project's commit its sandbox was made from. */
 	sandboxBase?: string;
-	/** What its tools ask about: `ask` waits for approvals as any session does, `off` doesn't. Unset follows `sandboxes.approvals`. */
+	/** A sandbox session's approvals: `ask` waits for them as any session does, `off` doesn't. Unset follows `sandboxes.approvals`. */
 	approvals?: "ask" | "off";
 	/** Its sandbox/N was discarded: archiving deletes the sandbox without fetching it again. A sync clears it. */
 	sandboxDiscarded?: boolean;
@@ -278,6 +278,9 @@ export async function openHost(options: HostOptions) {
 	const real = options.models === undefined && options.claudeCode === undefined && config.model.provider !== "faux";
 	const titler = options.titler ?? (real ? modelTitler(models, titleModels(models, config)) : undefined);
 
+	/** Whether sandbox session `record`'s tools wait for approvals: its own setting, else the host's. */
+	const sandboxApprovals = (record: SessionRecord): "ask" | "off" => record.approvals ?? config.sandboxes?.approvals ?? "off";
+
 	const sandboxDir = resolve(config.dataDir, "sandboxes");
 	mkdirSync(sandboxDir, { recursive: true, mode: 0o700 });
 	const sandboxes = options.sandboxes ?? createSandboxes(config.sandboxes === undefined ? undefined : {
@@ -297,7 +300,14 @@ export async function openHost(options: HostOptions) {
 	const pages = pagesExtension({ harness: () => opened!, context });
 	registry.install(pages.extension);
 	// Last, so it wraps the tools the others bring, and other hooks see a call before it waits for the user.
-	registry.install(permissionsExtension({ approvals: () => approvals!, hosts: () => config.approvals.hosts }));
+	registry.install(permissionsExtension({
+		approvals: () => approvals!,
+		hosts: () => config.approvals.hosts,
+		approvalsOff: async (id, read, ctx) => {
+			const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
+			return isSandboxSession(record) && sandboxApprovals(record!) === "off";
+		},
+	}));
 
 	const harness = await Harness.open(
 		await openNodeSqliteStorage(resolve(config.dataDir, "aludra.sqlite")),
@@ -1074,7 +1084,9 @@ export async function openHost(options: HostOptions) {
 		/** Ships started from clients (src/ship.ts). */
 		ships,
 		/** The sandbox settings clients see, or undefined without a sandbox host. */
-		sandboxSettings: () => (config.sandboxes === undefined ? undefined : { shipTo: config.sandboxes.shipTo, afterRun: config.sandboxes.afterRun }),
+		sandboxSettings: () => (config.sandboxes === undefined ? undefined : { shipTo: config.sandboxes.shipTo, afterRun: config.sandboxes.afterRun, approvals: config.sandboxes.approvals }),
+		/** Whether sandbox session `record`'s tools wait for approvals. */
+		sandboxApprovals,
 		choices,
 		/** Whether `provider` has model `id`. */
 		hasModel: (provider: string, id: string) => models.getProvider(provider) !== undefined && models.getModel(provider, id) !== undefined,

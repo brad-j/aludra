@@ -499,7 +499,7 @@ test("a sandbox session from the Mac answers at once, holds its first message wh
 	const { url, project, fake } = await sandboxApi(t);
 	const mac = await client(t, url);
 	const info = await mac.request("host.info");
-	assert.deepEqual(info.sandboxes, { shipTo: "main", afterRun: "fetch" });
+	assert.deepEqual(info.sandboxes, { shipTo: "main", afterRun: "fetch", approvals: "off" });
 	const list = (await mac.request("host.watch")).subscription;
 	await mac.event(list, type("host.snapshot"), "the host snapshot");
 
@@ -663,3 +663,21 @@ async function waitFor(check: () => boolean | Promise<boolean>, what: string, ms
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
 }
+
+test("a sandbox session runs git push without asking by default, and one made with approvals ask waits", async (t) => {
+	const { url, host, project } = await sandboxApi(t);
+	const mac = await client(t, url);
+	assert.equal((await mac.request("host.info")).sandboxes.approvals, "off");
+
+	const off = (await mac.request("conversations.create", { requestId: "off", project: project.dir, text: "push it", sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(off);
+	await waitFor(async () => /The push call ran/.test(JSON.stringify((await mac.request("conversation.history", { conversationId: off })).items)), "the push to run unasked");
+	assert.deepEqual((await host.approvals.all()).filter((r) => r.conversationId === off), []);
+	assert.equal((await mac.request("conversations.list")).conversations.find((c: Json) => c.id === off).sandbox.approvals, "off");
+
+	const ask = (await mac.request("conversations.create", { requestId: "ask", project: project.dir, text: "push it", sandbox: true, approvals: "ask" })).conversation;
+	assert.equal(ask.sandbox.approvals, "ask");
+	await host.sandboxes.prepared(ask.id);
+	await waitFor(async () => (await host.approvals.pending()).some((r) => r.conversationId === ask.id && r.summary === "git push"), "the push to wait");
+	await host.stop(ask.id);
+});

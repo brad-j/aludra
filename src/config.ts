@@ -51,6 +51,12 @@ export type SandboxSetting = {
 	afterRun: "off" | "fetch" | "merge";
 	/** Where `aludra ship` lands work: the upstream branch itself (`main`, the default), or a branch of its own with a pull request. */
 	shipTo: "main" | "branch";
+	/**
+	 * Whether sandbox sessions' tools wait for approvals (`git push`, SSH to the approval hosts) as other sessions' do:
+	 * `off` (the default) runs them without asking, since a sandbox has no remotes, keys or way to the hosts. A session
+	 * can say otherwise when it's made.
+	 */
+	approvals: "ask" | "off";
 };
 
 /** The model providers: Claude Code through pi-claude-code, OpenAI on a ChatGPT sign-in, OpenRouter, and the scripted faux model. */
@@ -128,7 +134,7 @@ const settingsFile = object({
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	archive: optional(object({ afterDays: optional(number) })),
 	mcp: optional(object({ write: optional(boolean) })),
-	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")) })),
+	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")), approvals: optional(literal("ask", "off")) })),
 	dataDir: optional(string),
 });
 
@@ -190,6 +196,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 			sandboxHostKey: file.sandboxes.sandboxHostKey.trim(),
 			afterRun: file.sandboxes.afterRun ?? "fetch",
 			shipTo: file.sandboxes.shipTo ?? "main",
+			approvals: file.sandboxes.approvals ?? "off",
 		} }),
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
 		backup: { ...DEFAULTS.backup, dir: "" },

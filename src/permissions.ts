@@ -8,13 +8,17 @@
 //   `approvals.hosts` (ones this machine's keys reach), wait for the user. The request is stored, the call waits for a decision, and a restart
 //   waits on the same request. The user answers in the app, the Mac app, or with `aludra approve` or `aludra deny`.
 //   Approving "always" (the Mac app) allows that summary, `git push` or `ssh to host`, for the rest of the session.
+//   A sandbox session with approvals off (sandboxes.approvals, or its own setting) asks nothing: its sandbox has no
+//   remotes or keys and can't reach the approval hosts, so neither call can do what approval guards against. The gate
+//   still applies there: it keeps secrets out of the transcript, which lives here and goes to the model's provider
+//   wherever the tools run, and a sandbox holds the project's committed files, which can include one.
 //
 // Both read shell commands as text, so they're best effort: a command can always be spelled so neither sees it.
 import { randomBytes } from "node:crypto";
 import type { Context } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT as background } from "@earendil-works/chord/context";
 import type { ToolCall } from "@earendil-works/pi-ai";
-import { type ConversationId, defineDoc, defineExtension, type Harness, type HookApi, hook, LiveDoc, type ToolRegistration, ToolTask, type Tx, wrapTool } from "@earendil-works/pi-durable";
+import { type ConversationId, defineDoc, defineExtension, type DocumentReader, type Harness, type HookApi, hook, LiveDoc, type ToolRegistration, ToolTask, type Tx, wrapTool } from "@earendil-works/pi-durable";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
 import { classifyProtectedPath, matchProtectedCommand } from "./protected-paths.ts";
 
@@ -325,6 +329,8 @@ export type PermissionOptions = {
 	approvals: () => ApprovalService;
 	/** Read at each call: the setting can change while the host runs. */
 	hosts: () => readonly string[];
+	/** Whether conversation `id` runs its calls without approvals (a sandbox session with approvals off); read at each call. */
+	approvalsOff?: (id: ConversationId, read: DocumentReader, context: Context) => Promise<boolean>;
 };
 
 export function permissionsExtension(options: PermissionOptions) {
@@ -357,6 +363,7 @@ export function permissionsExtension(options: PermissionOptions) {
 		if (call.name !== "bash" || typeof command !== "string") return undefined;
 		const summary = approvalFor(command, options.hosts());
 		if (summary === undefined) return undefined;
+		if ((await options.approvalsOff?.(api.conversationId, api, context)) === true) return undefined;
 		const approvals = options.approvals();
 		if ((await approvals.allowed(api.conversationId)).includes(summary)) return undefined;
 		// The same id for every run of this call's phase, so a restart doesn't ask twice.

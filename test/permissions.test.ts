@@ -160,3 +160,15 @@ test("a protected path is blocked; a second block in one run stops it", async (t
 	assert.match(JSON.stringify(results[1]), /Second block this run; stopping/);
 	assert.equal(faux.getPendingResponseCount(), 1, "the model wasn't asked again");
 });
+
+test("sandboxes.approvals is off unless the settings say ask", () => {
+	const base = { workspaces: [], sandboxes: { ssh: "u@h", gateKey: "/k", knownHosts: "/kh", sandboxKey: "/sk", sandboxHostKey: "ssh-ed25519 AAAA" } };
+	assert.equal(configFor(JSON.stringify(base), {}).config.sandboxes?.approvals, "off");
+	assert.equal(configFor(JSON.stringify({ ...base, sandboxes: { ...base.sandboxes, approvals: "ask" } }), {}).config.sandboxes?.approvals, "ask");
+	assert.ok(configFor(JSON.stringify({ ...base, sandboxes: { ...base.sandboxes, approvals: "maybe" } }), {}).errors.length > 0);
+});
+
+test("the gate still applies to a sandbox's paths: a secret read there would land in the transcript here", () => {
+	assert.match(protectedTarget("read", { path: ".env" }, "/home/user/work/one")!, /credential file/);
+	assert.match(protectedTarget("bash", { command: "cat ~/.ssh/id_ed25519" }, "/home/user/work/one")!, /private key/);
+});

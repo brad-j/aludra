@@ -134,6 +134,7 @@ A sandbox host, if sessions may run in sandboxes: Firecracker VMs from stedding 
 - `sandboxKey`: the key sandboxes accept for their user.
 - `sandboxHostKey`: the sandboxes' own host key, `ssh-ed25519 AAAA…`, as `stedding hostkey` prints it without the comment.
 - `afterRun`: what happens to a sandbox session's commits when its run ends. `fetch` (default) brings them to `sandbox/N` in the project; `merge` also fast-forwards the checked-out branch when it's safe; `off` waits for `aludra sync` ([cli.md](cli.md#sandboxes)).
+- `approvals`: whether sandbox sessions' tools wait for approvals as other sessions' do. `off` (default) runs `git push` and SSH to the approval hosts without asking, since a sandbox has no remotes, keys or route to those hosts; `ask` waits as usual. A session made from amyrlin can choose for itself. The protected-path gate applies either way.
 - `shipTo`: where `aludra ship` lands work by default: `main` (the default) pushes to the project's upstream branch, `branch` pushes a branch of its own and opens a pull request with `gh`.
 
 ### `dataDir`

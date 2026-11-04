@@ -51,6 +51,8 @@ These wait for you before they run:
 
 The request is stored, so a restart waits on the same one rather than asking again. It expires after `approvals.waitHours`. [using.md](using.md#approvals) covers answering them.
 
+A sandbox session asks nothing by default (`sandboxes.approvals: "off"`): its tools run in a VM with no git remotes, no keys and no route to the LAN or tailnet, so a push or an SSH to an approval host can't do anything there. Shipping, which does push, happens on this machine and is approved by asking for it. Set `ask`, or make the session with `approvals: "ask"`, to have it wait like any other.
+
 Approving one "always" (from amyrlin) lets that session run the same kind of call, `git push` or `ssh to host`, without asking again. The rule covers only that session, other sessions still ask, and amyrlin can take it back. Rules are kept with the approvals, so they survive a restart.
 
 ### The protected-path gate
@@ -66,6 +68,8 @@ Credentials, keys and agent logins are off limits. `read`, `write` and `edit` of
 Paths are checked as written and through symlinks. Web URLs in a command are ignored, so downloading a public `.key` file isn't blocked. The first block in a run tells the agent not to try another way and lets it carry on; a second block in the same run ends the run.
 
 The rules are in `src/protected-paths.ts`.
+
+The gate applies in sandbox sessions too, to paths in the sandbox. A sandbox holds no keys of its own, but it holds the project's committed files, and whatever a tool reads goes into the transcript on this machine and to the model's provider. Page images (`publish_page`) are read from the sandbox in a sandbox session, so its pages can't inline this machine's files.
 
 ### What they can't do
 
