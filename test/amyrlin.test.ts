@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -60,7 +60,7 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 	models.setProvider(faux.provider);
 	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(options.sandboxes === undefined ? {} : { sandboxes: options.sandboxes, settings: { ...SANDBOX_SETTINGS, ...options.settings } }), ...(options.dir === undefined ? {} : { dir: options.dir }) });
 	const project = options.dir !== undefined || options.sandboxes !== undefined ? { workspace: "test", name: "one", path: "Software/one", dir: join(dir, "Projects", "Software", "one") } : makeProject(dir, "one");
-	const server = createApi(host, { users: [USER], name: "test-host" });
+	const server = createApi(host, { users: [USER], name: "test-host", checkoutMs: 100 });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
 	return { host, project, prompts, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin` };
@@ -663,6 +663,18 @@ async function waitFor(check: () => boolean | Promise<boolean>, what: string, ms
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
 }
+
+test("host.info carries each project's checkout, and host.watch sends host.projects when one changes", async (t) => {
+	const { url, project } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const info = await mac.request("host.info");
+	assert.deepEqual(info.projects.find((p: Json) => p.dir === project.dir).checkout, { branch: "main", dirty: 0, ahead: 0, behind: 0, upstream: "origin/main", sandboxes: true });
+	const list = (await mac.request("host.watch")).subscription;
+	await mac.event(list, type("host.snapshot"), "the host snapshot");
+	writeFileSync(join(project.dir, "wip.txt"), "x\n");
+	const seen = await mac.event(list, type("host.projects"), "host.projects");
+	assert.equal(seen.find(type("host.projects")).projects.find((p: Json) => p.dir === project.dir).checkout.dirty, 1);
+});
 
 test("a sandbox session runs git push without asking by default, and one made with approvals ask waits", async (t) => {
 	const { url, host, project } = await sandboxApi(t);

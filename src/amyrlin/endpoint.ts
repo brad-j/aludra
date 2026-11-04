@@ -22,6 +22,7 @@ import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, isSandboxSession, SandboxNotReady, sandboxBranch, type SessionRecord } from "../host.ts";
 import { ShipRefused, type ShipResult } from "../ship.ts";
+import { type Checkout, watchCheckouts } from "../checkout.ts";
 import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
 import { PAGE_CSP } from "../pages.ts";
 import { checkFiles, type FileInput, MAX_FILE_BYTES, MAX_FILES, PASTE_BYTES } from "../files.ts";
@@ -68,7 +69,7 @@ const DECISIONS: Record<ApprovalRequest["status"], string | undefined> = {
 	superseded: "cancelled",
 };
 
-export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
+export function createAmyrlinEndpoint(host: Host, options: { name: string; checkoutMs?: number }) {
 	const { harness, approvals } = host;
 	let hostId: string | undefined;
 	const summaries = new Map<number, Json>();
@@ -76,6 +77,10 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 	const approvalListeners = new Set<(conversation: number, event: Json) => void>();
 	/** Events for every host watcher that aren't a summary, such as `sandbox.shipped`. */
 	const hostListeners = new Set<(event: Json) => void>();
+	/** Each project's checkout (src/checkout.ts), read every 5 s while a client watches the host. */
+	const checkouts = watchCheckouts(() => host.projects(), () => host.sandboxSettings() !== undefined, options.checkoutMs);
+	const projectsOf = (found: Map<string, Checkout>): Json =>
+		host.projects().map((p) => ({ workspace: p.workspace, name: p.name, path: p.path, dir: p.dir, ...(found.has(p.dir) ? { checkout: found.get(p.dir) } : {}) }));
 	const callIds = new Map<string, string>();
 	const dirty = new Set<number>();
 	let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -570,7 +575,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 			}),
 			tools,
 			defaults: { model: host.model, thinkingLevel: host.thinking },
-			projects: host.projects().map((p) => ({ workspace: p.workspace, name: p.name, path: p.path, dir: p.dir })),
+			// Each with its checkout's state (protocol section 10 item 19); git is read, never fetched.
+			projects: projectsOf(await checkouts.current()),
 			projectColors: await host.colors.list(),
 			// Messages take videos (src/videos.ts); a host from before them leaves this out, and the app sends it none.
 			videos: { maxVideos: MAX_VIDEOS, maxBytes: MAX_VIDEO_BYTES, maxFrames: MAX_FRAMES, keepDays: UPLOAD_DAYS },
@@ -745,15 +751,18 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 						const onSummary = (conversation: Json) => void send([{ type: "conversation.updated", conversation }]);
 						const onHostEvent = (event: Json) => void send([event]);
 						let stopColors = () => {};
+						let stopCheckouts = () => {};
 						subscriptions.set(id, async () => {
 							summaryListeners.delete(onSummary);
 							hostListeners.delete(onHostEvent);
 							stopColors();
+							stopCheckouts();
 						});
 						respond({ subscription: id });
 						await send([{ type: "host.snapshot", host: await identity(), spend: await hostSpend(), ...(await monthCostOf()), conversations: listSummaries(), projectColors: await host.colors.list() }]);
 						summaryListeners.add(onSummary);
 						hostListeners.add(onHostEvent);
+						if (subscriptions.has(id)) stopCheckouts = checkouts.onChange((found) => void send([{ type: "host.projects", projects: projectsOf(found) }]));
 						if (subscriptions.has(id)) stopColors = host.colors.onChange((projectColors) => void send([{ type: "host.projectColors", projectColors }]));
 						return;
 					}
@@ -958,6 +967,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string }) {
 		close() {
 			clearTimeout(flushTimer);
 			clearInterval(statePoll);
+			checkouts.close();
 			stopShipped();
 			stopApprovals();
 			stopCommits();
