@@ -819,6 +819,8 @@ export async function openHost(options: HostOptions) {
 		catalog: () => catalog.list(),
 		modelInfo,
 		projects,
+		/** Orb connections (spike): `close()` drops them, as being idle would, so the orb's host may pause it. */
+		orbs: { close: () => orbs.close(), connected: (name: string) => orbs.connected(name) },
 		sessions: { list, get, create, createScratch, createOrb, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		checkpoints: {
 			list: checkpoints.list,
