@@ -10,7 +10,7 @@ import { createModels, type Models, type Provider } from "@earendil-works/pi-ai/
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
-import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, defineDocFamily, type EntryId, Harness, type Extension, type ModelRef } from "@earendil-works/pi-durable";
+import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, defineDocFamily, defineExtension, type EntryId, Harness, hook, type Extension, type JsonObject, type ModelRef, ToolTask } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { createSandboxes, deleteBranch, run, type Sandboxes, fastForward, type MergeResult, type SandboxStep, type SyncResult } from "./sandboxes.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -26,7 +26,7 @@ import { claudeConfigDir, type Config, expandHome, type Thinking } from "./confi
 import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
-import { askSession, createShips, type Shipping } from "./ship.ts";
+import { askSession, createShips, type ShipLanded, type Shipping, shipOutcome, type ShipStopped, shipTimeout } from "./ship.ts";
 import { createResults, TurnChecks } from "./results.ts";
 import { readShot } from "./shots.ts";
 import { HUES } from "./project-colors.ts";
@@ -84,6 +84,12 @@ export type SessionRecord = {
 	sandboxDiscarded?: boolean;
 	/** A ship going on (src/ship.ts), so a restart finishes it. */
 	shipping?: Shipping;
+	/** The latest ship that landed, kept until another lands. */
+	shipped?: ShipLanded;
+	/** The latest ship that stopped short, cleared when the next one starts or lands. */
+	shipStopped?: ShipStopped;
+	/** Sessions made with the same group are attempts at one ask (amyrlin's ×3). */
+	group?: string;
 	/** A sandbox session's project directory on this machine, which its template was made from; context is read there. */
 	source?: string;
 	/** Its sandbox was deleted (src/sandbox-cleanup.ts): its tools have nowhere to run. */
@@ -301,6 +307,20 @@ export async function openHost(options: HostOptions) {
 	registry.install(checkpoints.extension);
 	const pages = pagesExtension({ harness: () => opened!, context });
 	registry.install(pages.extension);
+	// A ship's commands get a timeout, so a check that hangs in the sandbox can't hold the task (src/ship.ts).
+	registry.install(defineExtension({
+		name: "aludra-ship-timeout",
+		hooks: [hook(ToolTask, {
+			beforeTool: async (call, api, ctx) => {
+				if (call.name !== "bash") return undefined;
+				const record = (await api.snapshot(Sessions, ctx))?.sessions[String(api.conversationId)];
+				if (record?.shipping === undefined) return undefined;
+				const args = shipTimeout(call);
+				// SAFETY: the call's own arguments, which are JSON, with a number added.
+				return args === undefined ? undefined : { arguments: args as JsonObject };
+			},
+		})],
+	}));
 	// Last, so it wraps the tools the others bring, and other hooks see a call before it waits for the user.
 	registry.install(permissionsExtension({
 		approvals: () => approvals!,
@@ -524,7 +544,7 @@ export async function openHost(options: HostOptions) {
 	 * files on this machine. Returns at once with the session `preparing`; the sandbox is made after (`prepareSandbox`), and
 	 * messages sent meanwhile are held (`hold`) until it's ready.
 	 */
-	async function startSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { approvals?: "ask" | "off"; onProgress?: (line: string) => void } = {}): Promise<SessionRecord> {
+	async function startSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { approvals?: "ask" | "off"; group?: string; onProgress?: (line: string) => void } = {}): Promise<SessionRecord> {
 		if (!sandboxes.configured()) throw new Error("no sandbox host in the settings (sandboxes)");
 		const dir = project === undefined ? "/home/user" : sandboxes.dirFor({ name: project.name, dir: project.dir });
 		// Past any sandbox branch already in the checkout, such as one another data directory made.
@@ -552,6 +572,7 @@ export async function openHost(options: HostOptions) {
 					sandboxNumber: number,
 					sandboxState: "preparing",
 					...(options.approvals === undefined ? {} : { approvals: options.approvals }),
+					...(options.group === undefined ? {} : { group: options.group }),
 					...(project === undefined ? {} : { source: project.dir }),
 				};
 				sessions[String(id)] = record;
@@ -1018,10 +1039,19 @@ export async function openHost(options: HostOptions) {
 			await results.idle(id);
 			return askSession({ submit, harness }, id, prompt, requestId);
 		},
-		mark: async (id, shipping) => {
+		mark: async (id, change) => {
 			await changeRecord(id, (r) => {
-				if (shipping === undefined) delete r.shipping;
-				else r.shipping = shipping;
+				if ("shipping" in change) {
+					r.shipping = change.shipping;
+					delete r.shipStopped;
+					return;
+				}
+				delete r.shipping;
+				const outcome = shipOutcome(change.done, change.at);
+				if ("shipped" in outcome) {
+					r.shipped = outcome.shipped;
+					delete r.shipStopped;
+				} else r.shipStopped = outcome.shipStopped;
 			});
 		},
 	});
@@ -1050,6 +1080,13 @@ export async function openHost(options: HostOptions) {
 		readChecks: (id) => harness.snapshot(TurnChecks, String(id), context),
 		writeChecks: (id, state) => root.commit(async (tx) => void Object.assign(await tx.doc(TurnChecks, String(id), null), state), context),
 		shotsDir,
+		shipOutcome: async (id) => {
+			const record = await get(id);
+			if (record === undefined) return undefined;
+			// The newer of the two, as a stopped ship is cleared once the next lands, but a landed one is kept.
+			if (record.shipStopped !== undefined && (record.shipped === undefined || record.shipStopped.at > record.shipped.at)) return { shipStopped: record.shipStopped };
+			return record.shipped === undefined ? undefined : { shipped: record.shipped };
+		},
 		changed: (id) => resultListeners.forEach((listener) => listener(id)),
 		context,
 	});
@@ -1177,6 +1214,8 @@ export async function openHost(options: HostOptions) {
 		results: {
 			result: results.result,
 			line: results.line,
+			/** Whether session `id`'s latest turn is a ship's. */
+			shipTurn: results.shipTurn,
 			/** Runs the project's declared checks once session `id`'s run has ended with an answer; never throws. */
 			afterRun: results.afterRun,
 			settled: results.settled,

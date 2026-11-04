@@ -15,7 +15,7 @@
 //   form (src/settings.ts). A host without them answers `unknown_method`.
 // - Sandbox tasks (amyrlin's protocol section 10 item 19) are aludra's own too: `conversations.create` with `sandbox`,
 //   the summary's `sandbox` and `source`, `sandbox.sync`, `sandbox.ship` with its `sandbox.shipped` event on host.watch,
-//   and `sandbox.discard`, over src/sandboxes.ts, src/ship.ts and src/sandbox-cleanup.ts; the summary's `line`,
+//   `sandbox.discard` and `group.keep`, over src/sandboxes.ts, src/ship.ts and src/sandbox-cleanup.ts; the summary's `line`,
 //   `task.result` and `task.code` over src/results.ts, and `task.shot` over src/shots.ts.
 import { randomUUID } from "node:crypto";
 import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-durable";
@@ -184,10 +184,19 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			if (record.sandboxState === "failed") return "Its sandbox couldn't be made";
 			return `Making its sandbox${record.sandboxStep === undefined ? "" : ` · ${record.sandboxStep}`}`;
 		}
-		if (record.shipping !== undefined) return state === "idle" ? "Shipping" : "Shipping · getting it ready";
 		if (state === "waiting") return "Waiting for your approval";
-		// Read again only when an entry lands or the run starts or ends, not on every streamed change.
-		const stamp = `${newest}:${state}`;
+		// Read again only when an entry lands, the run starts or ends, or a ship starts or ends, not on every streamed change.
+		const stamp = `${newest}:${state}:${record.shipping?.startedAt ?? ""}:${record.shipped?.at ?? ""}:${record.shipStopped?.at ?? ""}`;
+		if (record.shipping !== undefined) {
+			if (state === "idle") return "Shipping";
+			// The step of the ship's plan it's on, as for any work.
+			const last = lines.get(record.id);
+			if (last?.stamp === stamp) return last.line;
+			const step = await host.results.line(record.id, true).catch(() => undefined);
+			const line = step === undefined || step === "Working" ? "Shipping · getting it ready" : `Shipping · ${step}`;
+			lines.set(record.id, { stamp, line });
+			return line;
+		}
 		const last = lines.get(record.id);
 		if (last?.stamp === stamp) return last.line;
 		const line = await host.results.line(record.id, state === "running").catch(() => undefined);
@@ -217,6 +226,10 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 				...(record.sandboxBase === undefined ? {} : { base: record.sandboxBase }),
 				...(state === "preparing" && record.sandboxStep !== undefined ? { step: record.sandboxStep } : {}),
 				...(state === "failed" && record.sandboxReason !== undefined ? { reason: record.sandboxReason } : {}),
+				...(record.group === undefined ? {} : { group: record.group }),
+				// How its ships went, so a client that wasn't watching for sandbox.shipped still knows.
+				...(record.shipped === undefined ? {} : { shipped: record.shipped }),
+				...(record.shipStopped === undefined ? {} : { shipStopped: record.shipStopped }),
 			},
 		};
 	}
@@ -394,9 +407,11 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		if (p.sandbox != null && typeof p.sandbox !== "boolean") throw new ProtocolError("bad_request", "sandbox should be true or false");
 		if (p.approvals != null && p.approvals !== "ask" && p.approvals !== "off") throw new ProtocolError("bad_request", "approvals should be ask or off");
 		if (p.approvals != null && p.sandbox !== true) throw new ProtocolError("bad_request", "approvals is for a sandbox session");
+		if (p.group != null && (typeof p.group !== "string" || p.group.trim() === "" || p.group.length > 200)) throw new ProtocolError("bad_request", "group should be a short string");
+		if (p.group != null && p.sandbox !== true) throw new ProtocolError("bad_request", "group is for sandbox sessions");
 		const sandboxed = p.sandbox === true;
 		if (sandboxed && host.sandboxSettings() === undefined) throw new ProtocolError("unsupported", "This host has no sandbox host in its settings");
-		const record = sandboxed ? await host.sessions.startSandbox(project, title, agent, p.approvals == null ? {} : { approvals: p.approvals })
+		const record = sandboxed ? await host.sessions.startSandbox(project, title, agent, { ...(p.approvals == null ? {} : { approvals: p.approvals }), ...(p.group == null ? {} : { group: p.group }) })
 			: project === undefined ? await host.sessions.createScratch(title, agent)
 			: await host.sessions.create(project, title, agent);
 		await host.root.commit(async (tx) => {
@@ -979,6 +994,30 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 					const record = await sandboxSession(p.conversationId);
 					const discarded = await sandboxCall(() => host.sandboxes.discard(record.id));
 					return { branch: discarded.branch, deleted: discarded.head !== undefined };
+				}
+				case "group.keep": {
+					if (typeof p.group !== "string" || p.group === "") throw new ProtocolError("bad_request", "group is required");
+					const { record } = await session(p.conversationId);
+					if (record.group !== p.group) throw new ProtocolError("bad_request", `Session ${record.id} isn't in group ${p.group}`);
+					// Archiving removes each sandbox (src/sandbox-cleanup.ts); its branch goes first, so nothing is fetched back.
+					const archived: number[] = [];
+					const others = (await host.sessions.list()).filter((other) => other.group === p.group && other.id !== record.id);
+					// An attempt still running is stopped first: archiving keeps a running session's sandbox.
+					const states = await host.sessions.states();
+					const running = others.filter((other) => states.get(other.id) !== "idle");
+					for (const other of running) await host.stop(other.id).catch(() => {});
+					for (let waited = 0; waited < 5000 && running.length > 0; waited += 100) {
+						const now = await host.sessions.states();
+						if (running.every((other) => now.get(other.id) === "idle")) break;
+						await new Promise((resolve) => setTimeout(resolve, 100));
+					}
+					for (const other of others) {
+						if (isSandboxSession(other) && other.source !== undefined) await host.sandboxes.discard(other.id).catch((error) => console.error(`[amyrlin] group.keep: session ${other.id}: ${error instanceof Error ? error.message : String(error)}`));
+						if (other.archived !== true) await host.sessions.archive(other.id, true);
+						archived.push(other.id);
+						markDirty(other.id);
+					}
+					return { archived };
 				}
 				// aludra's own: a sandbox task's result, its code and its screenshots (protocol section 10 item 19).
 				case "task.result": {

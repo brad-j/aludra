@@ -29,6 +29,59 @@ export type ShipResult =
 	| { shipped: true; mode: ShipMode; pushed: string; head: string; commits: number; pr?: string; local?: MergeResult }
 	| { shipped: false; kind: ShipFailure; reason: string };
 
+/** The latest ship that landed, kept on the session's record until another lands. */
+export type ShipLanded = { at: number; to: ShipMode; pushed: string; head: string; commits: number; pr?: string };
+/** The latest ship that stopped short, kept on the record until the next one starts or lands. */
+export type ShipStopped = { at: number; kind: ShipFailure; reason: string };
+
+/** What the record keeps of a ship's `result`, ended at `at`. */
+export function shipOutcome(result: ShipResult, at: number): { shipped: ShipLanded } | { shipStopped: ShipStopped } {
+	return result.shipped
+		? { shipped: { at, to: result.mode, pushed: result.pushed, head: result.head, commits: result.commits, ...(result.pr === undefined ? {} : { pr: result.pr }) } }
+		: { shipStopped: { at, kind: result.kind, reason: result.reason } };
+}
+
+/** Where a landed ship went, in words: "main", or "sandbox-4-ab12cd3 for review". */
+function landedWhere(shipped: ShipLanded): string {
+	const branch = shipped.pushed.replace(/^[^/]+\//, "");
+	return shipped.to === "branch" ? `${branch} for review` : branch;
+}
+
+/** A ship's outcome as a sentence, for a summary or a notification: "Shipped to main: 2 commits.", "Ship stopped: …". */
+export function shipSentence(outcome: { shipped: ShipLanded } | { shipStopped: ShipStopped }): string {
+	if ("shipped" in outcome) {
+		const { commits } = outcome.shipped;
+		return `Shipped to ${landedWhere(outcome.shipped)}: ${commits} commit${commits === 1 ? "" : "s"}.`;
+	}
+	return `Ship stopped: ${outcome.shipStopped.reason}`;
+}
+
+/** A ship's outcome as a task's line: "Shipped to main · 2 commits", "Ship stopped · …". */
+export function shipLine(outcome: { shipped: ShipLanded } | { shipStopped: ShipStopped }): string {
+	if ("shipped" in outcome) {
+		const { commits } = outcome.shipped;
+		return `Shipped to ${landedWhere(outcome.shipped)} · ${commits} commit${commits === 1 ? "" : "s"}`;
+	}
+	const reason = outcome.shipStopped.reason;
+	const short = /^(.+?[.!?])(\s|$)/.exec(reason)?.[1] ?? reason;
+	return `Ship stopped · ${short.length > 120 ? `${short.slice(0, 119)}…` : short}`;
+}
+
+/** Whether `text` is a ship prompt (shipPrompt), so the turn it starts is a ship's. */
+export function isShipPrompt(text: string): boolean {
+	return /^Ship this work: get it ready to land on /m.test(text) && text.includes("SHIP-READY");
+}
+
+/** Longest a ship's command may run: a check that hangs shouldn't hold the task. */
+export const SHIP_COMMAND_S = 5 * 60;
+
+/** The arguments a bash call runs with while its session ships: its own timeout, cut to SHIP_COMMAND_S; undefined to leave it. */
+export function shipTimeout(call: { name: string; arguments: Record<string, unknown> }): Record<string, unknown> | undefined {
+	if (call.name !== "bash") return undefined;
+	const asked = typeof call.arguments.timeout === "number" ? call.arguments.timeout : Infinity;
+	return asked <= SHIP_COMMAND_S ? undefined : { ...call.arguments, timeout: SHIP_COMMAND_S };
+}
+
 /** A failure of `kind`, thrown inside ship and returned from it. */
 class Stop extends Error {
 	readonly kind: ShipFailure;
@@ -46,8 +99,10 @@ export function shipPrompt(base: string, sha: string, note?: string): string {
 		"1. Commit anything uncommitted that belongs to the work, with a clear message. Leave out stray files (scratch notes, logs, build output).",
 		"2. Rebase the work onto refs/aludra/base: `git rebase refs/aludra/base`. Resolve conflicts by keeping both sides' intent; if a conflict needs a decision only the user can make, stop and ask.",
 		"3. Run the project's tests and checks. If one fails, fix it, unless it also fails on refs/aludra/base without this work; check that before calling it unrelated.",
-		"4. Don't push, and don't change git remotes: the host pushes once you're done.",
-		"End your reply with one line on its own: `SHIP-READY` when HEAD is the rebased, tested work, or `SHIP-BLOCKED: <why>` when it isn't. Put the result block after it, as for any reply; when you're blocked on a decision only the user can make, its question names the choices as options.",
+		`4. If a check fails the same way on refs/aludra/base, the sandbox is the problem, not the work: stop there and say \`SHIP-BLOCKED: <check> fails on the base too: <first line of its error>\`. Don't change the system (sysctl, packages, limits, swap) to make it pass, and don't dig into the machine. Each command is stopped after ${SHIP_COMMAND_S / 60} minutes.`,
+		"5. Don't push, and don't change git remotes: the host pushes once you're done.",
+		"Keep a plan block as for any work, with these steps (bring in the upstream, rebase, run the checks, ready), so the user sees which one you're on.",
+		"End your reply with one line on its own: `SHIP-READY` when HEAD is the rebased, tested work, or `SHIP-BLOCKED: <why>` when it isn't. Put the result block after it, as for any reply. Its summary and changes describe the work being shipped, for someone who uses the project, not the rebase or the checks; leave the git steps to your prose. When you're blocked on a decision only the user can make, its question names the choices as options.",
 	].join("\n");
 }
 
@@ -136,9 +191,10 @@ async function shipping(host: ShipHost, id: number, options: ShipOptions & { ask
 	say(`asking session ${id} to rebase onto ${base.remote}/${base.branch} (${sha.slice(0, 12)}) and run the tests`);
 
 	const answered = await options.ask(id, shipPrompt(`${base.remote}/${base.branch}`, sha, options.note));
-	if (answered.status !== "done") throw new Stop("blocked", `the session's run ended ${answered.status}`);
+	if (answered.status === "stopped") throw new Stop("blocked", "it was stopped before it was ready");
+	if (answered.status !== "done") throw new Stop("blocked", `its run ended ${answered.status} before it was ready`);
 	const verdict = shipVerdict(answered.answer);
-	if (!verdict.ready) throw new Stop("blocked", `not ready: ${verdict.reason}`);
+	if (!verdict.ready) throw new Stop("blocked", verdict.reason);
 
 	const synced = await host.sandboxes.sync(id, undefined, { force: true });
 	if (synced.uncommitted > 0) throw new Stop("check_failed", `the sandbox still has ${synced.uncommitted} uncommitted file${synced.uncommitted === 1 ? "" : "s"}; nothing pushed`);
@@ -186,8 +242,11 @@ export type ShipsOptions = ShipHost & {
 	states(): Promise<Map<number, "running" | "waiting" | "idle">>;
 	/** Sends the ship prompt with `requestId` and waits for the run (askSession). */
 	ask(id: number, prompt: string, requestId: string): Promise<{ status: string; answer?: string }>;
-	/** Records the ship going on in session `id`'s record, or clears it with undefined. */
-	mark(id: number, shipping: Shipping | undefined): Promise<void>;
+	/**
+	 * Records the ship going on in session `id`'s record, clearing the last stopped one; or, once it's done, clears it and
+	 * keeps how it went (shipOutcome), in the same change.
+	 */
+	mark(id: number, change: { shipping: Shipping } | { done: ShipResult; at: number }): Promise<void>;
 	log?: (line: string) => void;
 };
 
@@ -217,7 +276,7 @@ export function createShips(options: ShipsOptions) {
 				...(onProgress === undefined ? {} : { onProgress }),
 				ask: (session, prompt) => options.ask(session, prompt, shipping.requestId),
 			});
-			await options.mark(id, undefined).catch((error) => log(`[ship] session ${id}: ${error instanceof Error ? error.message : String(error)}`));
+			await options.mark(id, { done: result, at: Date.now() }).catch((error) => log(`[ship] session ${id}: ${error instanceof Error ? error.message : String(error)}`));
 			log(result.shipped ? `[ship] session ${id}: ${result.commits} commit${result.commits === 1 ? "" : "s"} to ${result.pushed}` : `[ship] session ${id} stopped (${result.kind}): ${result.reason}`);
 			for (const listener of listeners) listener(id, result);
 			return result;
@@ -241,7 +300,7 @@ export function createShips(options: ShipsOptions) {
 			if (going.has(id)) throw new ShipRefused("busy", `session ${id} is already shipping`);
 			if ((await options.states()).get(id) !== "idle") throw new ShipRefused("busy", `session ${id} is running; ship once it's done`);
 			const shipping: Shipping = { requestId: `ship:${id}:${Date.now().toString(36)}`, mode: request.mode, startedAt: Date.now(), ...(request.note === undefined ? {} : { note: request.note }) };
-			await options.mark(id, shipping);
+			await options.mark(id, { shipping });
 			return { done: run(id, shipping, request.onProgress) };
 		},
 		/** Picks up ships a restart cut off, from the records that still carry one. */

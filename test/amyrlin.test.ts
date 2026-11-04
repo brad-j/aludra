@@ -62,7 +62,7 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 		if (last?.role === "toolResult" && /commit \w+/.test(user)) return fauxAssistantMessage(fauxText(`Committed: ${JSON.stringify(last.content)}`));
 		if (last?.role === "toolResult") return fauxAssistantMessage(fauxText(`The push call ${last.isError ? "was blocked" : "ran"}.`));
 		if (/refs\/aludra\/base/.test(user) && /note from the user[^\\]*block/.test(user)) return fauxAssistantMessage(fauxText("A conflict needs you.\nSHIP-BLOCKED: which title to keep"));
-		if (/refs\/aludra\/base/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "git rebase -q refs/aludra/base 2>&1" }), { stopReason: "toolUse" });
+		if (/refs\/aludra\/base/.test(user)) return fauxAssistantMessage([fauxText("```plan\n- [x] Bring in the upstream\n- [ ] Rebase\n```"), fauxToolCall("bash", { command: "sleep 0.4; git rebase -q refs/aludra/base 2>&1" })], { stopReason: "toolUse" });
 		// "report NAME" commits NAME.txt with a plan, then answers with a result block.
 		const reported = /report (\w+)/.exec(user)?.[1];
 		if (reported !== undefined) return fauxAssistantMessage([fauxText("```plan\n- [ ] Write the file\n```"), fauxToolCall("bash", { command: `echo ${reported} > ${reported}.txt && echo more >> a.txt && git add a.txt ${reported}.txt && git -c user.name=t -c user.email=t@example.com commit -q -m ${reported} && pnpm test 2>&1 || true` })], { stopReason: "toolUse" });
@@ -650,6 +650,8 @@ test("sandbox.ship lands the work on origin/main and tells host watchers, and a 
 	const from = mac.count(list);
 	assert.deepEqual(await mac.request("sandbox.ship", { conversationId: id }), { started: true });
 	await assert.rejects(mac.request("sandbox.ship", { conversationId: id }), { code: "busy" });
+	// The line follows the ship's plan.
+	await mac.event(list, updated(id, (c) => c.line === "Shipping · Rebase"), "the ship's step in the line", from);
 	const shipped = (await mac.event(list, type("sandbox.shipped"), "sandbox.shipped", from)).find(type("sandbox.shipped"));
 	assert.equal(shipped.shipped, true, JSON.stringify(shipped));
 	assert.equal(shipped.conversationId, id);
@@ -658,6 +660,16 @@ test("sandbox.ship lands the work on origin/main and tells host watchers, and a 
 	assert.equal(shipped.commits, 1);
 	assert.deepEqual(git(remote, "log", "--format=%s", "main").split("\n"), ["feature", "someone else's", "first"]);
 	assert.equal((await host.sessions.get(id))?.shipping, undefined, "the ship is done in the record");
+	// The summary keeps it, for a client that wasn't watching, and its line and result say it in plain words.
+	const summaryOf = async () => (await mac.request("conversations.list")).conversations.find((c: Json) => c.id === id);
+	await waitFor(async () => (await summaryOf()).sandbox.shipped !== undefined, "the summary to keep the ship");
+	const landed = await summaryOf();
+	assert.deepEqual(Object.keys(landed.sandbox.shipped).sort(), ["at", "commits", "head", "pushed", "to"]);
+	assert.equal(landed.sandbox.shipped.pushed, "origin/main");
+	assert.equal(landed.sandbox.shipped.head, shipped.head);
+	assert.equal(landed.sandbox.shipStopped, undefined);
+	await waitFor(async () => (await mac.request("conversations.list")).conversations.find((c: Json) => c.id === id).line === "Shipped to main · 1 commit", "the line after the ship");
+	assert.equal((await mac.request("task.result", { conversationId: id })).result.summary, "Shipped to main: 1 commit.", "the ship's answer had no result block");
 
 	// A note that blocks it: the session says SHIP-BLOCKED, and nothing is pushed.
 	git(fake.made[0]!.dir, "commit", "-q", "--allow-empty", "-m", "more");
@@ -669,6 +681,56 @@ test("sandbox.ship lands the work on origin/main and tells host watchers, and a 
 	assert.equal(stopped.kind, "blocked");
 	assert.match(stopped.reason, /which title to keep/);
 	assert.equal(git(remote, "rev-parse", "main"), before);
+	await waitFor(async () => (await summaryOf()).sandbox.shipStopped !== undefined, "the summary to keep the stopped ship");
+	const after = await summaryOf();
+	assert.equal(after.sandbox.shipStopped.kind, "blocked");
+	assert.equal(after.sandbox.shipStopped.reason, "which title to keep");
+	assert.equal(after.sandbox.shipped.head, shipped.head, "the landed ship is kept");
+	await waitFor(async () => (await mac.request("conversations.list")).conversations.find((c: Json) => c.id === id).line === "Ship stopped · which title to keep", "the line after the stopped ship");
+	// A message after it: the line goes back to the work, and the stopped ship stays until the next ship starts.
+	await mac.request("submit", { conversationId: id, requestId: "after-ship", text: "hello" });
+	await waitFor(async () => {
+		const c = (await mac.request("conversations.list")).conversations.find((c: Json) => c.id === id);
+		return c.status === "idle" && c.line === "Hello from the faux model.";
+	}, "the line after a new message");
+	assert.equal((await mac.request("conversations.list")).conversations.find((c: Json) => c.id === id).sandbox.shipStopped.kind, "blocked");
+	await mac.request("sandbox.ship", { conversationId: id });
+	await waitFor(async () => (await mac.request("conversations.list")).conversations.find((c: Json) => c.id === id).sandbox.shipStopped === undefined, "the stopped ship cleared when the next starts");
+	await host.ships.settled();
+});
+
+test("attempts at one ask share a group, and group.keep archives the others, their branches and sandboxes gone", async (t) => {
+	const { url, host, project, fake } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const cleanup = removeSandboxesOnArchive(host, () => {});
+	t.after(cleanup.stop);
+	await assert.rejects(mac.request("conversations.create", { requestId: "g0", project: project.dir, text: "x", group: "g" }), { code: "bad_request", message: /sandbox/ });
+	const ids: number[] = [];
+	for (const n of [1, 2, 3]) ids.push((await mac.request("conversations.create", { requestId: `g${n}`, project: project.dir, text: `commit try${n}`, sandbox: true, group: "three" })).conversation.id);
+	const other = (await mac.request("conversations.create", { requestId: "g4", project: project.dir, text: "commit alone", sandbox: true })).conversation.id;
+	for (const id of [...ids, other]) await host.sandboxes.prepared(id);
+	await waitFor(async () => {
+		const states = await host.sessions.states();
+		return [...ids, other].every((id) => states.get(id) === "idle");
+	}, "the attempts");
+	for (const id of [...ids, other]) await host.sandboxes.sync(id);
+	const listed = (await mac.request("conversations.list")).conversations;
+	assert.deepEqual(ids.map((id) => listed.find((c: Json) => c.id === id).sandbox.group), ["three", "three", "three"]);
+	assert.equal(listed.find((c: Json) => c.id === other).sandbox.group, undefined);
+
+	await assert.rejects(mac.request("group.keep", { group: "three", conversationId: other }), { code: "bad_request" });
+	const kept = await mac.request("group.keep", { group: "three", conversationId: ids[1] });
+	assert.deepEqual(kept.archived.sort(), [ids[0], ids[2]].sort());
+	const branches = git(project.dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/sandbox/");
+	const branchOf = (id: number) => listed.find((c: Json) => c.id === id).sandbox.branch;
+	assert.ok(branches.includes(branchOf(ids[1]!)) && branches.includes(branchOf(other)), branches);
+	assert.ok(!branches.includes(branchOf(ids[0]!)) && !branches.includes(branchOf(ids[2]!)), branches);
+	await waitFor(() => fake.removed.length === 2, "the two sandboxes removed");
+	const archived = async () => {
+		const all = (await mac.request("conversations.list", { includeArchived: true })).conversations;
+		return ids.map((id) => all.find((c: Json) => c.id === id).archived);
+	};
+	await waitFor(async () => JSON.stringify(await archived()) === "[true,false,true]", "the summaries to say archived");
 });
 
 async function waitFor(check: () => boolean | Promise<boolean>, what: string, ms = 8000) {

@@ -55,5 +55,7 @@ export function sandboxSyncAfterRuns(
 		onRunEnd,
 		/** Resolves once the syncs going now are done; for shutdown and tests. */
 		settled: () => Promise.all(going.values()).then(() => undefined),
+		/** Resolves once session `id`'s sync, if one is going, is done; the run-end notification waits for it. */
+		idle: (id: number) => going.get(id) ?? Promise.resolve(),
 	};
 }

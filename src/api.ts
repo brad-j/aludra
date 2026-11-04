@@ -36,7 +36,8 @@ import { createAmyrlinEndpoint } from "./amyrlin/endpoint.ts";
 import type { Bootstrap, ClientEvent, PushState, ServerEvent, Thinking } from "./api-types.ts";
 import { THINKING } from "./config.ts";
 import { IMAGE_TYPES, messageContent, titleOf } from "./images.ts";
-import type { Host } from "./host.ts";
+import { type Host, isSandboxSession, sandboxBranch } from "./host.ts";
+import { shipOutcome, shipSentence } from "./ship.ts";
 import { RestoreRefused } from "./checkpoints.ts";
 import { array, boolean, integer, jsonObject, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
@@ -119,6 +120,8 @@ export type ApiOptions = {
 	name?: string;
 	/** How often amyrlin's endpoint reads the checkouts while a client watches; tests shorten it. Default 5 s. */
 	checkoutMs?: number;
+	/** Resolves once a sandbox session's commits are home after its run (src/sandbox-sync.ts), so its Done push can count them. */
+	synced?: (id: number) => Promise<void>;
 };
 
 export function createApi(host: Host, options: ApiOptions) {
@@ -137,8 +140,39 @@ export function createApi(host: Host, options: ApiOptions) {
 	const live = options.live ?? createLive(host);
 	const stopRunEnd = live.onRunEnd((after) => {
 		const url = `/s/${after.id}`;
-		if (after.state === "done") notify(after.id, { title: `Done · ${after.project}`, body: `${after.title}\n${after.line}`, tag: `session-${after.id}`, url });
+		if (after.state === "done") void doneMessage(after).then((message) => message !== undefined && notify(after.id, { ...message, tag: `session-${after.id}`, url })).catch((error) => console.error("[push]", error instanceof Error ? error.message : error));
 		if (after.state === "failed") notify(after.id, { title: `Failed · ${after.project}`, body: `${after.title}\n${after.line}`, tag: `session-${after.id}`, url, urgency: "high" });
+	});
+	/**
+	 * A finished run's notification. A sandbox session's says what came back (its commits on sandbox/N, once they're
+	 * fetched) and what it did, or that it asks something; a ship's turn has none, since the ship's own outcome follows.
+	 */
+	async function doneMessage(after: { id: number; project: string; title: string; line: string }): Promise<Omit<PushMessage, "tag" | "url"> | undefined> {
+		const plain = { title: `Done · ${after.project}`, body: `${after.title}\n${after.line}` };
+		const record = await host.sessions.get(after.id);
+		if (record === undefined || !isSandboxSession(record)) return plain;
+		if (record.shipping !== undefined || (await host.results.shipTurn(after.id))) return undefined;
+		await Promise.race([options.synced?.(after.id), new Promise((resolve) => setTimeout(resolve, 30_000).unref())]);
+		const result = await host.results.result(after.id);
+		if (result === undefined || !("summary" in result)) return plain;
+		if (result.question !== undefined) return { title: `Needs you · ${after.project}`, body: `${after.title}\nAsks: ${result.question.text}`, urgency: "high" };
+		const { commits } = result.code;
+		const came = commits === 0 ? "No commits" : `${commits} commit${commits === 1 ? "" : "s"} on ${sandboxBranch(record)}`;
+		return { title: `Done · ${after.project}`, body: `${after.title}\n${came} · ${result.summary}` };
+	}
+	// A ship's outcome, pushed when it ends.
+	const stopShipped = host.ships.onShipped((id, result) => {
+		void host.sessions.get(id).then((record) => {
+			if (record === undefined) return;
+			const outcome = shipOutcome(result, Date.now());
+			notify(id, {
+				title: `${result.shipped ? "Shipped" : "Ship stopped"} · ${record.project}`,
+				body: `${record.title}\n${shipSentence(outcome)}`,
+				tag: `session-${id}`,
+				url: `/s/${id}`,
+				...(result.shipped ? {} : { urgency: "high" as const }),
+			});
+		});
 	});
 	// An approval is pushed after a moment, if it still waits: the app may be about to show it, or the user may answer it at once.
 	const APPROVAL_DELAY_MS = 2000;
@@ -466,6 +500,7 @@ export function createApi(host: Host, options: ApiOptions) {
 		listen: (port: number, done?: () => void) => server.listen(port, "127.0.0.1", done),
 		close: async () => {
 			stopRunEnd();
+			stopShipped();
 			if (options.live === undefined) live.close();
 			stopApprovals();
 			for (const timer of timers) clearTimeout(timer);

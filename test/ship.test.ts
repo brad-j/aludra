@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { Connection, localDaemon } from "@earendil-works/pi-env";
 import { createSandboxes } from "../src/sandboxes.ts";
-import { ship, shipPrompt, shipVerdict } from "../src/ship.ts";
+import { isShipPrompt, ship, shipLine, shipTimeout, shipOutcome, shipPrompt, shipSentence, shipVerdict } from "../src/ship.ts";
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
 const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", env: ENV }).trim();
@@ -88,7 +88,7 @@ test("ship rebases the sandbox's work onto a main that moved, then pushes it to 
 test("nothing is pushed when the session is blocked, didn't rebase, or left files uncommitted", async () => {
 	for (const [what, agent, reason, kind] of [
 		["blocked", async () => ({ status: "done", answer: "SHIP-BLOCKED: a test fails on main too" }), /a test fails on main too/, "blocked"],
-		["stopped", async () => ({ status: "stopped" }), /ended stopped/, "blocked"],
+		["stopped", async () => ({ status: "stopped" }), /stopped before it was ready/, "blocked"],
 		["no rebase", async () => ({ status: "done", answer: "SHIP-READY" }), /isn't on origin\/main/, "check_failed"],
 		["uncommitted", async (box: string) => { writeFileSync(join(box, "stray.txt"), "x\n"); return { status: "done", answer: "SHIP-READY" }; }, /uncommitted/, "check_failed"],
 	] as const) {
@@ -144,4 +144,36 @@ test("a push the upstream refuses because it moved is upstream_moved, and one th
 test("the ship prompt carries the user's note first", () => {
 	assert.match(shipPrompt("origin/main", "0123456789abcdef", "keep the old title"), /^A note from the user about this ship: keep the old title\n\nShip this work/);
 	assert.match(shipPrompt("origin/main", "0123456789abcdef", "  "), /^Ship this work/);
+});
+
+test("the ship prompt stops at a check that fails on the base too, keeps a plan, and is told apart from other messages", () => {
+	const prompt = shipPrompt("origin/main", "0123456789abcdef", "a note");
+	assert.match(prompt, /fails on the base too: <first line of its error>/);
+	assert.match(prompt, /Don't change the system/);
+	assert.match(prompt, /stopped after 5 minutes/);
+	assert.match(prompt, /plan block/);
+	assert.match(prompt, /describe the work being shipped/);
+	assert.equal(isShipPrompt(prompt), true);
+	assert.equal(isShipPrompt("Ship this work, please"), false);
+});
+
+test("a ship's outcome reads in plain words, as a sentence and as a task's line", () => {
+	const landed = shipOutcome({ shipped: true, mode: "main", pushed: "origin/main", head: "abc", commits: 2 }, 5);
+	assert.deepEqual(landed, { shipped: { at: 5, to: "main", pushed: "origin/main", head: "abc", commits: 2 } });
+	assert.equal(shipSentence(landed), "Shipped to main: 2 commits.");
+	assert.equal(shipLine(landed), "Shipped to main · 2 commits");
+	const pr = shipOutcome({ shipped: true, mode: "branch", pushed: "origin/sandbox-4-ab12cd3", head: "abc", commits: 1, pr: "https://github.com/o/r/pull/9" }, 6);
+	assert.equal(shipLine(pr), "Shipped to sandbox-4-ab12cd3 for review · 1 commit");
+	assert.equal("shipped" in pr && pr.shipped.pr, "https://github.com/o/r/pull/9");
+	const stopped = shipOutcome({ shipped: false, kind: "blocked", reason: "pnpm check fails on the base too: oxlint panicked. More after." }, 7);
+	assert.deepEqual(stopped, { shipStopped: { at: 7, kind: "blocked", reason: "pnpm check fails on the base too: oxlint panicked. More after." } });
+	assert.equal(shipSentence(stopped), "Ship stopped: pnpm check fails on the base too: oxlint panicked. More after.");
+	assert.equal(shipLine(stopped), "Ship stopped · pnpm check fails on the base too: oxlint panicked.");
+});
+
+test("a ship's bash calls are cut to 5 minutes, and its other calls and short commands left alone", () => {
+	assert.deepEqual(shipTimeout({ name: "bash", arguments: { command: "pnpm check" } }), { command: "pnpm check", timeout: 300 });
+	assert.deepEqual(shipTimeout({ name: "bash", arguments: { command: "pnpm check", timeout: 1200 } }), { command: "pnpm check", timeout: 300 });
+	assert.equal(shipTimeout({ name: "bash", arguments: { command: "git rebase", timeout: 60 } }), undefined);
+	assert.equal(shipTimeout({ name: "read", arguments: { path: "a" } }), undefined);
 });

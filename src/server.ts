@@ -268,7 +268,7 @@ export async function serve(config: Config) {
 	const stopArchive = scheduleArchive(host);
 	const push = createPush({ harness: host.harness, keys: loadPushKeys(config.dataDir) });
 	const { users } = config.api;
-	const api = users.length === 0 ? undefined : createApi(host, { users, push, live });
+	const api = users.length === 0 ? undefined : createApi(host, { users, push, live, synced: sandboxSync.idle });
 	if (api === undefined) console.error("no api.users in the settings, so the API is off");
 	// Loopback only: tailscale serve is the way in, and it vouches for who's asking.
 	else api.listen(config.api.port, () => console.error(`aludra API on 127.0.0.1:${config.api.port}, for ${users.join(", ")}`));

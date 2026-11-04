@@ -43,7 +43,7 @@ export function sandboxSection(sandbox: { sandbox: number; dir: string }): strin
 	return [
 		`This session runs in a sandbox: a disposable Linux VM of its own (Ubuntu 26.04, user \`user\` with sudo), sandbox ${sandbox.sandbox}.`,
 		`Your tools run there, and your working directory is ${sandbox.dir} in the sandbox. Any other working directory or machine named elsewhere in this prompt is where the agent loop runs, which your tools can't reach.`,
-		"The sandbox reaches the internet and nothing else: not the LAN, not the tailnet, not other machines at home. It has no credentials: it can't push, and git remotes are unset. The project's commits stay in the sandbox until the user fetches them.",
+		"The sandbox reaches the internet and nothing else: not the LAN, not the tailnet, not other machines at home. It has no credentials: it can't push, and git remotes are unset. Commit your work as you go: your commits come home by themselves as a branch in the user's checkout when your reply ends, and the user lands them with Ship in their app. So never tell them to fetch, push, merge or copy anything.",
 		"A process started with `setsid` outlives your command and keeps running while the sandbox is paused between turns; anything else you start ends with the command.",
 		"",
 		...RESULT_INSTRUCTIONS,
@@ -61,7 +61,7 @@ export const RESULT_INSTRUCTIONS = [
 	"```result",
 	'{"summary": "One or two sentences of what you did, for someone who uses the project.", "changes": ["What is different now for someone using it, one sentence each."], "headsUp": [{"kind": "upstream | dependency | left | other", "text": "Something they should know, in plain words."}], "question": {"text": "What you need them to decide.", "why": "Why it matters.", "options": ["First choice", "Second choice"]}}',
 	"```",
-	"Write summary, changes and headsUp for someone who uses the project, not its code: what they'll see or can now do, not file names or functions. Leave changes empty when nothing changed for them. headsUp kinds: upstream (the upstream changed what this touches), dependency (a package added, removed or upgraded), left (work left uncommitted in the sandbox), other. Include question only when you stopped to ask something; its options become buttons that send the option's text as the reply, so make each one a complete answer.",
+	"Write summary, changes and headsUp for someone who uses the project, not its code: what they'll see or can now do, not file names or functions. Leave changes empty when nothing changed for them. headsUp is for things about the work itself that they should know, not steps for them to take with git or the sandbox. headsUp kinds: upstream (the upstream changed what this touches), dependency (a package added, removed or upgraded), left (work left uncommitted in the sandbox), other. A check you didn't run isn't a heads-up; say so in your prose. Include question only when you stopped to ask something; its options become buttons that send the option's text as the reply, so make each one a complete answer.",
 ];
 
 /**

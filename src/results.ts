@@ -16,6 +16,7 @@ import type { Changes } from "./api-types.ts";
 import { changesBetween, fileDiffBetween, type Snapshot } from "./changes.ts";
 import { run } from "./sandboxes.ts";
 import { MAX_PAGES, takeShots, type DevServer, type Page, type Shot } from "./shots.ts";
+import { isShipPrompt, shipLine, shipSentence, type ShipLanded, type ShipStopped } from "./ship.ts";
 import { textOf } from "./transcript.ts";
 
 export type HeadsUp = { kind: "upstream" | "dependency" | "left" | "other"; text: string };
@@ -59,6 +60,18 @@ export function firstParagraph(text: string): string {
 }
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.trim() !== "").map((v) => cut(v.trim())) : []);
+
+/** Whether `text` has a `result` block that reads as a JSON object. */
+export function hasResultBlock(text: string): boolean {
+	const body = blocks(text, "result").at(-1);
+	if (body === undefined) return false;
+	try {
+		const value: unknown = JSON.parse(body);
+		return typeof value === "object" && value !== null && !Array.isArray(value);
+	} catch {
+		return false;
+	}
+}
 
 /** What answer `text` says: its last `result` block, read leniently, or its first paragraph as the summary. */
 export function parseSaid(text: string): Said {
@@ -388,6 +401,8 @@ export type ResultsHost = {
 	writeChecks(id: number, state: TurnCheckState): Promise<void>;
 	/** Where screenshots are saved, a directory per session. */
 	shotsDir: string;
+	/** How session `id`'s latest ship went, once one has ended: landed, or stopped short. */
+	shipOutcome?(id: number): Promise<{ shipped: ShipLanded } | { shipStopped: ShipStopped } | undefined>;
 	/** Tells listeners session `id`'s result changed. */
 	changed(id: number): void;
 	context: Context;
@@ -410,6 +425,19 @@ export function createResults(host: ResultsHost) {
 	}
 
 	/**
+	 * How the ship that `turn` was ended, when `turn` is a ship's and that ship is over: the record's outcome, if it ended
+	 * after the turn started.
+	 */
+	async function shipOf(id: number, turn: Turn | undefined): Promise<{ shipped: ShipLanded } | { shipStopped: ShipStopped } | undefined> {
+		const asked = turn?.messages[0];
+		if (turn === undefined || asked?.role !== "user" || !isShipPrompt(textOf(asked.content))) return undefined;
+		const outcome = await host.shipOutcome?.(id);
+		if (outcome === undefined) return undefined;
+		const at = "shipped" in outcome ? outcome.shipped.at : outcome.shipStopped.at;
+		return at >= turn.started ? outcome : undefined;
+	}
+
+	/**
 	 * Session `id`'s latest result: while it runs, its plan; after, what the latest answer said with its checks and code.
 	 * Undefined before any answer.
 	 */
@@ -421,7 +449,12 @@ export function createResults(host: ResultsHost) {
 		const turn = await answeredTurn(host.entries(id));
 		const answer = turn === undefined ? undefined : finalAnswer(turn);
 		if (turn === undefined || answer === undefined) return undefined;
-		const said = parseSaid(textOf(answer.content));
+		let said = parseSaid(textOf(answer.content));
+		// A ship's answer without a result block says what happened to the work, not the answer's git steps.
+		if (!hasResultBlock(textOf(answer.content))) {
+			const shipped = await shipOf(id, turn);
+			if (shipped !== undefined) said = { ...said, summary: shipSentence(shipped) };
+		}
 		const sandbox = await host.sandbox(id);
 		const { checks } = await checksFor(id, answer.timestamp, turn);
 		const stored = await host.readChecks(id);
@@ -436,6 +469,11 @@ export function createResults(host: ResultsHost) {
 		if (running) {
 			const plan = await latestPlan(host.entries(id));
 			return taskLine({ running: true, ...(plan === undefined ? {} : { plan }) });
+		}
+		// After a ship, answered or stopped, the line says how it went until the next message.
+		if (host.shipOutcome !== undefined) {
+			const shipped = await shipOf(id, await latestTurn(host.entries(id), 400));
+			if (shipped !== undefined) return shipLine(shipped);
 		}
 		const turn = await answeredTurn(host.entries(id), 400);
 		const answer = turn === undefined ? undefined : finalAnswer(turn);
@@ -495,9 +533,16 @@ export function createResults(host: ResultsHost) {
 		return work;
 	}
 
+	/** Whether session `id`'s latest turn is a ship's. */
+	async function shipTurn(id: number): Promise<boolean> {
+		const asked = (await latestTurn(host.entries(id), 400))?.messages[0];
+		return asked?.role === "user" && isShipPrompt(textOf(asked.content));
+	}
+
 	return {
 		result,
 		line,
+		shipTurn,
 		afterRun,
 		/** Resolves once the checks going now are done; for shutdown and tests. */
 		settled: () => Promise.all(going.values()).then(() => undefined),

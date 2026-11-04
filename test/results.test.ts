@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Message } from "@earendil-works/pi-ai";
-import { callChecks, checkSegments, firstParagraph, parsePlan, parseProjectConfig, parseSaid, prose, taskLine, type Turn } from "../src/results.ts";
+import { callChecks, checkSegments, firstParagraph, hasResultBlock, parsePlan, parseProjectConfig, parseSaid, prose, taskLine, type Turn } from "../src/results.ts";
 import { RESULT_INSTRUCTIONS, sandboxSection } from "../src/context.ts";
 import { shipPrompt } from "../src/ship.ts";
 import { pagesToShoot, routesFromFiles } from "../src/shots.ts";
@@ -127,4 +127,19 @@ test("the sandbox section asks for the plan and result blocks, and the ship prom
 	assert.match(section, /```plan/);
 	assert.match(section, /```result/);
 	assert.match(shipPrompt("origin/main", "0123456789abcdef"), /SHIP-BLOCKED[\s\S]*result block[\s\S]*options/);
+});
+
+test("the sandbox section says the work comes home and ships from the app, so the agent doesn't tell the user to fetch or push", () => {
+	const section = sandboxSection({ sandbox: 3, dir: "/home/user/work/one" });
+	assert.match(section, /come home by themselves/);
+	assert.match(section, /never tell them to fetch, push, merge/);
+	assert.match(section, /headsUp is for things about the work itself/);
+	assert.doesNotMatch(section, /until the user fetches them/);
+});
+
+test("a result block that isn't a JSON object doesn't count as one", () => {
+	assert.equal(hasResultBlock("Done.\n```result\n{\"summary\": \"x\"}\n```"), true);
+	assert.equal(hasResultBlock("Done.\n```result\n[1]\n```"), false);
+	assert.equal(hasResultBlock("Done.\n```result\n{broken\n```"), false);
+	assert.equal(hasResultBlock("Rebased onto origin/main.\nSHIP-READY"), false);
 });

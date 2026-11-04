@@ -12,7 +12,7 @@ import { context } from "../src/host.ts";
 import type { Idea, Item, ServerEvent, SessionMeta, SessionSummary } from "../src/api-types.ts";
 import { createPush, loadPushKeys } from "../src/push.ts";
 import type { Titler } from "../src/titles.ts";
-import { decrypt, device, makeProject, PNG, testHost } from "./helpers.ts";
+import { decrypt, device, fakeSandboxes, gitProject, makeProject, PNG, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
 const PARTNER = "partner@example.com";
@@ -404,4 +404,56 @@ test("a message with an image: the transcript says where it is, and the app gets
 	assert.deepEqual(Buffer.from(await fetched.arrayBuffer()), Buffer.from(PNG, "base64"));
 	assert.equal((await call(`/api/sessions/${id}/images/${at.entry}/${at.message}/${at.block + 5}`)).status, 404);
 	assert.equal((await call(`/api/sessions/${id}/messages`, { text: "", images: [{ mimeType: "image/gif", data: PNG }], mode: "followUp" })).status, 400);
+});
+
+test("a sandbox task's pushes say what came back, that it asks something, and how its ship went", async (t) => {
+	const root = tempDir(t);
+	const { project } = gitProject(root, "one", { "a.txt": "one\n" }, { remote: true });
+	const fake = fakeSandboxes(root);
+	t.after(() => fake.close());
+	const said = (summary: string, question?: object) => `Done.\n\n\`\`\`result\n${JSON.stringify({ summary, changes: [], headsUp: [], ...(question === undefined ? {} : { question }) })}\n\`\`\``;
+	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
+	faux.setResponses(Array.from({ length: 20 }, () => (ctx: TranscriptContext) => {
+		const user = JSON.stringify(ctx.messages.findLast((m) => m.role === "user")?.content ?? "");
+		const last = ctx.messages.at(-1);
+		if (/refs\/aludra\/base/.test(user)) return last?.role === "toolResult" ? fauxAssistantMessage(fauxText("Rebased.\nSHIP-READY")) : fauxAssistantMessage(fauxToolCall("bash", { command: "git rebase -q refs/aludra/base" }), { stopReason: "toolUse" });
+		if (/ask me/.test(user)) return fauxAssistantMessage(fauxText(said("Two ways to go.", { text: "Which title?", options: ["Old", "New"] })));
+		if (last?.role === "toolResult") return fauxAssistantMessage(fauxText(said("The greeting is friendlier.")));
+		return fauxAssistantMessage(fauxToolCall("bash", { command: "echo hi > hi.txt && git add hi.txt && git -c user.name=t -c user.email=t@example.com commit -q -m hi" }), { stopReason: "toolUse" });
+	}));
+	const models = createModels();
+	models.setProvider(faux.provider);
+	const { host, dir } = await testHost(t, { dir: root, models, model: { provider: "faux", modelId: "faux-1" }, sandboxes: fake.sandboxes, settings: SANDBOX_SETTINGS });
+	const phone = device();
+	const pushed: Pushed[] = [];
+	const pushFetch = (async (_url: string, init: RequestInit) => {
+		pushed.push(JSON.parse(decrypt(Buffer.from(init.body as Uint8Array), phone.ecdh, phone.auth)));
+		return new Response(null, { status: 201 });
+	}) as typeof fetch;
+	const push = createPush({ harness: host.harness, keys: loadPushKeys(join(dir, "data")), fetch: pushFetch });
+	await push.add({ endpoint: "https://push.test/phone", p256dh: phone.p256dh, auth: phone.authText, label: "iPhone", origin: "https://aludra.test" });
+	// As aludra serve does: the run's commits come home before its push counts them.
+	const server = createApi(host, { users: [USER], push, synced: (id) => host.sandboxes.sync(id).then(() => {}) });
+	t.after(() => server.close());
+	const until = async (n: number, what: string) => {
+		for (let i = 0; i < 200 && pushed.length < n; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+		assert.ok(pushed.length >= n, `timed out waiting for ${what}: ${JSON.stringify(pushed)}`);
+	};
+
+	const record = await host.sessions.startSandbox({ workspace: "test", name: "one", path: "Software/one", dir: project.dir }, "make it friendlier");
+	await host.sandboxes.hold(record.id, "make it friendlier", "first", true);
+	await host.sandboxes.prepared(record.id);
+	await until(1, "the done push");
+	assert.equal(pushed[0]!.title, "Done · one");
+	assert.equal(pushed[0]!.body, "make it friendlier\n1 commit on sandbox/0 · The greeting is friendlier.");
+
+	await host.submit(record.id, "ask me");
+	await until(2, "the question push");
+	assert.deepEqual([pushed[1]!.title, pushed[1]!.body, pushed[1]!.urgency], ["Needs you · one", "make it friendlier\nAsks: Which title?", "high"]);
+
+	await (await host.ships.start(record.id, { mode: "main" })).done;
+	await until(3, "the ship push");
+	assert.deepEqual([pushed[2]!.title, pushed[2]!.body], ["Shipped · one", "make it friendlier\nShipped to main: 1 commit."]);
+	await new Promise((resolve) => setTimeout(resolve, 500));
+	assert.equal(pushed.length, 3, "the ship's own turn isn't pushed as Done");
 });
