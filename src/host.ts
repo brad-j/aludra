@@ -832,7 +832,20 @@ export async function openHost(options: HostOptions) {
 		modelInfo,
 		projects,
 		/** Sandbox connections (spike): `close()` drops them, as being idle would, so the sandbox's host may pause it. */
-		sandboxes: { close: (n?: number) => sandboxes.close(n), connected: (n: number) => sandboxes.connected(n), status: sandboxes.status, remove: sandboxes.remove },
+		sandboxes: {
+			close: (n?: number) => sandboxes.close(n),
+			connected: (n: number) => sandboxes.connected(n),
+			status: sandboxes.status,
+			remove: sandboxes.remove,
+			/** Fetches sandbox session `id`'s commits into its project's local checkout, as `into` (default sandbox/<n>). */
+			async sync(id: number, into?: string) {
+				const record = await get(id);
+				if (record === undefined) throw new Error(`no session ${id}`);
+				if (record.sandbox === undefined) throw new Error(`session ${id} isn't in a sandbox`);
+				if (record.source === undefined) throw new Error(`session ${id} has no project to sync into`);
+				return sandboxes.sync(record.sandbox, record.dir, record.source, into);
+			},
+		},
 		sessions: { list, get, create, createScratch, createSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		checkpoints: {
 			list: checkpoints.list,

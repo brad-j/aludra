@@ -17,7 +17,7 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 | Method and path | Body | Answer |
 | --- | --- | --- |
 | `GET /api/bootstrap` | | `Bootstrap`: the login, machine name, projects, the pinned models, every model the signed-in providers have (`catalog`, with prices where billed), thinking levels and defaults. |
-| `POST /api/sessions` | `{ project, text, images?, files?, model?, thinking?, requestId? }` | `{ id }`. An empty `project` makes a no-project session. Needs text, images or files. |
+| `POST /api/sessions` | `{ project, text, images?, files?, model?, thinking?, requestId?, sandbox? }` | `{ id }`. An empty `project` makes a no-project session. Needs text, images or files. `sandbox: true` runs its tools in a sandbox of its own (see the CLI's [Sandboxes](cli.md#sandboxes)); the request waits while a project's template is made. |
 | `POST /api/sessions/:id/messages` | `{ text, images?, files?, mode: "steer" \| "followUp", requestId? }` | `{ submission }`, for withdrawing it. |
 | `POST /api/sessions/:id/stop` | `{}` | `{}` |
 | `POST /api/sessions/:id/title` | `{ title }` | `{ title }`, whitespace folded, 1 to 200 characters. |
@@ -144,7 +144,7 @@ With `mcp.write` set in the settings file, also:
 
 | Tool | Arguments | Answer |
 | --- | --- | --- |
-| `start_session` | `project`, `task` | `{ id, project, dir }`. The task is the first message; its first line is the title until a model writes one. |
+| `start_session` | `project`, `task`, `sandbox?` | `{ id, project, dir, sandbox? }`. The task is the first message; its first line is the title until a model writes one. With `sandbox`, its tools run in a sandbox of its own, `dir` is in the sandbox, and `sandbox` is its number. |
 | `send_message` | `id`, `text`, `mode?` (`followUp` or `steer`) | `{ submission }`. |
 | `stop_session` | `id` | Stops the run. |
 

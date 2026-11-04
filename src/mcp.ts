@@ -108,18 +108,28 @@ export function mcpServer(host: Host, options: { machine: string }): McpServer {
 	if (host.mcpWrite()) {
 		server.registerTool("start_session", {
 			description: `Start a session in a project on ${options.machine} with a task. It runs on its own with full permissions in the project; read_session shows how it goes. Returns its id.`,
-			inputSchema: { project: z.string().describe("A name from list_projects"), task: z.string().min(1).describe("Everything the agent needs to know; it can't see your conversation") },
+			inputSchema: {
+				project: z.string().describe("A name from list_projects"),
+				task: z.string().min(1).describe("Everything the agent needs to know; it can't see your conversation"),
+				sandbox: z.boolean().optional().describe("Run its tools in a sandbox VM of its own: a copy of the project's last commit that reaches the internet and nothing else, holding no keys. Its commits come back with `aludra sync`."),
+			},
 			annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-		}, async ({ project, task }) => {
+		}, async ({ project, task, sandbox }) => {
 			let found;
 			try {
 				found = findProject(host.projects(), project);
 			} catch (error) {
 				return failure(error instanceof Error ? error.message : String(error));
 			}
-			const session = await host.sessions.create(found, task.split("\n")[0]!.slice(0, 80));
+			const title = task.split("\n")[0]!.slice(0, 80);
+			let session;
+			try {
+				session = sandbox === true ? await host.sessions.createSandbox(found, title) : await host.sessions.create(found, title);
+			} catch (error) {
+				return failure(error instanceof Error ? error.message : String(error));
+			}
 			await host.submit(session.id, task);
-			return answer({ id: session.id, project: session.project, dir: session.dir });
+			return answer({ id: session.id, project: session.project, dir: session.dir, ...(session.sandbox === undefined ? {} : { sandbox: session.sandbox }) });
 		});
 
 		server.registerTool("send_message", {

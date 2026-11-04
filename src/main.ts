@@ -19,7 +19,9 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
                                          write the settings file, asking for what isn't given
   service install | uninstall | status   run the host in the background and at login (launchd or systemd)
   serve                                  run the host: sessions, the models, the socket the CLI uses
-  ask --project NAME "MESSAGE"           start a session in a project and print its run
+  ask --project NAME [--sandbox] "MESSAGE"
+                                         start a session in a project and print its run; with --sandbox,
+                                         its tools run in a sandbox VM of its own (the sandboxes setting)
   ask --session ID [--steer] "MESSAGE"   send a session a follow-up (or a steer) and print the run
   watch [--session ID]                   print what every session (or one) does, until Ctrl+C
   sessions                               list sessions by project, with their state
@@ -31,6 +33,8 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   search [--session ID] [--reindex] WORDS...
                                          find messages and answers with all the words, across sessions or in one
   page --session ID PAGE                  write a page the agent published to a file, to open in a browser
+  sync --session ID [--into BRANCH]      fetch a sandbox session's commits into its project as a branch
+                                         (default sandbox/N); the checked-out branch and files aren't touched
   checkpoints --session ID               list a session's checkpoints, one as each turn started, with its changes
   restore --session ID CHECKPOINT        put the project's files back to a checkpoint (undoable)
   approvals                              list calls waiting for approval
@@ -52,6 +56,8 @@ const { values, positionals } = parseArgs({
 		project: { type: "string", short: "p" },
 		session: { type: "string", short: "s" },
 		steer: { type: "boolean" },
+		sandbox: { type: "boolean" },
+		into: { type: "string" },
 		id: { type: "string" },
 		root: { type: "string", multiple: true },
 		user: { type: "string", multiple: true },
@@ -136,12 +142,16 @@ switch (command) {
 		if (content === "") fail('usage: aludra ask --project NAME "MESSAGE"   or   aludra ask --session ID "MESSAGE"');
 		if ((values.project === undefined) === (values.session === undefined)) fail("aludra ask needs --project or --session, not both");
 		const requestId = values.id ?? randomUUID();
-		const target = values.project === undefined ? { session: sessionId() } : { project: values.project };
+		if (values.sandbox === true && values.project === undefined) fail("--sandbox is for a new session: give --project");
+		const target = values.project === undefined ? { session: sessionId() } : { project: values.project, ...(values.sandbox === true ? { sandbox: true } : {}) };
 		const again = values.session === undefined ? "aludra watch follows it" : `rerun with --id ${requestId} to reattach`;
 		process.exit(await talk(config, { type: "ask", content, requestId, steer: values.steer === true, ...target }, `lost the server before the answer. The run is stored; ${again}.`));
 	}
 	case "watch":
 		process.exit(await talk(config, values.session === undefined ? { type: "watch" } : { type: "watch", session: sessionId() }));
+	case "sync":
+		if (values.session === undefined) fail("usage: aludra sync --session ID [--into BRANCH]");
+		process.exit(await talk(config, { type: "sync", session: sessionId(), ...(values.into === undefined ? {} : { into: values.into }) }));
 	case "sessions":
 		process.exit(await talk(config, { type: "sessions", listing: true }));
 	case "stop":

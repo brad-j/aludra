@@ -158,6 +158,9 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 					const bundle = join(scratch, "project.bundle");
 					await run("git", ["-C", project.dir, "bundle", "create", bundle, "HEAD"]);
 					const branch = (await run("git", ["-C", project.dir, "rev-parse", "--abbrev-ref", "HEAD"])).trim();
+					// The project's commit identity, so the agent can commit in the sandbox and sync brings commits back as the user's.
+					const who = async (key: string) => (await run("git", ["-C", project.dir, "config", "--get", key]).catch(() => "")).trim();
+					const [userName, userEmail] = [await who("user.name"), await who("user.email")];
 					const put = await env.writeFile("/home/user/project.bundle", await readFile(bundle), BACKGROUND);
 					if (!put.ok) throw put.error;
 					const dir = `/home/user/work/${project.name}`;
@@ -165,6 +168,8 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 						"set -euo pipefail",
 						`git clone -q --branch ${branch === "HEAD" ? "HEAD" : shellQuote(branch)} ~/project.bundle ${shellQuote(dir)} 2>/dev/null || git clone -q ~/project.bundle ${shellQuote(dir)}`,
 						`cd ${shellQuote(dir)} && git remote remove origin && rm ~/project.bundle`,
+						...(userName === "" ? [] : [`git config --global user.name ${shellQuote(userName)}`]),
+						...(userEmail === "" ? [] : [`git config --global user.email ${shellQuote(userEmail)}`]),
 						"if [ -x .agents/setup ]; then .agents/setup",
 						"elif [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile",
 						"elif [ -f package-lock.json ]; then npm ci",
@@ -207,8 +212,48 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 		return env;
 	}
 
+	/**
+	 * Brings sandbox `n`'s commits in `dir` back into the local checkout `local`: the sandbox bundles its branch, the
+	 * bundle comes back over the pi-env connection, and `git fetch` puts it in branch `into` (default
+	 * `sandbox/<n>`), creating or fast-forwarding it, never touching the checked-out branch or the working tree. A
+	 * non-fast-forward (the sandbox rewrote history) is refused. Uncommitted work in the sandbox is counted, not fetched.
+	 */
+	async function sync(n: number, dir: string, local: string, into = `sandbox/${n}`): Promise<SyncResult> {
+		if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(into) || into.includes("..") || into.endsWith(".lock") || into.endsWith("/")) throw new Error(`not a branch name: ${into}`);
+		const env = new RemoteExecutionEnv({ connection: connection(n), id: `stedding:${n}`, cwd: dir });
+		const bundle = `/tmp/aludra-sync-${Date.now().toString(36)}.bundle`;
+		let out = "";
+		const made = await env.exec(["bash", "-c", `set -e; git rev-parse HEAD; git status --porcelain | wc -l; git bundle create -q ${bundle} HEAD`], { onOutput: (t) => (out += t) }, BACKGROUND);
+		if (!made.ok) throw made.error;
+		if (made.value.exitCode !== 0) throw new Error(`bundling in sandbox ${n} failed: ${out.trim().slice(-500)}`);
+		const [head, uncommitted] = out.trim().split("\n");
+		const bytes = await env.readBinaryFile(bundle, BACKGROUND);
+		await env.remove(bundle, { force: true }, BACKGROUND);
+		if (!bytes.ok) throw bytes.error;
+		const scratch = await mkdtemp(join(tmpdir(), "aludra-sync-"));
+		try {
+			const file = join(scratch, "sandbox.bundle");
+			await writeFile(file, bytes.value);
+			const before = (await run("git", ["-C", local, "rev-parse", "--verify", "--quiet", `refs/heads/${into}`]).catch(() => "")).trim();
+			// The checked-out branch can't be fetched into; a sandbox branch never is checked out unless someone did it by hand.
+			const current = (await run("git", ["-C", local, "symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
+			if (current === into) throw new Error(`${into} is checked out in ${local}; switch away from it first, or sync into another branch`);
+			await run("git", ["-C", local, "fetch", file, `HEAD:refs/heads/${into}`]).catch((error: Error) => {
+				if (/rejected|non-fast-forward/.test(error.message)) throw new Error(`sandbox ${n} rewrote history that ${into} already has; sync into another branch with --into`);
+				throw error;
+			});
+			const after = (await run("git", ["-C", local, "rev-parse", `refs/heads/${into}`])).trim();
+			const base = before === "" ? (await run("git", ["-C", local, "merge-base", "HEAD", after]).catch(() => "")).trim() : before;
+			const commits = base === "" ? 0 : Number((await run("git", ["-C", local, "rev-list", "--count", `${base}..${after}`])).trim());
+			return { sandbox: n, dir: local, branch: into, head: after, commits, uncommitted: Number(uncommitted) || 0, sandboxHead: head ?? after };
+		} finally {
+			await rm(scratch, { recursive: true, force: true });
+		}
+	}
+
 	return {
 		configured: () => host !== undefined,
+		sync,
 		/** A new sandbox for a session: from `project`'s template, or the base image with none. Returns its number. */
 		async create(project?: ProjectSource, onProgress?: (line: string) => void): Promise<{ sandbox: number; dir: string }> {
 			if (project === undefined) return { sandbox: Number((await stedding("new")).trim()), dir: "/home/user" };
@@ -236,6 +281,9 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 }
 
 export type Sandboxes = ReturnType<typeof createSandboxes>;
+
+/** What a sync brought back: `commits` new on `branch` in `dir` since it last was synced (or since it forked from HEAD). */
+export type SyncResult = { sandbox: number; dir: string; branch: string; head: string; commits: number; uncommitted: number; sandboxHead: string };
 
 
 function shellQuote(text: string): string {

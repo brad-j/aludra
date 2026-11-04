@@ -94,7 +94,7 @@ async function readBody(request: IncomingMessage, limit: number): Promise<string
 const thinking = literal<Thinking>(...THINKING);
 const image = object({ mimeType: string, data: string });
 const file = object({ name: string, mimeType: optional(string), data: string });
-const newSession = object({ project: string, text: string, images: optional(array(image)), files: optional(array(file)), model: optional(string), thinking: optional(thinking), requestId: optional(string) });
+const newSession = object({ project: string, text: string, images: optional(array(image)), files: optional(array(file)), model: optional(string), thinking: optional(thinking), requestId: optional(string), sandbox: optional(boolean) });
 const message = object({ text: string, images: optional(array(image)), files: optional(array(file)), mode: literal("steer", "followUp"), requestId: optional(string) });
 const agentChange = object({ model: optional(string), thinking: optional(thinking) });
 const withdrawal = object({ submission: integer });
@@ -237,8 +237,11 @@ export function createApi(host: Host, options: ApiOptions) {
 			messageContent(request.text || "-", request.images);
 			const agent = { ...(request.model === undefined ? {} : { model: request.model }), ...(request.thinking === undefined ? {} : { thinking: request.thinking }) };
 			const title = titleOf(request.text, request.images, 0, files.map((f) => f.name));
-			// An empty project is a no-project session, in a scratch directory of its own.
-			const session = request.project === "" ? await host.sessions.createScratch(title, agent) : await host.sessions.create(findProject(host.projects(), request.project), title, agent);
+			// An empty project is a no-project session, in a scratch directory of its own; `sandbox` puts either in a sandbox VM.
+			const project = request.project === "" ? undefined : findProject(host.projects(), request.project);
+			const session = request.sandbox === true
+				? await host.sessions.createSandbox(project, title, agent)
+				: project === undefined ? await host.sessions.createScratch(title, agent) : await host.sessions.create(project, title, agent);
 			const content = messageContent(request.text, request.images, await host.files(session.id, files));
 			await host.submit(session.id, content, request.requestId === undefined ? {} : { requestId: request.requestId });
 			return { id: session.id };

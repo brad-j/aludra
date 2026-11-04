@@ -45,13 +45,23 @@ Checks the settings and everything the host needs, without starting it or spendi
 ### `aludra ask`
 
 ```
-aludra ask --project NAME "MESSAGE"
+aludra ask --project NAME [--sandbox] "MESSAGE"
 aludra ask --session ID [--steer] "MESSAGE"
 ```
 
-With `--project`, starts a session in that project; with `--session`, sends an existing session a follow-up, or a steer with `--steer` while it runs. Either way it prints the run as it happens, and exits 0 when the run ends with an answer, 1 otherwise.
+With `--project`, starts a session in that project, or with `--sandbox` in a sandbox of its own ([Sandboxes](#sandboxes)); with `--session`, sends an existing session a follow-up, or a steer with `--steer` while it runs. Either way it prints the run as it happens, and exits 0 when the run ends with an answer, 1 otherwise.
 
 `--project` takes the project's folder name, `parent/name`, or its path; `aludra projects` lists them. Words after the flags are joined into the message, so quoting is only needed for the shell's sake.
+
+### Sandboxes
+
+With a sandbox host in the settings (`sandboxes`), `ask --sandbox` runs the new session's tools in a Firecracker VM of its own on that host, a copy of the project's last commit with its dependencies installed. The model and the transcript stay on this machine. The sandbox reaches the internet and nothing else, holds no keys, and can't push. The first sandbox session of a project at a new commit waits while the project's template is made (a clone and an install, printed as it goes); later ones start in about a second.
+
+```
+aludra sync --session ID [--into BRANCH]
+```
+
+Fetches the sandbox session's commits into the project's checkout here as the branch `sandbox/N` (or `BRANCH`), creating or fast-forwarding it. The checked-out branch and the working tree aren't touched; merge or check out the branch yourself. Uncommitted files in the sandbox are counted, not fetched. If the sandbox rewrote history the branch already has, sync refuses; sync into another branch.
 
 Leaving with Ctrl+C doesn't stop the run. To reattach to a follow-up, rerun it with the same `--id REQUEST`: the host finds the message it already has instead of sending it twice, and prints the answer when it comes. Without `--id`, each `ask` gets a fresh one.
 

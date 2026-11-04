@@ -38,7 +38,9 @@ import { findProject } from "./projects.ts";
 export const socketPathFor = (config: Config) => resolve(config.dataDir, "aludra.sock");
 
 export type ClientMessage =
-	| { type: "ask"; content: string; project?: string; session?: number; requestId?: string; steer?: boolean }
+	| { type: "ask"; content: string; project?: string; session?: number; requestId?: string; steer?: boolean; sandbox?: boolean }
+	/** A sandbox session's commits fetched into its project's checkout, as the branch `into` (src/sandboxes.ts). */
+	| { type: "sync"; session: number; into?: string }
 	| { type: "watch"; session?: number }
 	| { type: "sessions"; listing?: boolean }
 	| { type: "stop"; session: number }
@@ -63,7 +65,9 @@ export type ServerMessage =
 	| { type: "done"; status: string };
 
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints", "search", "page"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints", "search", "page", "sync"),
+	sandbox: optional(boolean),
+	into: optional(string),
 	page: optional(integer),
 	query: optional(string),
 	reindex: optional(boolean),
@@ -107,7 +111,11 @@ export function parseClientMessage(line: string): ClientMessage {
 		case "ask":
 			if (m.content === undefined) throw new ParseError("an ask needs content");
 			if ((m.project === undefined) === (m.session === undefined)) throw new ParseError("an ask needs a project or a session");
-			return { type: "ask", content: m.content, ...(m.project === undefined ? {} : { project: m.project }), ...(m.session === undefined ? {} : { session: m.session }), ...(m.requestId === undefined ? {} : { requestId: m.requestId }), ...(m.steer === undefined ? {} : { steer: m.steer }) };
+			if (m.sandbox === true && m.project === undefined) throw new ParseError("a sandbox is for a new session: give a project");
+			return { type: "ask", content: m.content, ...(m.project === undefined ? {} : { project: m.project }), ...(m.session === undefined ? {} : { session: m.session }), ...(m.requestId === undefined ? {} : { requestId: m.requestId }), ...(m.steer === undefined ? {} : { steer: m.steer }), ...(m.sandbox === true ? { sandbox: true } : {}) };
+		case "sync":
+			if (m.session === undefined) throw new ParseError("a sync needs a session");
+			return { type: "sync", session: m.session, ...(m.into === undefined ? {} : { into: m.into }) };
 		case "watch":
 			return m.session === undefined ? { type: "watch" } : { type: "watch", session: m.session };
 		case "sessions":
@@ -286,9 +294,12 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 	async function ask(socket: Socket, request: Extract<ClientMessage, { type: "ask" }>) {
 		let id = request.session;
 		if (request.project !== undefined) {
-			const session = await host.sessions.create(findProject(host.projects(), request.project), request.content);
+			const project = findProject(host.projects(), request.project);
+			const session = request.sandbox === true
+				? await host.sessions.createSandbox(project, request.content, {}, (text) => line(socket, `  ${text.split("\n").at(-1)!.slice(0, 160)}`))
+				: await host.sessions.create(project, request.content);
 			id = session.id;
-			line(socket, `session ${id} in ${session.project} (${session.dir})`);
+			line(socket, `session ${id} in ${session.project} (${session.sandbox === undefined ? session.dir : `sandbox ${session.sandbox}: ${session.dir}`})`);
 		}
 		const { events, shown } = await follow(socket, id!, "");
 		const requestId = request.requestId ?? randomUUID();
@@ -334,6 +345,13 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 		switch (request.type) {
 			case "ask":
 				return ask(socket, request);
+			case "sync": {
+				const synced = await host.sandboxes.sync(request.session, request.into);
+				return finish([synced.commits === 0
+					? `nothing new: ${synced.branch} in ${synced.dir} is at the sandbox's ${synced.head.slice(0, 12)}`
+					: `${synced.commits} commit${synced.commits === 1 ? "" : "s"} from sandbox ${synced.sandbox} on ${synced.branch} in ${synced.dir}, at ${synced.head.slice(0, 12)}`,
+				...(synced.uncommitted > 0 ? [`${synced.uncommitted} uncommitted file${synced.uncommitted === 1 ? "" : "s"} in the sandbox weren't fetched; ask the session to commit them`] : [])]);
+			}
 			case "watch":
 				return watch(socket, request.session);
 			case "sessions": {
