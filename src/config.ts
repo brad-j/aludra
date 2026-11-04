@@ -37,8 +37,8 @@ export type Thinking = (typeof THINKING)[number];
 
 export type Workspace = { name: string; roots: string[] };
 
-/** An orb: SSH to `host` (an alias in `sshConfig`, or a name) with its own key, checked against `knownHosts` under `hostKeyAlias`. */
-export type OrbSetting = { name: string; host: string; user?: string; identityFile?: string; sshConfig?: string; knownHosts: string; hostKeyAlias: string };
+/** The orb host (spike, src/orbs.ts): `ssh` is its destination, `gateKey` a key restricted to `stedding gate` there, `knownHosts` its host key; `orbKey` opens orbs, whose host key is `orbHostKey`. */
+export type OrbSetting = { ssh: string; gateKey: string; knownHosts: string; orbKey: string; orbHostKey: string };
 
 /** The model providers: Claude Code through pi-claude-code, OpenAI on a ChatGPT sign-in, OpenRouter, and the scripted faux model. */
 export const PROVIDERS = ["claude-bridge", "openai", "openrouter", "faux"] as const;
@@ -62,8 +62,8 @@ export type Config = {
 	archive: { afterDays: number };
 	/** The MCP endpoint (src/mcp.ts): read-only unless `write`, which lets agents start, message and stop sessions. */
 	mcp: { write: boolean };
-	/** Orbs (spike, src/orbs.ts): machines sessions can run their tools on, by name, reached over SSH. */
-	orbs: OrbSetting[];
+	/** The orb host (spike, src/orbs.ts), if sessions may run in orbs. */
+	orbs?: OrbSetting;
 	dataDir: string;
 };
 
@@ -115,7 +115,7 @@ const settingsFile = object({
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	archive: optional(object({ afterDays: optional(number) })),
 	mcp: optional(object({ write: optional(boolean) })),
-	orbs: optional(array(object({ name: string, host: string, user: optional(string), identityFile: optional(string), sshConfig: optional(string), knownHosts: string, hostKeyAlias: string }))),
+	orbs: optional(object({ ssh: string, gateKey: string, knownHosts: string, orbKey: string, orbHostKey: string })),
 	dataDir: optional(string),
 });
 
@@ -169,15 +169,13 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 		approvals: { ...DEFAULTS.approvals, ...file.approvals },
 		archive: { ...DEFAULTS.archive, ...file.archive },
 		mcp: { ...DEFAULTS.mcp, ...file.mcp },
-		orbs: (file.orbs ?? []).map((o) => ({
-			name: o.name,
-			host: o.host,
-			...(o.user === undefined ? {} : { user: o.user }),
-			...(o.identityFile === undefined ? {} : { identityFile: resolve(expandHome(o.identityFile)) }),
-			...(o.sshConfig === undefined ? {} : { sshConfig: resolve(expandHome(o.sshConfig)) }),
-			knownHosts: resolve(expandHome(o.knownHosts)),
-			hostKeyAlias: o.hostKeyAlias,
-		})),
+		...(file.orbs === undefined ? {} : { orbs: {
+			ssh: file.orbs.ssh,
+			gateKey: resolve(expandHome(file.orbs.gateKey)),
+			knownHosts: resolve(expandHome(file.orbs.knownHosts)),
+			orbKey: resolve(expandHome(file.orbs.orbKey)),
+			orbHostKey: file.orbs.orbHostKey.trim(),
+		} }),
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
 		backup: { ...DEFAULTS.backup, dir: "" },
 	};
@@ -198,8 +196,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	if (twice !== undefined) errors.push(`two of model.choices are ${twice}; the apps pick models by ID, so keep one`);
 	const names = config.workspaces.map((w) => w.name);
 	if (new Set(names).size !== names.length) errors.push("two workspaces share a name");
-	const orbNames = config.orbs.map((o) => o.name);
-	if (new Set(orbNames).size !== orbNames.length) errors.push("two orbs share a name");
+	if (config.orbs !== undefined && !/^ssh-ed25519 [A-Za-z0-9+/=]+$/.test(config.orbs.orbHostKey)) errors.push("orbs.orbHostKey should be the orbs' host key, ssh-ed25519 AAAA..., as `stedding hostkey` prints it without its comment");
 	if (config.workspaces.length === 0) errors.push(`no workspaces: name the folders that hold your projects, such as ${EXAMPLE_WORKSPACE}`);
 	if (config.claude.configDir !== undefined && !isDirectory(config.claude.configDir)) errors.push(`claude.configDir ${config.claude.configDir} isn't a directory; log in there with CLAUDE_CONFIG_DIR=${config.claude.configDir} claude auth login`);
 	if (!(config.approvals.waitHours > 0)) errors.push("approvals.waitHours should be more than 0");

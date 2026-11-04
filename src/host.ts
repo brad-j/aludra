@@ -3,13 +3,13 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { createModels, type Models, type Provider } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
-import { type CompactionPolicy, configure as configureAgent, type ConversationId, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef } from "@earendil-works/pi-durable";
+import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { createOrbs } from "./orbs.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -56,8 +56,10 @@ export type SessionRecord = {
 	baseError?: string;
 	/** A no-project session: `dir` is its own scratch directory, and `project` is NO_PROJECT. */
 	scratch?: boolean;
-	/** An orb session (spike): its tools run on this orb, and `dir` is a directory there. */
-	orb?: string;
+	/** An orb session (spike): its tools run on this orb, by its number on the orb host, and `dir` is a directory there. */
+	orb?: number;
+	/** An orb session's project directory on this machine, which its template was made from; context is read there. */
+	source?: string;
 };
 
 /** The project name of a session that isn't in a project (T3 Code's "no project" threads). */
@@ -176,7 +178,11 @@ export async function openHost(options: HostOptions) {
 		{ path: resolve(claudeConfigDir(config), "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
 		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
 	];
-	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places })];
+	const orbOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ orb: number; dir: string; local?: string } | undefined> => {
+		const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
+		return record?.orb === undefined ? undefined : { orb: record.orb, dir: record.dir, ...(record.source === undefined ? {} : { local: record.source }) };
+	};
+	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places }, (input) => orbOf(input))];
 	if (options.models !== undefined && options.model !== undefined) {
 		models = options.models;
 		model = options.model;
@@ -210,14 +216,16 @@ export async function openHost(options: HostOptions) {
 	const real = options.models === undefined && options.claudeCode === undefined && config.model.provider !== "faux";
 	const titler = options.titler ?? (real ? modelTitler(models, titleModels(models, config)) : undefined);
 
-	const orbs = createOrbs(Object.fromEntries(config.orbs.map((o) => [o.name, {
-		host: o.host,
-		knownHostsFile: o.knownHosts,
-		hostKeyAlias: o.hostKeyAlias,
-		...(o.user === undefined ? {} : { user: o.user }),
-		...(o.identityFile === undefined ? {} : { identityFile: o.identityFile }),
-		...(o.sshConfig === undefined ? {} : { configFile: o.sshConfig }),
-	}])));
+	const orbDir = resolve(config.dataDir, "orbs");
+	mkdirSync(orbDir, { recursive: true, mode: 0o700 });
+	const orbs = createOrbs(config.orbs === undefined ? undefined : {
+		ssh: config.orbs.ssh,
+		gateKey: config.orbs.gateKey,
+		hostKnownHosts: config.orbs.knownHosts,
+		orbKey: config.orbs.orbKey,
+		orbHostKey: config.orbs.orbHostKey,
+		dataDir: orbDir,
+	});
 	let approvals: ApprovalService | undefined;
 	let opened: Harness | undefined;
 	const checkpoints = createCheckpoints({ harness: () => opened!, context, baseOf: async (id) => (await get(id))?.base });
@@ -235,9 +243,10 @@ export async function openHost(options: HostOptions) {
 			models,
 			registry,
 			...(options.compaction === undefined ? {} : { settings: { compaction: options.compaction } }),
-			env: async ({ conversationId: id, cwd, read }, ctx) => {
-				const orb = (await read.snapshot(Sessions, ctx))?.sessions[String(id)]?.orb;
-				if (orb !== undefined) return orbs.env(orb, cwd ?? "/home/user");
+			env: async (target, ctx) => {
+				const { cwd } = target;
+				const orb = await orbOf(target, ctx);
+				if (orb !== undefined) return orbs.env(orb.orb, cwd ?? orb.dir);
 				return new NodeExecutionEnv({ cwd: cwd ?? homedir() });
 			},
 			onReport: (error) => console.error("[report]", error),
@@ -414,11 +423,13 @@ export async function openHost(options: HostOptions) {
 	}
 
 	/**
-	 * A session on orb `orb` (spike), working in `dir` there: its tools run on the orb, its model and transcript stay
-	 * here. No changes view or checkpoints, which read files on this machine.
+	 * A session in an orb of its own (spike), made from `project`'s template (src/orbs.ts), or a bare orb with no
+	 * project. Its tools run on the orb; its model and transcript stay here. No changes view or checkpoints, which read
+	 * files on this machine. The first session of a project at a new commit waits while its template is made.
 	 */
-	async function createOrb(orb: string, dir: string, prompt: string, agent: { model?: string; thinking?: Thinking } = {}): Promise<SessionRecord> {
-		if (!orbs.has(orb)) throw new Error(`no orb named ${orb}; the settings name ${orbs.names().join(", ") || "none"}`);
+	async function createOrb(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, onProgress?: (line: string) => void): Promise<SessionRecord> {
+		if (!orbs.configured()) throw new Error("no orb host in the settings (orbs)");
+		const { orb, dir } = await orbs.create(project === undefined ? undefined : { name: project.name, dir: project.dir }, onProgress);
 		let record: SessionRecord | undefined;
 		await harness.createConversation({
 			ownership: { kind: "ownerless" },
@@ -426,13 +437,14 @@ export async function openHost(options: HostOptions) {
 			init: async (tx, id) => {
 				record = {
 					id,
-					workspace: `orb:${orb}`,
-					project: dir.split("/").filter(Boolean).at(-1) ?? orb,
+					workspace: project?.workspace ?? config.workspaces[0]?.name ?? "local",
+					project: project?.name ?? NO_PROJECT,
 					dir,
 					title: prompt.split("\n")[0]!.slice(0, 80),
 					createdAt: Date.now(),
 					baseError: "An orb session's files are on the orb.",
 					orb,
+					...(project === undefined ? {} : { source: project.dir }),
 				};
 				(await tx.doc(Sessions)).sessions[String(id)] = record;
 			},
@@ -820,7 +832,7 @@ export async function openHost(options: HostOptions) {
 		modelInfo,
 		projects,
 		/** Orb connections (spike): `close()` drops them, as being idle would, so the orb's host may pause it. */
-		orbs: { close: () => orbs.close(), connected: (name: string) => orbs.connected(name) },
+		orbs: { close: (n?: number) => orbs.close(n), connected: (n: number) => orbs.connected(n), status: orbs.status, remove: orbs.remove },
 		sessions: { list, get, create, createScratch, createOrb, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		checkpoints: {
 			list: checkpoints.list,
