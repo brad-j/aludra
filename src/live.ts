@@ -147,7 +147,7 @@ function summaryOf(record: SessionRecord, view: ConversationView, items: readonl
 	const { id, workspace, project, dir, title, createdAt } = record;
 	// SAFETY: a document in the view is the JSON of its kind's state.
 	const cost = billedCost(view.docs["pi.usage"] as UsageState | undefined);
-	return { id, workspace, project, dir, title, createdAt, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state), ...(cost === undefined ? {} : { cost }), ...(record.archived === true ? { archived: true } : {}) };
+	return { id, workspace, project, dir, title, createdAt, updatedAt: updatedAt(view, record.createdAt), state, line: lineOf(items, state), ...(cost === undefined ? {} : { cost }), ...(record.archived === true ? { archived: true } : {}), ...(record.sandbox === undefined ? {} : { sandbox: record.sandbox, ...(record.source === undefined ? {} : { source: record.source }) }) };
 }
 
 /** Session `id`'s summary as the drawer shows it, read from its view; undefined if there's no such session. */

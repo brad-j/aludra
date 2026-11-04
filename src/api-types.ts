@@ -22,6 +22,9 @@ export type SessionSummary = {
 	cost?: number;
 	/** Hidden from the lists until brought back. */
 	archived?: boolean;
+	/** A sandbox session's sandbox number; `dir` is then a directory in the sandbox, and `source` the project's here. */
+	sandbox?: number;
+	source?: string;
 };
 
 /** One thing in a session's transcript, in order. */

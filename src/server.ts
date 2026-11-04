@@ -25,6 +25,7 @@ import { createInterface } from "node:readline";
 import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchEvents } from "@earendil-works/pi-durable";
 import type { SessionSummary, Settings } from "./api-types.ts";
 import { createApi } from "./api.ts";
+import { removeSandboxesOnArchive } from "./sandbox-cleanup.ts";
 import { sandboxSyncAfterRuns } from "./sandbox-sync.ts";
 import { createLive, monthSpend, readSummary } from "./live.ts";
 import { scheduleArchive } from "./archive.ts";
@@ -96,6 +97,9 @@ const summary = object({
 	state: literal("running", "waiting", "failed", "stopped", "done", "idle"),
 	line: string,
 	cost: optional(number),
+	archived: optional(boolean),
+	sandbox: optional(integer),
+	source: optional(string),
 });
 const serverMessage = object({
 	type: literal("line", "sessions", "settings", "done"),
@@ -245,6 +249,8 @@ export async function serve(config: Config) {
 	// A sandbox session's commits come home when its run ends (src/sandbox-sync.ts).
 	const sandboxSync = sandboxSyncAfterRuns(host, () => config.sandboxes?.afterRun);
 	const stopSandboxSync = live.onRunEnd((summary) => sandboxSync.onRunEnd(summary));
+	// And its sandbox goes when it's archived (src/sandbox-cleanup.ts).
+	const sandboxCleanup = removeSandboxesOnArchive(host);
 	const server = listen(host, socketPath, watchers);
 	console.error(`aludra listening on ${socketPath}, model ${host.model.provider}/${host.model.modelId}`);
 	const stopBackups = scheduleBackups(config);
@@ -260,7 +266,8 @@ export async function serve(config: Config) {
 		stopBackups();
 		stopArchive();
 		stopSandboxSync();
-		await sandboxSync.settled();
+		sandboxCleanup.stop();
+		await Promise.all([sandboxSync.settled(), sandboxCleanup.settled()]);
 		await api?.close();
 		server.close();
 		for (const socket of watchers) socket.destroy();

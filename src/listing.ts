@@ -96,7 +96,8 @@ export const shortPath = (dir: string) => dir.replace(/^\/home\/[^/]+|^\/Users\/
 export function groupSessions(sessions: readonly SessionSummary[]): SessionSummary[][] {
 	const groups = new Map<string, SessionSummary[]>();
 	for (const s of sessions) {
-		const key = s.project === NO_PROJECT ? NO_PROJECT : s.dir;
+		// Sandbox sessions of a project go together, apart from its local ones.
+		const key = s.project === NO_PROJECT ? NO_PROJECT : s.sandbox === undefined ? s.dir : `sandbox:${s.source ?? s.dir}`;
 		groups.set(key, [...(groups.get(key) ?? []), s]);
 	}
 	const rank = (list: SessionSummary[]) => Math.min(...list.map((s) => URGENCY[s.state]));
@@ -141,7 +142,7 @@ export function renderSessions(sessions: readonly SessionSummary[], colors: Read
 	const lines: string[] = [];
 	for (const list of ordered) {
 		const first = list[0]!;
-		const where = first.project === NO_PROJECT ? "scratch" : shortPath(first.dir);
+		const where = first.project === NO_PROJECT ? "scratch" : first.sandbox !== undefined ? `in sandboxes${first.source === undefined ? "" : ` · ${shortPath(first.source)}`}` : shortPath(first.dir);
 		const machine = workspaces.size > 1 ? ` · ${first.workspace}` : "";
 		if (lines.length > 0) lines.push("");
 		lines.push(cut(`${paint.project(first.project, colors, first.project)}  ${paint.ink("dim", where + machine)}`, width));

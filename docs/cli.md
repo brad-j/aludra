@@ -67,7 +67,9 @@ When a sandbox session's run ends, its commits come home by themselves, as `sand
 aludra sync --session ID [--into BRANCH] [--merge]
 ```
 
-Does the same by hand: fetches into `sandbox/N` (or `BRANCH`), and with `--merge` fast-forwards the checked-out branch under the same rules, printing what it did or why not. Uncommitted files in the sandbox are counted, not fetched; ask the session to commit them. If the sandbox rewrote history the branch already has, sync refuses; sync into another branch.
+Archiving a sandbox session deletes its sandbox, once its commits are fetched to `sandbox/N`. A sandbox with uncommitted files is kept, and so is one whose session is still running; the service log says so. After that the session's tools have nowhere to run, and `sync` says the sandbox is gone; start a new sandbox session to keep going. `aludra sessions` lists a project's sandbox sessions as a group of their own, "in sandboxes", under the project's path here.
+
+`sync` does the same by hand: fetches into `sandbox/N` (or `BRANCH`), and with `--merge` fast-forwards the checked-out branch under the same rules, printing what it did or why not. Uncommitted files in the sandbox are counted, not fetched; ask the session to commit them. If the sandbox rewrote history the branch already has, sync refuses; sync into another branch.
 
 Leaving with Ctrl+C doesn't stop the run. To reattach to a follow-up, rerun it with the same `--id REQUEST`: the host finds the message it already has instead of sending it twice, and prints the answer when it comes. Without `--id`, each `ask` gets a fresh one.
 

@@ -60,6 +60,8 @@ export type SessionRecord = {
 	sandbox?: number;
 	/** A sandbox session's project directory on this machine, which its template was made from; context is read there. */
 	source?: string;
+	/** Its sandbox was deleted (src/sandbox-cleanup.ts): its tools have nowhere to run. */
+	sandboxRemoved?: boolean;
 };
 
 /** The project name of a session that isn't in a project (T3 Code's "no project" threads). */
@@ -178,9 +180,9 @@ export async function openHost(options: HostOptions) {
 		{ path: resolve(claudeConfigDir(config), "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
 		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
 	];
-	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; local?: string } | undefined> => {
+	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; local?: string; removed?: true } | undefined> => {
 		const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
-		return record?.sandbox === undefined ? undefined : { sandbox: record.sandbox, dir: record.dir, ...(record.source === undefined ? {} : { local: record.source }) };
+		return record?.sandbox === undefined ? undefined : { sandbox: record.sandbox, dir: record.dir, ...(record.source === undefined ? {} : { local: record.source }), ...(record.sandboxRemoved === true ? { removed: true as const } : {}) };
 	};
 	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places }, (input) => sandboxOf(input))];
 	if (options.models !== undefined && options.model !== undefined) {
@@ -246,6 +248,8 @@ export async function openHost(options: HostOptions) {
 			env: async (target, ctx) => {
 				const { cwd } = target;
 				const sandbox = await sandboxOf(target, ctx);
+				// A throw becomes the call's error result, which the model reads.
+				if (sandbox?.removed === true) throw new Error(`This session's sandbox was deleted when the session was archived, so its tools have nowhere to run. Its commits were fetched to sandbox/${sandbox.sandbox} in the project first. Start a new sandbox session to keep going.`);
 				if (sandbox !== undefined) return sandboxes.env(sandbox.sandbox, cwd ?? sandbox.dir);
 				return new NodeExecutionEnv({ cwd: cwd ?? homedir() });
 			},
@@ -837,6 +841,19 @@ export async function openHost(options: HostOptions) {
 			connected: (n: number) => sandboxes.connected(n),
 			status: sandboxes.status,
 			remove: sandboxes.remove,
+			/** Deletes sandbox session `id`'s sandbox on its host and marks the session; nothing is fetched first. */
+			async forget(id: number): Promise<void> {
+				const record = await get(id);
+				if (record?.sandbox === undefined || record.sandboxRemoved === true) return;
+				await sandboxes.remove(record.sandbox);
+				const marked = await root.commit(async (tx) => {
+					const found = (await tx.doc(Sessions)).sessions[String(id)];
+					if (found === undefined) return undefined;
+					found.sandboxRemoved = true;
+					return { ...found };
+				}, context);
+				if (marked !== undefined) updated.forEach((listener) => listener(marked));
+			},
 			/**
 			 * Fetches sandbox session `id`'s commits into its project's local checkout, as `into` (default sandbox/<n>);
 			 * with `merge`, then fast-forwards the checked-out branch to them when that's safe (src/sandboxes.ts).
@@ -845,6 +862,7 @@ export async function openHost(options: HostOptions) {
 				const record = await get(id);
 				if (record === undefined) throw new Error(`no session ${id}`);
 				if (record.sandbox === undefined) throw new Error(`session ${id} isn't in a sandbox`);
+				if (record.sandboxRemoved === true) throw new Error(`session ${id}'s sandbox was deleted when it was archived; its commits were fetched then`);
 				if (record.source === undefined) throw new Error(`session ${id} has no project to sync into`);
 				const synced = await sandboxes.sync(record.sandbox, record.dir, record.source, into);
 				if (options.merge !== true) return synced;

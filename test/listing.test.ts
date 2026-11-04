@@ -91,3 +91,13 @@ test("OKLCH converts to sRGB as CSS does", () => {
 	// oklch(62.8% 0.2577 29.23) is CSS red.
 	assert.deepEqual(oklchToRgb([0.628, 0.2577, 29.23]), [255, 0, 0]);
 });
+
+test("a project's sandbox sessions list apart from its local ones, under the project's own path", () => {
+	const lines = renderSessions([
+		session(5, "raken", "done", 3),
+		session(6, "raken", "done", 2, { dir: "/home/user/work/raken", sandbox: 1, source: "/home/someone/code/raken" }),
+		session(7, "raken", "done", 1, { dir: "/home/user/work/raken", sandbox: 2, source: "/home/someone/code/raken" }),
+	], {}, { depth: 1, width: 60 }, now);
+	assert.deepEqual(lines.filter((l) => !l.startsWith(" ") && l !== ""), ["raken  in sandboxes · ~/code/raken", "raken  ~/code/raken"]);
+	assert.ok(lines.indexOf("raken  in sandboxes · ~/code/raken") < lines.findIndex((l) => l.includes("session 5")), "the newer group first");
+});
