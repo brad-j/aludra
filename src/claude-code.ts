@@ -86,7 +86,7 @@ export function claudeCodeProvider(inner: Provider) {
 		const cwd = options?.sessionId === undefined ? undefined : cwds.get(options.sessionId);
 		const before = process.cwd();
 		try {
-			// An orb session's directory is on the orb, not here; Claude Code then runs from the host's directory.
+			// A sandbox session's directory is on the sandbox, not here; Claude Code then runs from the host's directory.
 			if (cwd !== undefined && existsSync(cwd)) process.chdir(cwd);
 			return inner.streamSimple(model, context, options);
 		} finally {

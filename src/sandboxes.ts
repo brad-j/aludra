@@ -1,15 +1,15 @@
-// Orbs (spike): sessions whose tools run in a stedding orb, a Firecracker microVM on another machine, through pi-env's
+// Sandboxes (spike): sessions whose tools run in a stedding sandbox, a Firecracker microVM on another machine, through pi-env's
 // daemon over SSH. The agent loop, the transcript and the model stay here.
 //
-// Each orb session gets its own orb, made from its project's template: the base image with the project cloned and its
+// Each sandbox session gets its own sandbox, made from its project's template: the base image with the project cloned and its
 // dependencies installed, saved once and reused for 24 hours or until the project's commit changes. Everything on the
-// orb host goes through one restricted key whose authorized_keys line forces `stedding gate`, which allows only
-// `new`, `save`, `connect`, `rm`, `status` and `templates` with plain arguments. The orb's own SSH runs through
-// `connect N`, which resumes a paused orb before relaying, so a tool call wakes it.
+// sandbox host goes through one restricted key whose authorized_keys line forces `stedding gate`, which allows only
+// `new`, `save`, `connect`, `rm`, `status` and `templates` with plain arguments. The sandbox's own SSH runs through
+// `connect N`, which resumes a paused sandbox before relaying, so a tool call wakes it.
 //
-// A connection with nothing in flight for `idleMs` is closed, so the host's reaper can pause the orb. Closing ends the
+// A connection with nothing in flight for `idleMs` is closed, so the host's reaper can pause the sandbox. Closing ends the
 // pi-env daemon, which kills the process groups it started; a process started with setsid survives, and pauses and
-// resumes with the orb.
+// resumes with the sandbox.
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,18 +18,18 @@ import { BACKGROUND_CONTEXT as BACKGROUND } from "@earendil-works/chord/context"
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { type Connection, RemoteExecutionEnv, type SshConnectOptions, sshConnection } from "@earendil-works/pi-env";
 
-/** An orb host: where stedding runs, reached with a key restricted to `stedding gate`. */
-export type OrbHost = {
-	/** SSH destination of the orb host, e.g. `ubuntu@matrim`. */
+/** A sandbox host: where stedding runs, reached with a key restricted to `stedding gate`. */
+export type SandboxHost = {
+	/** SSH destination of the sandbox host, e.g. `ubuntu@matrim`. */
 	ssh: string;
-	/** The restricted key for the orb host. */
+	/** The restricted key for the sandbox host. */
 	gateKey: string;
-	/** Known hosts for the orb host, checked strictly. */
+	/** Known hosts for the sandbox host, checked strictly. */
 	hostKnownHosts: string;
-	/** The key orbs accept for `user` (stedding's own), and the orbs' host key, as one known-hosts line's key part. */
-	orbKey: string;
-	orbHostKey: string;
-	/** Where this machine keeps orbs' known-hosts files. */
+	/** The key sandboxes accept for `user` (stedding's own), and the sandboxes' host key, as one known-hosts line's key part. */
+	sandboxKey: string;
+	sandboxHostKey: string;
+	/** Where this machine keeps sandboxes' known-hosts files. */
 	dataDir: string;
 };
 
@@ -55,32 +55,32 @@ export function templateName(project: string, commit: string): string {
 	return `${project.replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[^A-Za-z0-9]+/, "p")}-${commit.slice(0, 12)}`;
 }
 
-export function createOrbs(host: OrbHost | undefined, options: { idleMs?: number; connect?: (orb: number, target: SshConnectOptions) => Connection } = {}) {
+export function createSandboxes(host: SandboxHost | undefined, options: { idleMs?: number; connect?: (sandbox: number, target: SshConnectOptions) => Connection } = {}) {
 	const idleMs = options.idleMs ?? 60_000;
 	const live = new Map<number, Live>();
 	const making = new Map<string, Promise<string>>();
 
-	function need(): OrbHost {
-		if (host === undefined) throw new Error("no orb host in the settings");
+	function need(): SandboxHost {
+		if (host === undefined) throw new Error("no sandbox host in the settings");
 		return host;
 	}
 
-	/** Runs a stedding command on the orb host through the gate. */
+	/** Runs a stedding command on the sandbox host through the gate. */
 	function stedding(...words: string[]): Promise<string> {
 		const h = need();
 		return run("ssh", ["-T", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-i", h.gateKey, "-o", `UserKnownHostsFile=${h.hostKnownHosts}`, "-o", "StrictHostKeyChecking=yes", h.ssh, words.join(" ")]);
 	}
 
-	/** The SSH target for orb `n`: its own known-hosts file holding the image's host key, reached through `connect`. */
+	/** The SSH target for sandbox `n`: its own known-hosts file holding the image's host key, reached through `connect`. */
 	async function target(n: number): Promise<SshConnectOptions> {
 		const h = need();
-		const alias = `stedding-orb-${n}`;
-		const knownHosts = join(h.dataDir, `orb-${n}.known_hosts`);
-		await writeFile(knownHosts, `${alias} ${h.orbHostKey}\n`, { mode: 0o600 });
-		const config = join(h.dataDir, `orb-${n}.ssh_config`);
+		const alias = `stedding-sandbox-${n}`;
+		const knownHosts = join(h.dataDir, `sandbox-${n}.known_hosts`);
+		await writeFile(knownHosts, `${alias} ${h.sandboxHostKey}\n`, { mode: 0o600 });
+		const config = join(h.dataDir, `sandbox-${n}.ssh_config`);
 		const proxy = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-i", h.gateKey, "-o", `UserKnownHostsFile=${h.hostKnownHosts}`, "-o", "StrictHostKeyChecking=yes", h.ssh, "connect", String(n)].join(" ");
 		await writeFile(config, `Host ${alias}\n\tHostName ${alias}\n\tUser user\n\tProxyCommand ${proxy}\n`, { mode: 0o600 });
-		return { host: alias, configFile: config, identityFile: h.orbKey, knownHostsFile: knownHosts, hostKeyAlias: alias };
+		return { host: alias, configFile: config, identityFile: h.sandboxKey, knownHostsFile: knownHosts, hostKeyAlias: alias };
 	}
 
 	function close(n: number) {
@@ -100,7 +100,7 @@ export function createOrbs(host: OrbHost | undefined, options: { idleMs?: number
 		entry.timer.unref();
 	}
 
-	/** The connection to orb `n`, made on first use; the SSH target is written then. */
+	/** The connection to sandbox `n`, made on first use; the SSH target is written then. */
 	function connection(n: number): Connection {
 		const found = live.get(n);
 		if (found !== undefined) return found.connection;
@@ -109,7 +109,7 @@ export function createOrbs(host: OrbHost | undefined, options: { idleMs?: number
 		let starting: Promise<Connection> | undefined;
 		const start = () => (starting ??= (async () => {
 			const t = await target(n);
-			inner = connect !== undefined ? connect(n, t) : sshConnection({ ...t, onLog: (text) => console.error(`[orb ${n}] ${text.trimEnd()}`) }).connection;
+			inner = connect !== undefined ? connect(n, t) : sshConnection({ ...t, onLog: (text) => console.error(`[sandbox ${n}] ${text.trimEnd()}`) }).connection;
 			return inner;
 		})());
 		// A Connection whose requests wait for the target to be written; counts requests so it closes only between them.
@@ -137,7 +137,7 @@ export function createOrbs(host: OrbHost | undefined, options: { idleMs?: number
 	}
 
 	/**
-	 * The template for `project`'s current commit, made if missing or older than a day: a fresh orb clones the project
+	 * The template for `project`'s current commit, made if missing or older than a day: a fresh sandbox clones the project
 	 * from a bundle, runs `.agents/setup` if the project has one, else installs with the lockfile's package manager,
 	 * and is saved. Concurrent calls for one template share the work.
 	 */
@@ -199,7 +199,7 @@ export function createOrbs(host: OrbHost | undefined, options: { idleMs?: number
 		}
 	}
 
-	/** An environment on orb `n` once it answers. */
+	/** An environment on sandbox `n` once it answers. */
 	async function prepared(n: number): Promise<ExecutionEnv> {
 		const env = new RemoteExecutionEnv({ connection: connection(n), id: `stedding:${n}`, cwd: "/home/user" });
 		const ready = await env.exists("/home/user", BACKGROUND);
@@ -209,25 +209,25 @@ export function createOrbs(host: OrbHost | undefined, options: { idleMs?: number
 
 	return {
 		configured: () => host !== undefined,
-		/** A new orb for a session: from `project`'s template, or the base image with none. Returns its number. */
-		async create(project?: ProjectSource, onProgress?: (line: string) => void): Promise<{ orb: number; dir: string }> {
-			if (project === undefined) return { orb: Number((await stedding("new")).trim()), dir: "/home/user" };
+		/** A new sandbox for a session: from `project`'s template, or the base image with none. Returns its number. */
+		async create(project?: ProjectSource, onProgress?: (line: string) => void): Promise<{ sandbox: number; dir: string }> {
+			if (project === undefined) return { sandbox: Number((await stedding("new")).trim()), dir: "/home/user" };
 			const name = await template(project, onProgress);
-			return { orb: Number((await stedding("new", "--template", name)).trim()), dir: `/home/user/work/${project.name}` };
+			return { sandbox: Number((await stedding("new", "--template", name)).trim()), dir: `/home/user/work/${project.name}` };
 		},
-		/** The environment for a session on orb `n` working in `cwd`; equal ids see the same files. */
+		/** The environment for a session on sandbox `n` working in `cwd`; equal ids see the same files. */
 		env(n: number, cwd: string): ExecutionEnv {
 			return new RemoteExecutionEnv({ connection: connection(n), id: `stedding:${n}`, cwd });
 		},
-		/** Deletes orb `n` on its host. */
+		/** Deletes sandbox `n` on its host. */
 		async remove(n: number): Promise<void> {
 			close(n);
 			await stedding("rm", String(n));
 		},
 		status: (n: number) => stedding("status", String(n)).then((s) => s.trim()),
-		/** Whether this process holds a connection to orb `n`. */
+		/** Whether this process holds a connection to sandbox `n`. */
 		connected: (n: number) => live.has(n),
-		/** Drops orb `n`'s connection, or all, as being idle would. */
+		/** Drops sandbox `n`'s connection, or all, as being idle would. */
 		close(n?: number) {
 			if (n !== undefined) close(n);
 			else for (const k of Array.from(live.keys())) close(k);
@@ -235,7 +235,7 @@ export function createOrbs(host: OrbHost | undefined, options: { idleMs?: number
 	};
 }
 
-export type Orbs = ReturnType<typeof createOrbs>;
+export type Sandboxes = ReturnType<typeof createSandboxes>;
 
 
 function shellQuote(text: string): string {

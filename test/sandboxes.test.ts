@@ -5,14 +5,14 @@ import { join } from "node:path";
 import test from "node:test";
 import { Connection, localDaemon } from "@earendil-works/pi-env";
 import { context } from "../src/host.ts";
-import { createOrbs, templateName } from "../src/orbs.ts";
+import { createSandboxes, templateName } from "../src/sandboxes.ts";
 
-test("an orb's connection opens on first use, stays open while a command runs, and closes once idle", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "aludra-orbs-"));
+test("a sandbox's connection opens on first use, stays open while a command runs, and closes once idle", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "aludra-sandboxes-"));
 	const opened: number[] = [];
-	// pi-env's daemon on this machine stands in for an orb: the same protocol, without SSH.
-	const host = { ssh: "unused", gateKey: "/dev/null", hostKnownHosts: "/dev/null", orbKey: "/dev/null", orbHostKey: "ssh-ed25519 AAAA", dataDir: dir };
-	const orbs = createOrbs(host, {
+	// pi-env's daemon on this machine stands in for a sandbox: the same protocol, without SSH.
+	const host = { ssh: "unused", gateKey: "/dev/null", hostKnownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA", dataDir: dir };
+	const sandboxes = createSandboxes(host, {
 		idleMs: 300,
 		connect: (n) => {
 			opened.push(n);
@@ -20,26 +20,26 @@ test("an orb's connection opens on first use, stays open while a command runs, a
 		},
 	});
 	try {
-		assert.equal(orbs.connected(3), false);
-		const env = orbs.env(3, dir);
-		assert.equal(orbs.connected(3), true, "an environment holds a connection");
+		assert.equal(sandboxes.connected(3), false);
+		const env = sandboxes.env(3, dir);
+		assert.equal(sandboxes.connected(3), true, "an environment holds a connection");
 
 		// A command longer than the idle time keeps the connection open.
 		let out = "";
 		const result = await env.exec("sleep 0.6 && echo done", { onOutput: (t) => (out += t) }, context);
 		assert.ok(result.ok && result.value.exitCode === 0);
 		assert.equal(out.trim(), "done");
-		assert.equal(orbs.connected(3), true, "still open right after the command");
+		assert.equal(sandboxes.connected(3), true, "still open right after the command");
 
 		await new Promise((resolve) => setTimeout(resolve, 500));
-		assert.equal(orbs.connected(3), false, "closed after the idle time with nothing in flight");
+		assert.equal(sandboxes.connected(3), false, "closed after the idle time with nothing in flight");
 
 		// The next use opens a new connection.
-		const again = orbs.env(3, dir);
+		const again = sandboxes.env(3, dir);
 		assert.ok((await again.writeFile("x.txt", "hello", context)).ok);
 		assert.deepEqual(opened, [3, 3]);
 	} finally {
-		orbs.close();
+		sandboxes.close();
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
@@ -51,8 +51,8 @@ test("template names are safe for stedding and follow the commit", () => {
 	assert.match(templateName("a b/c", "f00"), /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
 });
 
-test("without an orb host, orbs refuse to make one", async () => {
-	const orbs = createOrbs(undefined);
-	assert.equal(orbs.configured(), false);
-	await assert.rejects(orbs.create(), /no orb host/);
+test("without a sandbox host, sandboxes refuse to make one", async () => {
+	const sandboxes = createSandboxes(undefined);
+	assert.equal(sandboxes.configured(), false);
+	await assert.rejects(sandboxes.create(), /no sandbox host/);
 });

@@ -11,7 +11,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, type EntryId, Harness, type Extension, type ModelRef } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { createOrbs } from "./orbs.ts";
+import { createSandboxes } from "./sandboxes.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice, Settings } from "./api-types.ts";
@@ -56,9 +56,9 @@ export type SessionRecord = {
 	baseError?: string;
 	/** A no-project session: `dir` is its own scratch directory, and `project` is NO_PROJECT. */
 	scratch?: boolean;
-	/** An orb session (spike): its tools run on this orb, by its number on the orb host, and `dir` is a directory there. */
-	orb?: number;
-	/** An orb session's project directory on this machine, which its template was made from; context is read there. */
+	/** A sandbox session (spike): its tools run on this sandbox, by its number on the sandbox host, and `dir` is a directory there. */
+	sandbox?: number;
+	/** A sandbox session's project directory on this machine, which its template was made from; context is read there. */
 	source?: string;
 };
 
@@ -178,11 +178,11 @@ export async function openHost(options: HostOptions) {
 		{ path: resolve(claudeConfigDir(config), "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
 		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
 	];
-	const orbOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ orb: number; dir: string; local?: string } | undefined> => {
+	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; local?: string } | undefined> => {
 		const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
-		return record?.orb === undefined ? undefined : { orb: record.orb, dir: record.dir, ...(record.source === undefined ? {} : { local: record.source }) };
+		return record?.sandbox === undefined ? undefined : { sandbox: record.sandbox, dir: record.dir, ...(record.source === undefined ? {} : { local: record.source }) };
 	};
-	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places }, (input) => orbOf(input))];
+	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places }, (input) => sandboxOf(input))];
 	if (options.models !== undefined && options.model !== undefined) {
 		models = options.models;
 		model = options.model;
@@ -216,15 +216,15 @@ export async function openHost(options: HostOptions) {
 	const real = options.models === undefined && options.claudeCode === undefined && config.model.provider !== "faux";
 	const titler = options.titler ?? (real ? modelTitler(models, titleModels(models, config)) : undefined);
 
-	const orbDir = resolve(config.dataDir, "orbs");
-	mkdirSync(orbDir, { recursive: true, mode: 0o700 });
-	const orbs = createOrbs(config.orbs === undefined ? undefined : {
-		ssh: config.orbs.ssh,
-		gateKey: config.orbs.gateKey,
-		hostKnownHosts: config.orbs.knownHosts,
-		orbKey: config.orbs.orbKey,
-		orbHostKey: config.orbs.orbHostKey,
-		dataDir: orbDir,
+	const sandboxDir = resolve(config.dataDir, "sandboxes");
+	mkdirSync(sandboxDir, { recursive: true, mode: 0o700 });
+	const sandboxes = createSandboxes(config.sandboxes === undefined ? undefined : {
+		ssh: config.sandboxes.ssh,
+		gateKey: config.sandboxes.gateKey,
+		hostKnownHosts: config.sandboxes.knownHosts,
+		sandboxKey: config.sandboxes.sandboxKey,
+		sandboxHostKey: config.sandboxes.sandboxHostKey,
+		dataDir: sandboxDir,
 	});
 	let approvals: ApprovalService | undefined;
 	let opened: Harness | undefined;
@@ -245,8 +245,8 @@ export async function openHost(options: HostOptions) {
 			...(options.compaction === undefined ? {} : { settings: { compaction: options.compaction } }),
 			env: async (target, ctx) => {
 				const { cwd } = target;
-				const orb = await orbOf(target, ctx);
-				if (orb !== undefined) return orbs.env(orb.orb, cwd ?? orb.dir);
+				const sandbox = await sandboxOf(target, ctx);
+				if (sandbox !== undefined) return sandboxes.env(sandbox.sandbox, cwd ?? sandbox.dir);
 				return new NodeExecutionEnv({ cwd: cwd ?? homedir() });
 			},
 			onReport: (error) => console.error("[report]", error),
@@ -423,13 +423,13 @@ export async function openHost(options: HostOptions) {
 	}
 
 	/**
-	 * A session in an orb of its own (spike), made from `project`'s template (src/orbs.ts), or a bare orb with no
-	 * project. Its tools run on the orb; its model and transcript stay here. No changes view or checkpoints, which read
+	 * A session in a sandbox of its own (spike), made from `project`'s template (src/sandboxes.ts), or a bare sandbox with no
+	 * project. Its tools run on the sandbox; its model and transcript stay here. No changes view or checkpoints, which read
 	 * files on this machine. The first session of a project at a new commit waits while its template is made.
 	 */
-	async function createOrb(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, onProgress?: (line: string) => void): Promise<SessionRecord> {
-		if (!orbs.configured()) throw new Error("no orb host in the settings (orbs)");
-		const { orb, dir } = await orbs.create(project === undefined ? undefined : { name: project.name, dir: project.dir }, onProgress);
+	async function createSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, onProgress?: (line: string) => void): Promise<SessionRecord> {
+		if (!sandboxes.configured()) throw new Error("no sandbox host in the settings (sandboxes)");
+		const { sandbox, dir } = await sandboxes.create(project === undefined ? undefined : { name: project.name, dir: project.dir }, onProgress);
 		let record: SessionRecord | undefined;
 		await harness.createConversation({
 			ownership: { kind: "ownerless" },
@@ -442,8 +442,8 @@ export async function openHost(options: HostOptions) {
 					dir,
 					title: prompt.split("\n")[0]!.slice(0, 80),
 					createdAt: Date.now(),
-					baseError: "An orb session's files are on the orb.",
-					orb,
+					baseError: "A sandbox session's files are on the sandbox.",
+					sandbox,
 					...(project === undefined ? {} : { source: project.dir }),
 				};
 				(await tx.doc(Sessions)).sessions[String(id)] = record;
@@ -831,9 +831,9 @@ export async function openHost(options: HostOptions) {
 		catalog: () => catalog.list(),
 		modelInfo,
 		projects,
-		/** Orb connections (spike): `close()` drops them, as being idle would, so the orb's host may pause it. */
-		orbs: { close: (n?: number) => orbs.close(n), connected: (n: number) => orbs.connected(n), status: orbs.status, remove: orbs.remove },
-		sessions: { list, get, create, createScratch, createOrb, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
+		/** Sandbox connections (spike): `close()` drops them, as being idle would, so the sandbox's host may pause it. */
+		sandboxes: { close: (n?: number) => sandboxes.close(n), connected: (n: number) => sandboxes.connected(n), status: sandboxes.status, remove: sandboxes.remove },
+		sessions: { list, get, create, createScratch, createSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		checkpoints: {
 			list: checkpoints.list,
 			changes: checkpoints.changes,
@@ -878,7 +878,7 @@ export async function openHost(options: HostOptions) {
 			await caughtUp;
 			await harness.close(context);
 			searchIndex.close();
-			orbs.close();
+			sandboxes.close();
 		},
 	};
 }

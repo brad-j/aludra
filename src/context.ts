@@ -38,34 +38,34 @@ export function noProjectSection(cwd: string, places: readonly Place[]): string 
 	].join("\n");
 }
 
-/** Where an orb session (spike) runs, said to it in its system prompt; Claude Code names the host's directory otherwise. */
-export function orbSection(orb: { orb: number; dir: string }): string {
+/** Where a sandbox session (spike) runs, said to it in its system prompt; Claude Code names the host's directory otherwise. */
+export function sandboxSection(sandbox: { sandbox: number; dir: string }): string {
 	return [
-		`This session runs in an orb: a disposable Linux VM of its own (Ubuntu 26.04, user \`user\` with sudo), orb ${orb.orb}.`,
-		`Your tools run there, and your working directory is ${orb.dir} in the orb. Any other working directory or machine named elsewhere in this prompt is where the agent loop runs, which your tools can't reach.`,
-		"The orb reaches the internet and nothing else: not the LAN, not the tailnet, not other machines at home. It has no credentials: it can't push, and git remotes are unset. The project's commits stay in the orb until the user fetches them.",
-		"A process started with `setsid` outlives your command and keeps running while the orb is paused between turns; anything else you start ends with the command.",
+		`This session runs in a sandbox: a disposable Linux VM of its own (Ubuntu 26.04, user \`user\` with sudo), sandbox ${sandbox.sandbox}.`,
+		`Your tools run there, and your working directory is ${sandbox.dir} in the sandbox. Any other working directory or machine named elsewhere in this prompt is where the agent loop runs, which your tools can't reach.`,
+		"The sandbox reaches the internet and nothing else: not the LAN, not the tailnet, not other machines at home. It has no credentials: it can't push, and git remotes are unset. The project's commits stay in the sandbox until the user fetches them.",
+		"A process started with `setsid` outlives your command and keeps running while the sandbox is paused between turns; anything else you start ends with the command.",
 	].join("\n");
 }
 
 /**
- * The project's AGENTS.md and skills, the no-project section, and an orb session's own section. `orbOf` tells an orb
- * session's orb and the local checkout its project context is read from (the orb's copy is at the same commit).
+ * The project's AGENTS.md and skills, the no-project section, and a sandbox session's own section. `sandboxOf` tells a sandbox
+ * session's sandbox and the local checkout its project context is read from (the sandbox's copy is at the same commit).
  */
-export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot: string; places: () => readonly Place[] }, orbOf?: (input: PromptInput) => Promise<{ orb: number; dir: string; local?: string } | undefined>) {
+export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot: string; places: () => readonly Place[] }, sandboxOf?: (input: PromptInput) => Promise<{ sandbox: number; dir: string; local?: string } | undefined>) {
 	const inScratch = (cwd: string | undefined) => noProject !== undefined && cwd !== undefined && cwd.startsWith(noProject.scratchRoot + "/");
-	/** Where this session's project context is read: its own directory, or an orb session's local checkout. */
+	/** Where this session's project context is read: its own directory, or a sandbox session's local checkout. */
 	const contextDir = async (input: PromptInput): Promise<string | undefined> => {
-		const orb = await orbOf?.(input);
-		if (orb !== undefined) return orb.local ?? agentDir;
+		const sandbox = await sandboxOf?.(input);
+		if (sandbox !== undefined) return sandbox.local ?? agentDir;
 		return input.agent.cwd;
 	};
 	return defineExtension({
 		name: "project-context",
 		sections: [
-			section("orb", async (input) => {
-				const orb = await orbOf?.(input);
-				return orb === undefined ? undefined : orbSection(orb);
+			section("sandbox", async (input) => {
+				const sandbox = await sandboxOf?.(input);
+				return sandbox === undefined ? undefined : sandboxSection(sandbox);
 			}),
 			section("no_project", ({ agent }) => (inScratch(agent.cwd) ? noProjectSection(agent.cwd!, noProject!.places()) : undefined)),
 			section("project_context", async (input) => {
