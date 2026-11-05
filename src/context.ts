@@ -46,14 +46,13 @@ export function sandboxSection(sandbox: { sandbox: number; dir: string; scratch?
 		`Your tools run there, and your working directory is ${sandbox.dir} in the sandbox. Any other working directory or machine named elsewhere in this prompt is where the agent loop runs, which your tools can't reach.`,
 		"The sandbox reaches the internet and nothing else: not the LAN, not the tailnet, not other machines at home. It has no credentials: it can't push, and git remotes are unset. Commit your work as you go: your commits come home by themselves as a branch in the user's checkout when your reply ends, and the user lands them with Ship in their app. So never tell them to fetch, push, merge or copy anything.",
 		"A process started with `setsid` outlives your command and keeps running while the sandbox is paused between turns; anything else you start ends with the command.",
-		"",
-		...RESULT_INSTRUCTIONS,
 	].join("\n");
 }
 
 /**
- * How a sandbox session reports its work (src/results.ts): the user judges it from a result page without reading the
- * code, so each reply ends with a `result` block, and a plan is kept as a `plan` block while the work goes on.
+ * How a session reports its work (src/results.ts), in every session's prompt, on this machine or in a sandbox: the user
+ * judges it from a result page without reading the code, so each reply ends with a `result` block, and a plan is kept as
+ * a `plan` block while the work goes on.
  */
 export const RESULT_INSTRUCTIONS = [
 	"The user judges your work from a result page, without reading the code. Two fenced blocks feed it; the app hides them from the conversation, so write your answer as usual around them.",
@@ -66,7 +65,8 @@ export const RESULT_INSTRUCTIONS = [
 ];
 
 /**
- * The project's AGENTS.md and skills, the no-project section, and a sandbox session's own section. `sandboxOf` tells a sandbox
+ * The project's AGENTS.md and skills, the no-project section, a sandbox session's own section, and the result
+ * instructions, which every session gets. `sandboxOf` tells a sandbox
  * session's sandbox and the local checkout its project context is read from (the sandbox's copy is at the same commit).
  */
 export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot: string; places: () => readonly Place[] }, sandboxOf?: (input: PromptInput) => Promise<{ sandbox: number; dir: string; local?: string } | undefined>) {
@@ -84,6 +84,9 @@ export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot
 				const sandbox = await sandboxOf?.(input);
 				return sandbox === undefined ? undefined : sandboxSection(sandbox);
 			}),
+			// Every session, a project's or not, on this machine or in a sandbox: task.result reads the plan and the question
+			// from any conversation, and a question's options are as useful without a project.
+			section("results", () => RESULT_INSTRUCTIONS.join("\n")),
 			section("no_project", ({ agent }) => (inScratch(agent.cwd) ? noProjectSection(agent.cwd!, noProject!.places()) : undefined)),
 			section("project_context", async (input) => {
 				const dir = await contextDir(input);

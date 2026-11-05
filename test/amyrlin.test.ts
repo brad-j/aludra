@@ -818,6 +818,24 @@ test("a sandbox task's result: what it said, its checks run in the sandbox, its 
 	assert.deepEqual((await mac.request("task.code", { conversationId: local })).changes.files, [], "a local session's own changes, none yet");
 });
 
+test("every session's prompt asks for the plan and result blocks: on this machine, in no project, and in a sandbox", async (t) => {
+	const { url, host, project, prompts } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const promptOf = async (params: Json) => {
+		const from = prompts.length;
+		const id = (await mac.request("conversations.create", { requestId: `p${from}`, ...params })).conversation.id;
+		if (params.sandbox === true) await host.sandboxes.prepared(id);
+		await waitFor(() => prompts.length > from, "a request");
+		return prompts[from]!;
+	};
+	for (const params of [{ project: project.dir, text: "hi" }, { text: "hi" }, { project: project.dir, text: "hi", sandbox: true }]) {
+		const prompt = await promptOf(params);
+		assert.match(prompt, /```plan/, JSON.stringify(params));
+		assert.match(prompt, /```result/, JSON.stringify(params));
+		assert.match(prompt, /options become buttons/, JSON.stringify(params));
+	}
+});
+
 test("task.code for a session on this machine is its changes since it started, and one file's patch", async (t) => {
 	const { url, host, project } = await sandboxApi(t);
 	const mac = await client(t, url);

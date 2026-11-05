@@ -121,11 +121,12 @@ test("a task's line says the step it's on, what it asks, or how its checks and s
 	assert.equal(taskLine({ running: false }), undefined);
 });
 
-test("the sandbox section asks for the plan and result blocks, and the ship prompt for its question", () => {
+test("the result instructions ask for the plan and result blocks, outside the sandbox section, and the ship prompt for its question", () => {
 	const section = sandboxSection({ sandbox: 3, dir: "/home/user/work/one" });
-	for (const line of RESULT_INSTRUCTIONS) assert.ok(section.includes(line));
-	assert.match(section, /```plan/);
-	assert.match(section, /```result/);
+	const instructions = RESULT_INSTRUCTIONS.join("\n");
+	assert.doesNotMatch(section, /```result/, "the results section carries them, for every session");
+	assert.match(instructions, /```plan/);
+	assert.match(instructions, /```result/);
 	assert.match(shipPrompt("origin/main", "0123456789abcdef"), /SHIP-BLOCKED[\s\S]*result block[\s\S]*options/);
 });
 
@@ -133,7 +134,7 @@ test("the sandbox section says the work comes home and ships from the app, so th
 	const section = sandboxSection({ sandbox: 3, dir: "/home/user/work/one" });
 	assert.match(section, /come home by themselves/);
 	assert.match(section, /never tell them to fetch, push, merge/);
-	assert.match(section, /headsUp is for things about the work itself/);
+	assert.match(RESULT_INSTRUCTIONS.join("\n"), /headsUp is for things about the work itself/);
 	assert.doesNotMatch(section, /until the user fetches them/);
 });
 

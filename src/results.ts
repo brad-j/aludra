@@ -1,5 +1,5 @@
-// A sandbox session's result: what its latest turn did, in plain words, for someone who judges the work without reading
-// the code (amyrlin's protocol section 10 item 19, "Results"). The agent is asked, in its prompt's sandbox section
+// A session's result: what its latest turn did, in plain words, for someone who judges the work without reading
+// the code (amyrlin's protocol section 10 item 19, "Results"). The agent is asked, in its prompt's results section
 // (src/context.ts), to end each reply with a fenced `result` block of JSON and to keep a `plan` checklist block while it
 // works; the host reads them from the transcript when asked, so nothing is stored for them. What the agent can't be
 // trusted to say comes from elsewhere: checks from the project's declared commands, run in the sandbox once the run
