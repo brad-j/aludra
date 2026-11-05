@@ -58,7 +58,8 @@ export function fakeClaudeCode(responses: FauxResponseStep[]) {
 export async function testHost(t: TestContext, options: Omit<HostOptions, "config"> & { approvalHosts?: string[]; settingsFile?: boolean; settings?: Record<string, unknown>; dir?: string } = {}) {
 	const dir = options.dir ?? tempDir(t);
 	const text = JSON.stringify({ dataDir: join(dir, "data"), workspaces: [{ name: "test", roots: [join(dir, "Projects", "*", "*")] }], approvals: { hosts: options.approvalHosts ?? ["build-box"] }, ...options.settings }, null, "\t");
-	const { config } = configFor(text, {});
+	// The scripted faux model unless a test brings its own models or Claude Code, so no test needs claude on PATH.
+	const { config } = configFor(text, options.models === undefined && options.claudeCode === undefined ? { ALUDRA_MODEL: "faux" } : {});
 	if (options.settingsFile === true) {
 		config.file = join(dir, "config.json");
 		writeFileSync(config.file, text);
