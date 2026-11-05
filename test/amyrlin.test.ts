@@ -11,7 +11,8 @@ import { UsageDoc } from "@earendil-works/pi-durable";
 import { WebSocket } from "ws";
 import { createApi } from "../src/api.ts";
 import { type Json, translateFixture } from "../src/amyrlin/translate.ts";
-import { context, conversationId, type HostOptions } from "../src/host.ts";
+import { configFor } from "../src/config.ts";
+import { context, conversationId, type HostOptions, openHost } from "../src/host.ts";
 import { PAGE_CSP, Pages } from "../src/pages.ts";
 import { removeSandboxesOnArchive } from "../src/sandbox-cleanup.ts";
 import type { Sandboxes } from "../src/sandboxes.ts";
@@ -834,6 +835,44 @@ test("every session's prompt asks for the plan and result blocks: on this machin
 		assert.match(prompt, /```result/, JSON.stringify(params));
 		assert.match(prompt, /options become buttons/, JSON.stringify(params));
 	}
+});
+
+test("with ALUDRA_SANDBOXES=fake the host serves local sandboxes, and the faux model answers plan and question", async (t) => {
+	const root = tempDir(t);
+	const { project } = gitProject(root, "one");
+	// The host's own faux model and its own fake sandboxes, as aludra serve makes them.
+	const { config } = configFor(JSON.stringify({ dataDir: join(root, "data"), workspaces: [{ name: "test", roots: [join(root, "Projects", "*", "*")] }] }), { ALUDRA_MODEL: "faux", ALUDRA_SANDBOXES: "fake" });
+	const host = await openHost({ config, agentDir: join(root, "agent") });
+	t.after(() => host.close());
+	host.resume();
+	const server = createApi(host, { users: [USER], name: "test-host", checkoutMs: 100 });
+	await new Promise<void>((resolve) => server.listen(0, resolve));
+	t.after(() => server.close());
+	const mac = await client(t, `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin`);
+	const info = await mac.request("host.info");
+	assert.deepEqual(info.sandboxes, { shipTo: "main", afterRun: "fetch", approvals: "off" });
+	assert.equal(info.projects[0].checkout.sandboxes, true);
+
+	const id = (await mac.request("conversations.create", { requestId: "f", project: project.dir, text: "make a plan", sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(id);
+	const record = await host.sessions.get(id);
+	assert.equal(record?.sandbox, 0);
+	assert.ok(record!.dir.startsWith(join(root, "data", "fake-sandboxes")), "the sandbox is a clone in the data directory");
+	await waitFor(async () => (await mac.request("task.result", { conversationId: id })).result?.plan?.length === 3, "the plan while it runs");
+	const running = (await mac.request("task.result", { conversationId: id })).result;
+	assert.deepEqual(running.plan.map((s: Json) => s.done), [true, false, false]);
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle", "the run", 15000);
+	const planned = (await mac.request("task.result", { conversationId: id })).result;
+	assert.deepEqual(planned.plan.map((s: Json) => s.done), [true, true, true]);
+	assert.equal(planned.summary, "Read the project and looked around its directory.");
+	assert.deepEqual([planned.changes, planned.headsUp], [[], []]);
+
+	await mac.request("submit", { conversationId: id, requestId: "q", text: "ask me a question" });
+	await waitFor(async () => (await mac.request("task.result", { conversationId: id })).result?.question !== undefined, "the question");
+	const asked = (await mac.request("task.result", { conversationId: id })).result;
+	assert.equal(asked.question.text, "Which layout should the list use?");
+	assert.ok(asked.question.options.length >= 2 && asked.question.options.length <= 3);
+	assert.equal(asked.summary, "There are a few ways to go from here, and it's your call.");
 });
 
 test("task.code for a session on this machine is its changes since it started, and one file's patch", async (t) => {

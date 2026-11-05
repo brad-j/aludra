@@ -6,13 +6,14 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
-import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
+import type { Message, TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { createModels, type Models, type Provider } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, defineDocFamily, defineExtension, type EntryId, Harness, hook, type Extension, type JsonObject, type ModelRef, ToolTask } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { fakeSandboxes } from "./fake-sandboxes.ts";
 import { createSandboxes, deleteBranch, run, run as runCommand, type Sandboxes, fastForward, type MergeResult, type SandboxSize, type SandboxStep, type SyncResult } from "./sandboxes.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
@@ -27,7 +28,7 @@ import { claudeConfigDir, type Config, expandHome, type Thinking } from "./confi
 import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
-import { askSession, createShips, type ShipLanded, type Shipping, shipOutcome, type ShipStopped, shipTimeout } from "./ship.ts";
+import { askSession, createShips, isShipPrompt, type ShipLanded, type Shipping, shipOutcome, type ShipStopped, shipTimeout } from "./ship.ts";
 import { createResults, parseProjectConfig, TurnChecks } from "./results.ts";
 import { readShot } from "./shots.ts";
 import { HUES } from "./project-colors.ts";
@@ -227,18 +228,49 @@ const FAUX_MARKDOWN = [
 	"> Nothing is pushed yet.",
 ].join("\n");
 
+/** The faux model's plan for a message mentioning "plan", while it works, and its answer once the tool call is back. */
+const FAUX_PLAN = "I'll work through it.\n\n```plan\n- [x] Read the project\n- [ ] Look around the directory\n- [ ] Report back\n```";
+const FAUX_PLAN_DONE = [
+	"Done: I read the project and looked around its directory.",
+	"",
+	"```plan\n- [x] Read the project\n- [x] Look around the directory\n- [x] Report back\n```",
+	"",
+	"```result",
+	JSON.stringify({ summary: "Read the project and looked around its directory." }),
+	"```",
+].join("\n");
+/** The faux model's answer to a message mentioning "question": prose, and a result block that asks, with options. */
+const FAUX_QUESTION = [
+	"There are a few ways to go from here, and it's your call.",
+	"",
+	"```result",
+	JSON.stringify({ question: { text: "Which layout should the list use?", why: "It changes what shows first.", options: ["Group it by day", "Keep one long list", "Leave it as it is"] } }),
+	"```",
+].join("\n");
+
 /**
  * The faux model runs a script with no network or key: each request after a tool result answers with it, a message
- * asking for "markdown" gets FAUX_MARKDOWN, "write a file for NAME" writes notes-NAME.md and edits NAME.txt, one saying "push" runs
- * `git push --dry-run` (which waits for approval), and
- * any other request calls bash once, with a sleep long enough to kill the process during it.
+ * asking for "markdown" gets FAUX_MARKDOWN, "write a file for NAME" writes notes-NAME.md and edits NAME.txt, one
+ * mentioning "plan" writes a plan block and runs a short bash call, then answers with the plan done and a result block,
+ * one mentioning "question" answers with a result block whose question has options (for task.result), one saying "push"
+ * runs `git push --dry-run` (which waits for approval), and any other request calls bash once, with a sleep long
+ * enough to kill the process during it. A ship prompt (which mentions a plan block) gets none of the plan or question
+ * answers.
  */
 function fauxModels(): { models: Models; model: ModelRef } {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }], tokensPerSecond: 400 });
 	faux.setResponses(Array.from({ length: 1000 }, () => (ctx: { messages: readonly { role: string; content?: unknown }[] }) => {
 		const last = ctx.messages.at(-1);
+		const user = ctx.messages.findLast((m) => m.role === "user");
+		const said = JSON.stringify(user?.content ?? "");
+		// SAFETY: a user message's content, as Pi Durable hands it to the model.
+		const asked = user !== undefined && isShipPrompt(textOf(user.content as Message["content"])) ? "" : said;
+		if (last?.role === "toolResult" && /\bplan/i.test(asked)) return fauxAssistantMessage(fauxText(FAUX_PLAN_DONE));
 		if (last?.role === "toolResult") return fauxAssistantMessage(fauxText(`Tool came back: ${JSON.stringify(last.content)}`));
 		if (/markdown/i.test(JSON.stringify(last?.content))) return fauxAssistantMessage(fauxText(FAUX_MARKDOWN));
+		// A plan while the run goes on (the bash call gives a client time to see it), then a result block.
+		if (/\bplan/i.test(asked)) return fauxAssistantMessage([fauxText(FAUX_PLAN), fauxToolCall("bash", { command: "sleep 2 && pwd" })], { stopReason: "toolUse" });
+		if (/\bquestion/i.test(asked)) return fauxAssistantMessage(fauxText(FAUX_QUESTION));
 		// "write a file for NAME" writes notes-NAME.md and edits NAME.txt, for the changes view.
 		const name = /write a file for (\w+)/i.exec(JSON.stringify(last?.content))?.[1];
 		if (name !== undefined) {
@@ -338,14 +370,14 @@ export async function openHost(options: HostOptions) {
 
 	const sandboxDir = resolve(config.dataDir, "sandboxes");
 	mkdirSync(sandboxDir, { recursive: true, mode: 0o700 });
-	const sandboxes = options.sandboxes ?? createSandboxes(config.sandboxes === undefined ? undefined : {
+	const sandboxes = options.sandboxes ?? (config.fakeSandboxes === true ? fakeSandboxes(resolve(config.dataDir, "fake-sandboxes")).sandboxes : createSandboxes(config.sandboxes === undefined ? undefined : {
 		ssh: config.sandboxes.ssh,
 		gateKey: config.sandboxes.gateKey,
 		hostKnownHosts: config.sandboxes.knownHosts,
 		sandboxKey: config.sandboxes.sandboxKey,
 		sandboxHostKey: config.sandboxes.sandboxHostKey,
 		dataDir: sandboxDir,
-	});
+	}));
 	let approvals: ApprovalService | undefined;
 	let opened: Harness | undefined;
 	const checkpoints = createCheckpoints({ harness: () => opened!, context, baseOf: async (id) => (await get(id))?.base });

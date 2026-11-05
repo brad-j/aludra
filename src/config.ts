@@ -13,7 +13,8 @@
 //   }
 //
 // The file is --config, else ALUDRA_CONFIG, else config.json in aludra's settings directory ($XDG_CONFIG_HOME/aludra,
-// or ~/.config/aludra). ALUDRA_MODEL=faux runs a scripted model with no network, and ALUDRA_DATA_DIR replaces the
+// or ~/.config/aludra). ALUDRA_MODEL=faux runs a scripted model with no network, ALUDRA_SANDBOXES=fake (only with it)
+// makes sandboxes local clones (src/fake-sandboxes.ts), and ALUDRA_DATA_DIR replaces the
 // data directory, which is ~/Library/Application Support/aludra on macOS and $XDG_DATA_HOME/aludra (or
 // ~/.local/share/aludra) elsewhere.
 //
@@ -83,6 +84,8 @@ export type Config = {
 	mcp: { write: boolean };
 	/** The sandbox host (spike, src/sandboxes.ts), if sessions may run in sandboxes. */
 	sandboxes?: SandboxSetting;
+	/** ALUDRA_SANDBOXES=fake: sandboxes are local clones (src/fake-sandboxes.ts) in place of `sandboxes`' host, for development. */
+	fakeSandboxes?: true;
 	/** Where new projects are made and whose GitHub account their repositories go on (src/new-projects.ts), if anywhere. */
 	newProjects?: { root: string; owner: string };
 	dataDir: string;
@@ -214,6 +217,16 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	config.model.id = chosen.id;
 	if (file.model?.choices !== undefined) config.model.choices = file.model.choices.map((choice) => modelSetting(choice, fallback, errors));
 	if (env.ALUDRA_MODEL === "faux") config.model = { ...config.model, provider: "faux", id: "faux-1", choices: [{ provider: "faux", id: "faux-1" }] };
+	if (env.ALUDRA_SANDBOXES !== undefined && env.ALUDRA_SANDBOXES !== "") {
+		if (env.ALUDRA_SANDBOXES !== "fake") errors.push(`ALUDRA_SANDBOXES is ${env.ALUDRA_SANDBOXES}; the only value it takes is fake`);
+		else if (env.ALUDRA_MODEL !== "faux") errors.push("ALUDRA_SANDBOXES=fake runs sandboxes as local clones, for development, and only with ALUDRA_MODEL=faux");
+		else {
+			// The settings' sandbox host is set aside: nothing reaches it. Its afterRun, shipTo and approvals still count.
+			const named = config.sandboxes;
+			config.fakeSandboxes = true;
+			config.sandboxes = { ssh: "fake", gateKey: "/dev/null", knownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA", afterRun: named?.afterRun ?? "fetch", shipTo: named?.shipTo ?? "main", approvals: named?.approvals ?? "off" };
+		}
+	}
 	const { provider, id } = config.model;
 	if (!config.model.choices.some((c) => c.provider === provider && c.id === id)) config.model.choices = [{ provider, id }, ...config.model.choices];
 	// The apps pick a model by its ID.

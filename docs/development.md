@@ -35,7 +35,15 @@ To try the host without spending anything, run a host with the faux model and a 
 ALUDRA_MODEL=faux ALUDRA_DATA_DIR=/tmp/aludra-dev pnpm serve
 ```
 
-The faux model runs a script: any message runs `sleep 4 && pwd`; a message mentioning "markdown" gets a Markdown sample; "write a file for NAME" writes `notes-NAME.md` and edits `NAME.txt`; "push" runs `git push --dry-run`, which waits for approval. It's in `fauxModels()` in `src/host.ts`.
+The faux model runs a script: any message runs `sleep 4 && pwd`; a message mentioning "markdown" gets a Markdown sample; "write a file for NAME" writes `notes-NAME.md` and edits `NAME.txt`; "plan" writes a `plan` block, runs `sleep 2 && pwd`, then answers with the plan done and a `result` block; "question" answers with a `result` block whose question has three options; "push" runs `git push --dry-run`, which waits for approval. A ship's prompt gets none of the plan or question answers. It's in `fauxModels()` in `src/host.ts`.
+
+To try sandboxes too, add `ALUDRA_SANDBOXES=fake`:
+
+```sh
+ALUDRA_MODEL=faux ALUDRA_SANDBOXES=fake ALUDRA_DATA_DIR=/tmp/aludra-dev pnpm serve
+```
+
+It replaces the settings' sandbox host with a fake one (`src/fake-sandboxes.ts`, which the tests use too): each sandbox is a git clone of its project's HEAD in `fake-sandboxes/` in the data directory, with no remote, and its tools run through pi-env's local daemon on this machine, so the work comes home as `sandbox/N`, and checks and ship run for real. `host.info` carries `sandboxes` as on a real host, and `afterRun`, `shipTo` and `approvals` still come from the settings. There's no isolation: the agent's tools run as you, here. The host refuses to start with it unless `ALUDRA_MODEL=faux` is set too, so a real model never runs in it.
 
 ## Tests
 

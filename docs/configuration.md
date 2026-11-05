@@ -172,6 +172,7 @@ Where the database, keys, scratch directories, uploaded videos and screenshots g
 | `ALUDRA_CONFIG` | The settings file, when `--config` isn't given. |
 | `ALUDRA_DATA_DIR` | Replaces the data directory, over `dataDir` in the file. |
 | `ALUDRA_MODEL=faux` | Runs a scripted model with no network and no Claude Code, for tests and trying the host. |
+| `ALUDRA_SANDBOXES=fake` | Sandboxes are local git clones in the data directory, in place of `sandboxes`' host, for development ([development.md](development.md#trying-it)). Only with `ALUDRA_MODEL=faux`; the host won't start otherwise. |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | Move the default settings and (on Linux) data directories. |
 | `CLAUDE_CONFIG_DIR` | Claude Code's config directory when `claude.configDir` isn't set. `claude.configDir` replaces it. |
 | `PI_CLAUDE_CODE_ALLOW_USAGE_CREDITS=1` | Lets a turn finish when Claude Code says it was charged to your account's usage credits instead of the plan's limits. Without it, that turn fails, so nothing more is charged. |

@@ -101,3 +101,19 @@ test("roots match directories, not files or hidden ones, and each match is a pro
 	assert.throws(() => findProject(projects, "aludra"), /could be Electronics\/aludra or Software\/aludra/);
 	assert.throws(() => findProject(projects, "nope"), /no project nope/);
 });
+
+test("ALUDRA_SANDBOXES=fake sets the settings' sandbox host aside, and only with the faux model", () => {
+	const workspaces = [{ name: "code", roots: ["~/code/*"] }];
+	const text = JSON.stringify({ workspaces, sandboxes: { ssh: "matrim", gateKey: "~/k", knownHosts: "~/h", sandboxKey: "~/s", sandboxHostKey: "ssh-ed25519 AAAA", shipTo: "branch" } });
+	const fake = configFor(text, { ALUDRA_MODEL: "faux", ALUDRA_SANDBOXES: "fake" });
+	assert.deepEqual(fake.errors, []);
+	assert.equal(fake.config.fakeSandboxes, true);
+	assert.equal(fake.config.sandboxes?.ssh, "fake", "nothing reaches the named host");
+	assert.equal(fake.config.sandboxes?.shipTo, "branch", "its other settings still count");
+	const bare = configFor(JSON.stringify({ workspaces }), { ALUDRA_MODEL: "faux", ALUDRA_SANDBOXES: "fake" });
+	assert.deepEqual([bare.config.sandboxes?.afterRun, bare.config.sandboxes?.shipTo, bare.config.sandboxes?.approvals], ["fetch", "main", "off"]);
+	assert.match(configFor(text, { ALUDRA_SANDBOXES: "fake" }).errors.join("\n"), /only with ALUDRA_MODEL=faux/);
+	assert.equal(configFor(text, { ALUDRA_SANDBOXES: "fake" }).config.fakeSandboxes, undefined);
+	assert.match(configFor(text, { ALUDRA_MODEL: "faux", ALUDRA_SANDBOXES: "yes" }).errors.join("\n"), /only value it takes is fake/);
+	assert.equal(configFor(text, { ALUDRA_MODEL: "faux" }).config.fakeSandboxes, undefined);
+});
