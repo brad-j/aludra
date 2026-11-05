@@ -928,6 +928,13 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 					if (p.description != null && typeof p.description !== "string") throw new ProtocolError("bad_request", "description should be text");
 					return { project: await newProject(() => host.newProjects.create(p.name, p.description ?? undefined)) };
 				}
+				case "sandbox.promote": {
+					const { record } = await session(p.conversationId);
+					if (p.description != null && typeof p.description !== "string") throw new ProtocolError("bad_request", "description should be text");
+					const answer = { project: await newProject(() => host.newProjects.promote(record.id, p.name, p.description ?? undefined)) };
+					markDirty(record.id);
+					return answer;
+				}
 				case "projects.setColor": {
 					if (typeof p.project !== "string" || !(p.color === null || typeof p.color === "number")) throw new ProtocolError("bad_request", "projects.setColor takes a project name and a color, or null");
 					try {

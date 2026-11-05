@@ -1,5 +1,6 @@
 // The host: one Pi Durable Harness over SQLite in the data directory. Each session is an ownerless conversation whose
 // agent `cwd` is its project's directory; the root conversation only carries aludra's session-wide documents.
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -31,7 +32,7 @@ import { createResults, TurnChecks } from "./results.ts";
 import { readShot } from "./shots.ts";
 import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
-import { createNewProjects, ghProblem, type NewProjectsOptions } from "./new-projects.ts";
+import { createNewProjects, ghProblem, NewProjectRefused, type NewProjectsOptions } from "./new-projects.ts";
 import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
 import { messagesOf, openSearch } from "./search.ts";
@@ -59,7 +60,10 @@ export type SessionRecord = {
 	/** The project's files when it started, for its changes (src/changes.ts); or why there's no snapshot. */
 	base?: Snapshot;
 	baseError?: string;
-	/** A no-project session: `dir` is its own scratch directory, and `project` is NO_PROJECT. */
+	/**
+	 * A no-project session: `project` is NO_PROJECT. Here, `dir` is its own scratch directory; in a sandbox, `source` is a
+	 * repository of its own in the scratch directory, which its work comes home to (scratchRepository).
+	 */
 	scratch?: boolean;
 	/**
 	 * A sandbox session (spike): its tools run on this sandbox, by its number on the sandbox host, and `dir` is a directory
@@ -137,6 +141,36 @@ const SandboxNumbers = defineDoc<{ next: number }>({
 	scope: "session",
 	initial: () => ({ next: 0 }),
 });
+
+/** The name a scratch sandbox's repository goes by: its template's and its directory's in the sandbox. */
+export const SCRATCH_NAME = "scratch";
+
+/**
+ * Makes `dir` a repository whose `main` is one empty commit, the same commit every time for this machine's git identity
+ * (its dates are fixed), so every scratch sandbox shares one template. Leaves one that's already there.
+ */
+export async function scratchRepository(dir: string): Promise<string> {
+	mkdirSync(dir, { recursive: true, mode: 0o700 });
+	const git = (...args: string[]) => run("git", ["-C", dir, ...args]);
+	const head = (await git("rev-parse", "--verify", "--quiet", "refs/heads/main").catch(() => "")).trim();
+	if (head !== "") return head;
+	await git("init", "-q", "-b", "main");
+	const who = async (key: string, fallback: string) => (await git("config", "--get", key).catch(() => "")).trim() || fallback;
+	const name = await who("user.name", "aludra");
+	const email = await who("user.email", "aludra@localhost");
+	const when = "2026-01-01T00:00:00Z";
+	const tree = (await git("write-tree")).trim();
+	const commit = (await runEnv("git", ["-C", dir, "commit-tree", tree, "-m", "Scratch"], { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: when, GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email, GIT_COMMITTER_DATE: when })).trim();
+	await git("update-ref", "refs/heads/main", commit);
+	return commit;
+}
+
+/** Runs `cmd` with `env` over this process's environment. */
+function runEnv(cmd: string, args: readonly string[], env: Record<string, string>): Promise<string> {
+	return new Promise((resolve, reject) => {
+		execFile(cmd, args, { env: { ...process.env, ...env } }, (error, stdout, stderr) => (error ? reject(new Error(`${cmd}: ${stderr.trim() || error.message}`)) : resolve(stdout)));
+	});
+}
 
 /** A sandbox session's branch in its project's checkout. */
 export function sandboxBranch(record: Pick<SessionRecord, "sandbox" | "sandboxNumber">): string {
@@ -245,12 +279,12 @@ export async function openHost(options: HostOptions) {
 		{ path: resolve(claudeConfigDir(config), "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
 		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
 	];
-	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; branch: string; local?: string; removed?: true } | { sandbox: undefined; dir: string } | undefined> => {
+	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; branch: string; local?: string; scratch?: true; removed?: true } | { sandbox: undefined; dir: string } | undefined> => {
 		const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
 		if (record === undefined || !isSandboxSession(record)) return undefined;
 		// Being made: nothing may run anywhere yet, here least of all.
 		if (record.sandbox === undefined) return { sandbox: undefined, dir: record.dir };
-		return { sandbox: record.sandbox, dir: record.dir, branch: sandboxBranch(record), ...(record.source === undefined ? {} : { local: record.source }), ...(record.sandboxRemoved === true ? { removed: true as const } : {}) };
+		return { sandbox: record.sandbox, dir: record.dir, branch: sandboxBranch(record), ...(record.source === undefined ? {} : { local: record.source }), ...(record.scratch === true ? { scratch: true as const } : {}), ...(record.sandboxRemoved === true ? { removed: true as const } : {}) };
 	};
 	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places }, async (input) => {
 		const found = await sandboxOf(input);
@@ -372,6 +406,34 @@ export async function openHost(options: HostOptions) {
 		const problem = await ghStatus();
 		return problem === undefined ? { ...config.newProjects } : { reason: problem };
 	}
+	/**
+	 * Makes scratch sandbox session `id`'s work a project: its commits, fetched now, become new project `name`'s main, and
+	 * the session is then that project's sandbox task, its base the new main, so Ship works from then on. The sandbox's
+	 * repository stays where it is, its history already the project's.
+	 */
+	async function promote(id: number, name: unknown, description?: string): Promise<Project> {
+		const record = await get(id);
+		if (record === undefined) throw new NewProjectRefused(`no session ${id}`);
+		if (record.scratch !== true || !isSandboxSession(record) || record.source === undefined) throw new NewProjectRefused(`session ${id} isn't a scratch sandbox`);
+		if (record.sandbox === undefined || record.sandboxRemoved === true) throw new NewProjectRefused(`session ${id}'s sandbox isn't there to take the work from`);
+		if (((await states()).get(id) ?? "idle") !== "idle") throw new NewProjectRefused(`session ${id} is running; make it a project once it's done`);
+		const synced = await sandboxApi.sync(id);
+		if (synced.uncommitted > 0) throw new NewProjectRefused(`the sandbox has ${synced.uncommitted} uncommitted file${synced.uncommitted === 1 ? "" : "s"}; ask the agent to commit first`);
+		const project = await createProject(name, description, { source: record.source, ref: `refs/heads/${synced.branch}` });
+		const main = (await run("git", ["-C", project.dir, "rev-parse", "main"])).trim();
+		const moved = await changeRecord(id, (r) => {
+			r.project = project.name;
+			r.workspace = project.workspace;
+			r.source = project.dir;
+			r.sandboxBase = main;
+			delete r.scratch;
+			delete r.sandboxDiscarded;
+		});
+		// The branch home is in the project now: sandbox/N there, at the new main.
+		await run("git", ["-C", project.dir, "branch", "-f", sandboxBranch(moved ?? record), main]);
+		return project;
+	}
+
 	/** Makes project `name` in newProjects.root (src/new-projects.ts); the project it is, as the workspaces now list it. */
 	async function createProject(name: unknown, description?: string, from?: { source: string; ref: string }): Promise<Project> {
 		const info = await newProjectsInfo();
@@ -571,7 +633,8 @@ export async function openHost(options: HostOptions) {
 	 */
 	async function startSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { approvals?: "ask" | "off"; group?: string; onProgress?: (line: string) => void } = {}): Promise<SessionRecord> {
 		if (!sandboxes.configured()) throw new Error("no sandbox host in the settings (sandboxes)");
-		const dir = project === undefined ? "/home/user" : sandboxes.dirFor({ name: project.name, dir: project.dir });
+		// Scratch work gets a repository of its own here, made once its ID is known, which its sandbox's template is cloned from.
+		const dir = sandboxes.dirFor({ name: project?.name ?? SCRATCH_NAME, dir: project?.dir ?? scratchRoot });
 		// Past any sandbox branch already in the checkout, such as one another data directory made.
 		const branches = project === undefined ? "" : await run("git", ["-C", project.dir, "for-each-ref", "--format=%(refname:lstrip=3)", "refs/heads/sandbox/"]).catch(() => "");
 		const inCheckout = Math.max(-1, ...branches.split("\n").filter((b) => /^\d+$/.test(b)).map(Number)) + 1;
@@ -598,11 +661,13 @@ export async function openHost(options: HostOptions) {
 					sandboxState: "preparing",
 					...(options.approvals === undefined ? {} : { approvals: options.approvals }),
 					...(options.group === undefined ? {} : { group: options.group }),
-					...(project === undefined ? {} : { source: project.dir }),
+					source: project?.dir ?? resolve(scratchRoot, String(id)),
+					...(project === undefined ? { scratch: true } : {}),
 				};
 				sessions[String(id)] = record;
 			},
 		}, context);
+		if (project === undefined) await scratchRepository(record!.source!);
 		untitled.add(record!.id);
 		for (const listener of created) listener(record!);
 		void prepareSandbox(record!.id, options.onProgress);
@@ -621,7 +686,9 @@ export async function openHost(options: HostOptions) {
 			const record = await get(id);
 			if (record === undefined) throw new Error(`no session ${id}`);
 			if (record.sandbox !== undefined || record.sandboxState !== "preparing") return record;
-			const project = record.source === undefined ? undefined : projects().find((p) => p.dir === record.source) ?? { name: record.project, dir: record.source };
+			const project = record.source === undefined ? undefined
+				: record.scratch === true ? { name: SCRATCH_NAME, dir: record.source }
+				: projects().find((p) => p.dir === record.source) ?? { name: record.project, dir: record.source };
 			try {
 				const made = await sandboxes.create(project === undefined ? undefined : { name: project.name, dir: project.dir }, onProgress, (step) => void changeRecord(id, (r) => {
 					if (r.sandboxState === "preparing") r.sandboxStep = step;
@@ -1269,7 +1336,7 @@ export async function openHost(options: HostOptions) {
 		scratchRoot,
 		uploads,
 		/** New projects (src/new-projects.ts): where they go when this host can make them, and making one. */
-		newProjects: { info: newProjectsInfo, create: createProject },
+		newProjects: { info: newProjectsInfo, create: createProject, promote },
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },
 		conversation,

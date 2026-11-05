@@ -296,7 +296,7 @@ export function createShips(options: ShipsOptions) {
 			if (record.sandboxNumber === undefined && record.sandbox === undefined) throw new ShipRefused("bad_request", `session ${id} isn't in a sandbox`);
 			if (record.sandbox === undefined) throw new ShipRefused("bad_request", `session ${id}'s sandbox isn't ready`);
 			if (record.sandboxRemoved === true) throw new ShipRefused("bad_request", `session ${id}'s sandbox was deleted when it was archived`);
-			if (record.source === undefined) throw new ShipRefused("bad_request", `session ${id} has no project to ship from`);
+			if (record.source === undefined || record.scratch === true) throw new ShipRefused("bad_request", `session ${id} is scratch work with no upstream to ship to; make it a project first`);
 			if (going.has(id)) throw new ShipRefused("busy", `session ${id} is already shipping`);
 			if ((await options.states()).get(id) !== "idle") throw new ShipRefused("busy", `session ${id} is running; ship once it's done`);
 			const shipping: Shipping = { requestId: `ship:${id}:${Date.now().toString(36)}`, mode: request.mode, startedAt: Date.now(), ...(request.note === undefined ? {} : { note: request.note }) };

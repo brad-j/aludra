@@ -504,7 +504,8 @@ async function sandboxApi(t: TestContext) {
 	const { project, remote } = gitProject(root, "one", { "a.txt": "one\n" }, { remote: true });
 	const fake = fakeSandboxes(root);
 	t.after(() => fake.close());
-	const served = await api(t, { sandboxes: fake.sandboxes, dir: root });
+	// New projects go beside "one", with a gh that makes local bare repositories.
+	const served = await api(t, { sandboxes: fake.sandboxes, dir: root, settings: { newProjects: { root: join(root, "Projects", "Software"), owner: "t" } }, newProjects: fakeGh(join(root, "github")) });
 	return { ...served, project, remote: remote!, fake, root };
 }
 
@@ -946,4 +947,62 @@ test("a host whose gh isn't signed in has no newProjects, and refuses projects.c
 	const mac = await client(t, url);
 	assert.equal((await mac.request("host.info")).newProjects, undefined);
 	await assert.rejects(mac.request("projects.create", { name: "x" }), { code: "bad_request", message: /token for github.com is invalid/ });
+});
+
+test("a sandbox with no project is scratch: its work comes home to a repository of its own, and it can't ship", async (t) => {
+	const { url, host, fake } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const created = (await mac.request("conversations.create", { requestId: "scratch", text: "commit idea", sandbox: true })).conversation;
+	assert.equal(created.project, undefined);
+	assert.equal(created.sandbox.state, "preparing");
+	const id = created.id;
+	await host.sandboxes.prepared(id);
+	const record = (await host.sessions.get(id))!;
+	assert.equal(record.scratch, true);
+	assert.equal(record.source, join(host.scratchRoot, String(id)));
+	// The sandbox is a clone of one empty commit on main, the same for every scratch session.
+	const box = fake.made[0]!.dir;
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(box, "log", "-1", "--format=%s") === "idea", "the commit");
+	assert.deepEqual(git(box, "log", "--format=%s").split("\n"), ["idea", "Scratch"]);
+	assert.equal(record.sandboxBase, git(record.source!, "rev-parse", "main"));
+	const other = (await mac.request("conversations.create", { requestId: "scratch-2", text: "hello", sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(other);
+	assert.equal((await host.sessions.get(other))!.sandboxBase, record.sandboxBase, "one template for all scratch work");
+
+	const synced = await mac.request("sandbox.sync", { conversationId: id });
+	assert.equal(synced.commits, 1);
+	assert.equal(git(record.source!, "log", "-1", "--format=%s", synced.branch), "idea");
+	const code = await mac.request("task.code", { conversationId: id });
+	assert.deepEqual(code.changes.files.map((f: Json) => f.path), ["idea.txt"]);
+	await assert.rejects(mac.request("sandbox.ship", { conversationId: id }), { code: "bad_request", message: /no upstream/ });
+});
+
+test("sandbox.promote makes a scratch sandbox's work a new project, and the session that project's task, so it ships", async (t) => {
+	const { url, host, fake } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const id = (await mac.request("conversations.create", { requestId: "p", text: "commit idea", sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(id);
+	const box = fake.made[0]!.dir;
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(box, "log", "-1", "--format=%s") === "idea", "the commit");
+	await assert.rejects(mac.request("sandbox.promote", { conversationId: id, name: "Bad Name" }), { code: "bad_request" });
+
+	const { project } = await mac.request("sandbox.promote", { conversationId: id, name: "idea", description: "An idea." });
+	assert.equal(project.name, "idea");
+	assert.deepEqual(git(project.dir, "log", "--format=%s", "main").split("\n"), ["idea", "Scratch"]);
+	assert.equal(git(project.dir, "rev-parse", "main"), git(box, "rev-parse", "HEAD"));
+	assert.equal(project.checkout.upstream, "origin/main");
+	const record = (await host.sessions.get(id))!;
+	assert.equal(record.project, "idea");
+	assert.equal(record.source, project.dir);
+	assert.equal(record.scratch, undefined);
+	assert.equal(record.sandboxBase, git(project.dir, "rev-parse", "main"));
+	await waitFor(async () => (await mac.request("conversations.list")).conversations.find((c: Json) => c.id === id).project === "idea", "the summary to name the project");
+	await assert.rejects(mac.request("sandbox.promote", { conversationId: id, name: "again" }), { code: "bad_request", message: /isn't a scratch sandbox/ });
+
+	// More work, then a ship lands it on the new project's origin/main.
+	await mac.request("submit", { conversationId: id, requestId: "more", text: "commit more" });
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(box, "log", "-1", "--format=%s") === "more", "the second commit");
+	const result = await (await host.ships.start(id, { mode: "main" })).done;
+	assert.equal(result.shipped, true, result.shipped ? "" : result.reason);
+	assert.deepEqual(git(project.dir, "log", "--format=%s", "origin/main").split("\n"), ["more", "idea", "Scratch"]);
 });

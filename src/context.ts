@@ -39,9 +39,10 @@ export function noProjectSection(cwd: string, places: readonly Place[]): string 
 }
 
 /** Where a sandbox session (spike) runs, said to it in its system prompt; Claude Code names the host's directory otherwise. */
-export function sandboxSection(sandbox: { sandbox: number; dir: string }): string {
+export function sandboxSection(sandbox: { sandbox: number; dir: string; scratch?: boolean }): string {
 	return [
 		`This session runs in a sandbox: a disposable Linux VM of its own (Ubuntu 26.04, user \`user\` with sudo), sandbox ${sandbox.sandbox}.`,
+		...(sandbox.scratch === true ? [`It's scratch work, in no project: ${sandbox.dir} is a git repository with one empty commit on main. Commit as you go, so the user can see the work and keep it; there's nowhere to ship it, but the user can make it a project of its own from the app.`] : []),
 		`Your tools run there, and your working directory is ${sandbox.dir} in the sandbox. Any other working directory or machine named elsewhere in this prompt is where the agent loop runs, which your tools can't reach.`,
 		"The sandbox reaches the internet and nothing else: not the LAN, not the tailnet, not other machines at home. It has no credentials: it can't push, and git remotes are unset. Commit your work as you go: your commits come home by themselves as a branch in the user's checkout when your reply ends, and the user lands them with Ship in their app. So never tell them to fetch, push, merge or copy anything.",
 		"A process started with `setsid` outlives your command and keeps running while the sandbox is paused between turns; anything else you start ends with the command.",

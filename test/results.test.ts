@@ -143,3 +143,8 @@ test("a result block that isn't a JSON object doesn't count as one", () => {
 	assert.equal(hasResultBlock("Done.\n```result\n{broken\n```"), false);
 	assert.equal(hasResultBlock("Rebased onto origin/main.\nSHIP-READY"), false);
 });
+
+test("a scratch sandbox is told it's scratch: commit as it goes, nothing ships", () => {
+	assert.match(sandboxSection({ sandbox: 3, dir: "/home/user/work/scratch", scratch: true }), /scratch work, in no project[\s\S]*Commit as you go[\s\S]*nowhere to ship/);
+	assert.doesNotMatch(sandboxSection({ sandbox: 3, dir: "/home/user/work/one" }), /scratch work/);
+});
