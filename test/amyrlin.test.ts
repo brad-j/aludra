@@ -815,7 +815,31 @@ test("a sandbox task's result: what it said, its checks run in the sandbox, its 
 	assert.match(prompts.find((p) => p.includes("```result")) ?? "", /```plan/, "the sandbox section asks for both blocks");
 	const local = (await mac.request("conversations.create", { requestId: "here", project: project.dir })).conversation.id;
 	assert.deepEqual(await mac.request("task.result", { conversationId: local }), { result: null });
-	await assert.rejects(mac.request("task.code", { conversationId: local }), { code: "bad_request" });
+	assert.deepEqual((await mac.request("task.code", { conversationId: local })).changes.files, [], "a local session's own changes, none yet");
+});
+
+test("task.code for a session on this machine is its changes since it started, and one file's patch", async (t) => {
+	const { url, host, project } = await sandboxApi(t);
+	const mac = await client(t, url);
+	// Uncommitted before it started, so not the session's.
+	writeFileSync(join(project.dir, "before.txt"), "already here\n");
+	const id = (await mac.request("conversations.create", { requestId: "here", project: project.dir, text: "commit hello" })).conversation.id;
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(project.dir, "log", "-1", "--format=%s") === "hello", "the commit here");
+	const { changes } = await mac.request("task.code", { conversationId: id });
+	assert.equal(changes.available, true);
+	assert.deepEqual(changes.files.map((f: Json) => [f.path, f.status, f.add]), [["hello.txt", "added", 1]]);
+	assert.match((await mac.request("task.code", { conversationId: id, path: "hello.txt" })).patch, /\+hello/);
+	await assert.rejects(mac.request("task.code", { conversationId: id, path: "before.txt" }), { code: "not_found" });
+	await assert.rejects(mac.request("task.code", { conversationId: id, path: 3 }), { code: "bad_request" });
+
+	// A session with no recorded start (here, a project that isn't in git) says why.
+	const { url: plainUrl, project: plain } = await api(t);
+	const other = await client(t, plainUrl);
+	const unrecorded = (await other.request("conversations.create", { requestId: "plain", project: plain.dir })).conversation.id;
+	const none = (await other.request("task.code", { conversationId: unrecorded })).changes;
+	assert.equal(none.available, false);
+	assert.equal(typeof none.reason, "string");
+	await assert.rejects(other.request("task.code", { conversationId: unrecorded, path: "a.txt" }), { code: "not_found" });
 });
 
 /** A stand-in for Playwright's chromium: each "screenshot" is a PNG header followed by the page's HTML, as fetched. */

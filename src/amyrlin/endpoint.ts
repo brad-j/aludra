@@ -24,6 +24,7 @@ import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, isSandboxSession, SandboxNotReady, sandboxBranch, type SessionRecord } from "../host.ts";
 import { ShipRefused, type ShipResult } from "../ship.ts";
 import { codeChanges, codeDiff } from "../results.ts";
+import { changesSince, fileDiff } from "../changes.ts";
 import { NewProjectRefused } from "../new-projects.ts";
 import { isSize } from "../sandboxes.ts";
 import { type Checkout, watchCheckouts } from "../checkout.ts";
@@ -1094,10 +1095,23 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 					return { result: (await host.results.result(record.id)) as unknown as Json ?? null };
 				}
 				case "task.code": {
+					if (p.path !== undefined && typeof p.path !== "string") throw new ProtocolError("bad_request", "path should be a string");
+					const { record: found } = await session(p.conversationId);
+					// A session on this machine: its changes since it started, as GET /api/sessions/:id/changes.
+					if (!isSandboxSession(found)) {
+						if (found.base === undefined) {
+							const reason = found.baseError ?? "this session started before aludra recorded changes";
+							if (p.path !== undefined) throw new ProtocolError("not_found", reason);
+							return { changes: { available: false, reason } };
+						}
+						const changes = await changesSince(found.base);
+						if (p.path === undefined) return { changes: changes as unknown as Json };
+						if (!changes.available || !changes.files.some((f) => f.path === p.path)) throw new ProtocolError("not_found", `${p.path} hasn't changed in this session`);
+						return { path: p.path, patch: await fileDiff(found.base, p.path) };
+					}
 					const record = await sandboxSession(p.conversationId);
 					if (record.sandboxBase === undefined) throw new ProtocolError("bad_request", `Session ${record.id}'s sandbox has no starting commit to compare with`);
 					if (p.path === undefined) return { changes: await codeChanges(record.source!, record.sandboxBase, sandboxBranch(record)) as unknown as Json };
-					if (typeof p.path !== "string") throw new ProtocolError("bad_request", "path should be a string");
 					try {
 						return { path: p.path, patch: await codeDiff(record.source!, record.sandboxBase, sandboxBranch(record), p.path) };
 					} catch (error) {
