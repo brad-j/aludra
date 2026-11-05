@@ -25,6 +25,7 @@ import { context, conversationId, type Host, isSandboxSession, SandboxNotReady, 
 import { ShipRefused, type ShipResult } from "../ship.ts";
 import { codeChanges, codeDiff } from "../results.ts";
 import { NewProjectRefused } from "../new-projects.ts";
+import { isSize } from "../sandboxes.ts";
 import { type Checkout, watchCheckouts } from "../checkout.ts";
 import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
 import { PAGE_CSP } from "../pages.ts";
@@ -228,6 +229,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 				...(state === "preparing" && record.sandboxStep !== undefined ? { step: record.sandboxStep } : {}),
 				...(state === "failed" && record.sandboxReason !== undefined ? { reason: record.sandboxReason } : {}),
 				...(record.group === undefined ? {} : { group: record.group }),
+				// Known once its sandbox is being made: its own, else its project's.
+				...(record.sandboxSize === undefined ? {} : { size: record.sandboxSize }),
 				// How its ships went, so a client that wasn't watching for sandbox.shipped still knows.
 				...(record.shipped === undefined ? {} : { shipped: record.shipped }),
 				...(record.shipStopped === undefined ? {} : { shipStopped: record.shipStopped }),
@@ -410,9 +413,11 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		if (p.approvals != null && p.sandbox !== true) throw new ProtocolError("bad_request", "approvals is for a sandbox session");
 		if (p.group != null && (typeof p.group !== "string" || p.group.trim() === "" || p.group.length > 200)) throw new ProtocolError("bad_request", "group should be a short string");
 		if (p.group != null && p.sandbox !== true) throw new ProtocolError("bad_request", "group is for sandbox sessions");
+		if (p.size != null && !isSize(p.size)) throw new ProtocolError("bad_request", "size should be small, medium or large");
+		if (p.size != null && p.sandbox !== true) throw new ProtocolError("bad_request", "size is for sandbox sessions");
 		const sandboxed = p.sandbox === true;
 		if (sandboxed && host.sandboxSettings() === undefined) throw new ProtocolError("unsupported", "This host has no sandbox host in its settings");
-		const record = sandboxed ? await host.sessions.startSandbox(project, title, agent, { ...(p.approvals == null ? {} : { approvals: p.approvals }), ...(p.group == null ? {} : { group: p.group }) })
+		const record = sandboxed ? await host.sessions.startSandbox(project, title, agent, { ...(p.approvals == null ? {} : { approvals: p.approvals }), ...(p.group == null ? {} : { group: p.group }), ...(p.size == null ? {} : { size: p.size }) })
 			: project === undefined ? await host.sessions.createScratch(title, agent)
 			: await host.sessions.create(project, title, agent);
 		await host.root.commit(async (tx) => {

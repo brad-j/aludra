@@ -14,7 +14,7 @@ import { defineDocFamily, type EntryRecord } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import type { Changes } from "./api-types.ts";
 import { changesBetween, fileDiffBetween, type Snapshot } from "./changes.ts";
-import { run } from "./sandboxes.ts";
+import { isSize, run, type SandboxSize } from "./sandboxes.ts";
 import { MAX_PAGES, takeShots, type DevServer, type Page, type Shot } from "./shots.ts";
 import { isShipPrompt, shipLine, shipSentence, type ShipLanded, type ShipStopped } from "./ship.ts";
 import { textOf } from "./transcript.ts";
@@ -233,7 +233,7 @@ const tail = (text: string, max = 2000) => {
  * The project's own settings for aludra, `.agents/project.json`: what to run as checks once a turn ends, and the dev
  * server and pages to screenshot after them.
  */
-export type ProjectConfig = { checks: { name: string; command: string }[]; devServer?: DevServer; pages: Page[] };
+export type ProjectConfig = { checks: { name: string; command: string }[]; devServer?: DevServer; pages: Page[]; size?: SandboxSize };
 
 /** `devServer` read leniently: `{ command, port }`, the port a number or a string of one. */
 function parseDevServer(value: unknown): DevServer | undefined {
@@ -272,7 +272,7 @@ export function parseProjectConfig(text: string | undefined): ProjectConfig {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return none;
 	const v = value as Record<string, unknown>;
 	const devServer = parseDevServer(v.devServer);
-	const shots = devServer === undefined ? { pages: [] } : { devServer, pages: parsePages(v.pages) };
+	const shots = { ...(devServer === undefined ? { pages: [] } : { devServer, pages: parsePages(v.pages) }), ...(isSize(v.size) ? { size: v.size } : {}) };
 	const list = v.checks;
 	if (!Array.isArray(list)) return { checks: [], ...shots };
 	const checks = list.flatMap((c): ProjectConfig["checks"] => {

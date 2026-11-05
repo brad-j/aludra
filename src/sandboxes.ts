@@ -36,9 +36,18 @@ export type SandboxHost = {
 /** What a project's template is made from. */
 export type ProjectSource = { name: string; dir: string };
 
+/** How big a sandbox is: small is stedding's default. stedding takes up to 8 CPUs and 32 GB a sandbox. */
+export const SIZES = { small: { cpus: 2, mem: 4096 }, medium: { cpus: 4, mem: 8192 }, large: { cpus: 8, mem: 16384 } } as const;
+export type SandboxSize = keyof typeof SIZES;
+export const isSize = (value: unknown): value is SandboxSize => typeof value === "string" && Object.hasOwn(SIZES, value);
+/** stedding's words for a sandbox of `size`. */
+const sizeWords = (size: SandboxSize = "small") => ["--mem", String(SIZES[size].mem), "--cpus", String(SIZES[size].cpus)];
+
 type Live = { connection: Connection; inFlight: number; timer?: NodeJS.Timeout };
 
 const TEMPLATE_MAX_AGE_S = 24 * 3600;
+/** Longest a project's `.agents/resume` may run after its sandbox wakes. */
+export const RESUME_S = 60;
 
 export function run(cmd: string, args: readonly string[], input?: string): Promise<string> {
 	return new Promise((resolve, reject) => {
@@ -66,10 +75,21 @@ export function templateName(project: string, commit: string): string {
 	return `${project.replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[^A-Za-z0-9]+/, "p")}-${commit.slice(0, 12)}`;
 }
 
-export function createSandboxes(host: SandboxHost | undefined, options: { idleMs?: number; connect?: (sandbox: number, target: SshConnectOptions) => Connection } = {}) {
+export function createSandboxes(host: SandboxHost | undefined, options: {
+	idleMs?: number;
+	connect?: (sandbox: number, target: SshConnectOptions) => Connection;
+	/** Sandbox `n`'s state on its host before a connection opens; stedding's status by default. Tests replace it. */
+	state?: (n: number) => Promise<string | undefined>;
+	log?: (line: string) => void;
+} = {}) {
 	const idleMs = options.idleMs ?? 60_000;
 	const live = new Map<number, Live>();
 	const making = new Map<string, Promise<string>>();
+	/** Each sandbox's project directory, where `.agents/resume` runs after it wakes: the first directory an env names. */
+	const projectDirs = new Map<number, string>();
+	const log = options.log ?? ((line: string) => console.error(line));
+	// A test's own connections have no sandbox host to ask, unless it says what the state is.
+	const stateOf = options.state ?? (options.connect !== undefined ? async () => undefined : async (n: number) => /state=(\w+)/.exec(await stedding("status", String(n)))?.[1]);
 
 	function need(): SandboxHost {
 		if (host === undefined) throw new Error("no sandbox host in the settings");
@@ -111,6 +131,20 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 		entry.timer.unref();
 	}
 
+	/**
+	 * Runs the project's `.agents/resume` in sandbox `n` after it woke, over the new connection `inner` (not the counted
+	 * one, which is still opening), as `user` from `dir`, for at most RESUME_S. Anything that goes wrong is logged; the call
+	 * that woke the sandbox goes on either way.
+	 */
+	async function resume(n: number, inner: Connection, dir: string): Promise<void> {
+		const env = new RemoteExecutionEnv({ connection: inner, id: `stedding:${n}:resume`, cwd: dir });
+		let out = "";
+		const script = `[ -x .agents/resume ] || exit 0; exec timeout ${RESUME_S} ./.agents/resume`;
+		const ran = await env.exec(["bash", "-lc", script], { cwd: dir, timeout: RESUME_S + 5, onOutput: (text) => (out = (out + text).slice(-2000)) }, BACKGROUND).catch((error: Error) => ({ ok: false as const, error }));
+		if (!ran.ok) log(`[sandbox ${n}] .agents/resume after waking: ${ran.error.message}`);
+		else if (ran.value.exitCode !== 0) log(`[sandbox ${n}] .agents/resume after waking exited ${ran.value.exitCode}${ran.value.exitCode === 124 ? ` (stopped after ${RESUME_S} s)` : ""}: ${out.trim().split("\n").slice(-3).join(" / ")}`);
+	}
+
 	/** The connection to sandbox `n`, made on first use; the SSH target is written then. */
 	function connection(n: number): Connection {
 		const found = live.get(n);
@@ -119,8 +153,13 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 		let inner: Connection | undefined;
 		let starting: Promise<Connection> | undefined;
 		const start = () => (starting ??= (async () => {
+			// A connection opens after the last one went idle, so this is when a paused sandbox wakes; ask first, since
+			// connecting resumes it.
+			const dir = projectDirs.get(n);
+			const paused = dir !== undefined && (await stateOf(n).catch(() => undefined)) === "paused";
 			const t = await target(n);
 			inner = connect !== undefined ? connect(n, t) : sshConnection({ ...t, onLog: (text) => console.error(`[sandbox ${n}] ${text.trimEnd()}`) }).connection;
+			if (paused) await resume(n, inner, dir);
 			return inner;
 		})());
 		// A Connection whose requests wait for the target to be written; counts requests so it closes only between them.
@@ -152,7 +191,7 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 	 * from a bundle, runs `.agents/setup` if the project has one, else installs with the lockfile's package manager,
 	 * and is saved. Concurrent calls for one template share the work.
 	 */
-	async function template(project: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void): Promise<{ name: string; commit: string }> {
+	async function template(project: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void, size?: SandboxSize): Promise<{ name: string; commit: string }> {
 		const commit = (await run("git", ["-C", project.dir, "rev-parse", "HEAD"])).trim();
 		const name = templateName(project.name, commit);
 		const existing = (await stedding("templates")).split("\n").map((l) => /^template=(\S+) age=(\d+)/.exec(l)).find((m) => m?.[1] === name);
@@ -165,7 +204,8 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 		const made = (async () => {
 			onProgress?.(`making the ${project.name} template at ${commit.slice(0, 12)}`);
 			onStep?.("cloning");
-			const n = Number((await stedding("new")).trim());
+			// Made at the project's size, so a big install has the memory it needs.
+			const n = Number((await stedding("new", ...sizeWords(size))).trim());
 			try {
 				const env = await prepared(n);
 				const scratch = await mkdtemp(join(tmpdir(), "aludra-bundle-"));
@@ -309,16 +349,17 @@ export function createSandboxes(host: SandboxHost | undefined, options: { idleMs
 		 * A new sandbox for a session: from `project`'s template, or the base image with none. Returns its number, the
 		 * project's directory in it, and the commit it was made from. `onStep` hears each stage as it starts.
 		 */
-		async create(project?: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void): Promise<{ sandbox: number; dir: string; base?: string }> {
-			if (project === undefined) return { sandbox: Number((await stedding("new")).trim()), dir: "/home/user" };
-			const { name, commit } = await template(project, onProgress, onStep);
+		async create(project?: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void, size?: SandboxSize): Promise<{ sandbox: number; dir: string; base?: string }> {
+			if (project === undefined) return { sandbox: Number((await stedding("new", ...sizeWords(size))).trim()), dir: "/home/user" };
+			const { name, commit } = await template(project, onProgress, onStep, size);
 			onStep?.("starting");
-			return { sandbox: Number((await stedding("new", "--template", name)).trim()), dir: sandboxDir(project), base: commit };
+			return { sandbox: Number((await stedding("new", "--template", name, ...sizeWords(size))).trim()), dir: sandboxDir(project), base: commit };
 		},
 		/** Where `project` is in its sandboxes. */
 		dirFor: (project: ProjectSource) => sandboxDir(project),
 		/** The environment for a session on sandbox `n` working in `cwd`; equal ids see the same files. */
 		env(n: number, cwd: string): ExecutionEnv {
+			if (!projectDirs.has(n)) projectDirs.set(n, cwd);
 			return new RemoteExecutionEnv({ connection: connection(n), id: `stedding:${n}`, cwd });
 		},
 		/** Deletes sandbox `n` on its host. */

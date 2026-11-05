@@ -17,6 +17,7 @@ test("a sandbox's connection opens on first use, stays open while a command runs
 	const host = { ssh: "unused", gateKey: "/dev/null", hostKnownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA", dataDir: dir };
 	const sandboxes = createSandboxes(host, {
 		idleMs: 300,
+		state: async () => "running",
 		connect: (n) => {
 			opened.push(n);
 			return new Connection({ command: [localDaemon()] });
@@ -225,4 +226,40 @@ test("sandbox sessions number their branches in one count across projects, past 
 	await Promise.all((await host.sessions.list()).map((r) => host.sandboxes.prepared(r.id)));
 	// The sandbox host reuses its numbers once a sandbox is deleted; the branches never do.
 	assert.equal((await host.sessions.get(c.id))?.sandboxState, "ready");
+});
+
+test("a sandbox that wakes runs the project's .agents/resume before the call that woke it, and a failing one doesn't stop the call", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "aludra-resume-"));
+	const host = { ssh: "unused", gateKey: "/dev/null", hostKnownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA", dataDir: dir };
+	let state = "running";
+	const logged: string[] = [];
+	const sandboxes = createSandboxes(host, { idleMs: 200, state: async () => state, log: (line) => logged.push(line), connect: () => new Connection({ command: [localDaemon()] }) });
+	try {
+		mkdirSync(join(dir, ".agents"));
+		writeFileSync(join(dir, ".agents", "resume"), "#!/bin/sh\necho woke >> resumed.txt\n", { mode: 0o755 });
+		const env = sandboxes.env(5, dir);
+		// The first connection, to a running sandbox: nothing to resume.
+		assert.ok((await env.exec("true", {}, context)).ok);
+		assert.equal(existsSync(join(dir, "resumed.txt")), false);
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		assert.equal(sandboxes.connected(5), false);
+
+		// Paused meanwhile: the next call wakes it, and resume runs first, so the call sees what it did.
+		state = "paused";
+		let out = "";
+		const woke = await sandboxes.env(5, dir).exec("cat resumed.txt", { onOutput: (t) => (out += t) }, context);
+		assert.ok(woke.ok && woke.value.exitCode === 0);
+		assert.equal(out.trim(), "woke");
+
+		// A resume that fails is logged, and the call still runs.
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		writeFileSync(join(dir, ".agents", "resume"), "#!/bin/sh\necho broken; exit 3\n", { mode: 0o755 });
+		out = "";
+		const after = await sandboxes.env(5, dir).exec("echo still", { onOutput: (t) => (out += t) }, context);
+		assert.ok(after.ok && out.trim() === "still");
+		assert.match(logged.join("\n"), /\.agents\/resume after waking exited 3: broken/);
+	} finally {
+		sandboxes.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

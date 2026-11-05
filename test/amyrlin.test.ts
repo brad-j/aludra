@@ -1006,3 +1006,25 @@ test("sandbox.promote makes a scratch sandbox's work a new project, and the sess
 	assert.equal(result.shipped, true, result.shipped ? "" : result.reason);
 	assert.deepEqual(git(project.dir, "log", "--format=%s", "origin/main").split("\n"), ["more", "idea", "Scratch"]);
 });
+
+test("a sandbox's size is its own, else its project's from .agents/project.json, else small, and the summary carries it", async (t) => {
+	const { url, host, project, fake } = await sandboxApi(t);
+	const mac = await client(t, url);
+	await assert.rejects(mac.request("conversations.create", { requestId: "s0", project: project.dir, text: "x", sandbox: true, size: "huge" }), { code: "bad_request" });
+	await assert.rejects(mac.request("conversations.create", { requestId: "s1", project: project.dir, text: "x", size: "large" }), { code: "bad_request" });
+	const plain = (await mac.request("conversations.create", { requestId: "s2", project: project.dir, sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(plain);
+	mkdirSync(join(project.dir, ".agents"));
+	writeFileSync(join(project.dir, ".agents", "project.json"), JSON.stringify({ size: "medium" }));
+	git(project.dir, "add", ".agents");
+	git(project.dir, "commit", "-q", "-m", "bigger");
+	const theirs = (await mac.request("conversations.create", { requestId: "s3", project: project.dir, sandbox: true })).conversation.id;
+	await host.sandboxes.prepared(theirs);
+	const own = (await mac.request("conversations.create", { requestId: "s4", project: project.dir, sandbox: true, size: "large" })).conversation.id;
+	await host.sandboxes.prepared(own);
+	assert.deepEqual(fake.sizes, ["small", "medium", "large"]);
+	await waitFor(async () => {
+		const all = (await mac.request("conversations.list")).conversations;
+		return JSON.stringify([plain, theirs, own].map((id) => all.find((c: Json) => c.id === id).sandbox.size)) === '["small","medium","large"]';
+	}, "the summaries' sizes");
+});

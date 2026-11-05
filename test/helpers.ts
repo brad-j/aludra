@@ -112,6 +112,8 @@ export function fakeSandboxes(root: string) {
 	let next = 0;
 	const made: { n: number; dir: string }[] = [];
 	const removed: number[] = [];
+	/** The size each sandbox was asked for. */
+	const sizes: (string | undefined)[] = [];
 	const control = {
 		hold: false,
 		fail: undefined as string | undefined,
@@ -124,7 +126,8 @@ export function fakeSandboxes(root: string) {
 		...real,
 		configured: () => true,
 		dirFor: (project) => join(root, "sandboxes", project.name),
-		async create(project, _onProgress, onStep) {
+		async create(project, _onProgress, onStep, size) {
+			sizes.push(size);
 			onStep?.("cloning");
 			if (control.hold) await new Promise<void>((resolve) => control.releases.push(resolve));
 			if (control.fail !== undefined) throw new Error(control.fail);
@@ -146,7 +149,7 @@ export function fakeSandboxes(root: string) {
 		status: async (n) => `sandbox=${n} state=running`,
 		states: async () => new Map(made.map((m) => [m.n, "running"])),
 	};
-	return { sandboxes, control, made, removed, close: () => real.close() };
+	return { sandboxes, control, made, removed, sizes, close: () => real.close() };
 }
 
 /** `makeProject` in git, with one commit, and with `remote` a bare repository it tracks as origin/main. */

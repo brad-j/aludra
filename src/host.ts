@@ -13,7 +13,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, defineDocFamily, defineExtension, type EntryId, Harness, hook, type Extension, type JsonObject, type ModelRef, ToolTask } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { createSandboxes, deleteBranch, run, type Sandboxes, fastForward, type MergeResult, type SandboxStep, type SyncResult } from "./sandboxes.ts";
+import { createSandboxes, deleteBranch, run, run as runCommand, type Sandboxes, fastForward, type MergeResult, type SandboxSize, type SandboxStep, type SyncResult } from "./sandboxes.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ModelChoice, Settings } from "./api-types.ts";
@@ -28,7 +28,7 @@ import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
 import { askSession, createShips, type ShipLanded, type Shipping, shipOutcome, type ShipStopped, shipTimeout } from "./ship.ts";
-import { createResults, TurnChecks } from "./results.ts";
+import { createResults, parseProjectConfig, TurnChecks } from "./results.ts";
 import { readShot } from "./shots.ts";
 import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
@@ -95,6 +95,8 @@ export type SessionRecord = {
 	shipStopped?: ShipStopped;
 	/** Sessions made with the same group are attempts at one ask (amyrlin's ×3). */
 	group?: string;
+	/** A sandbox session's size: asked for when it was made, else the project's (.agents/project.json), set once known. */
+	sandboxSize?: SandboxSize;
 	/** A sandbox session's project directory on this machine, which its template was made from; context is read there. */
 	source?: string;
 	/** Its sandbox was deleted (src/sandbox-cleanup.ts): its tools have nowhere to run. */
@@ -393,6 +395,8 @@ export async function openHost(options: HostOptions) {
 	const created = new Set<(session: SessionRecord) => void>();
 
 	const projects = (): Project[] => findProjects(config.workspaces);
+	/** Set once the host starts closing, so work going on in the background stops writing. */
+	let closing = false;
 
 	/** Whether gh can make repositories, read at most once a minute: undefined when it can, else why not. */
 	let ghChecked: { at: number; problem: Promise<string | undefined> } | undefined;
@@ -631,7 +635,7 @@ export async function openHost(options: HostOptions) {
 	 * files on this machine. Returns at once with the session `preparing`; the sandbox is made after (`prepareSandbox`), and
 	 * messages sent meanwhile are held (`hold`) until it's ready.
 	 */
-	async function startSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { approvals?: "ask" | "off"; group?: string; onProgress?: (line: string) => void } = {}): Promise<SessionRecord> {
+	async function startSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { approvals?: "ask" | "off"; group?: string; size?: SandboxSize; onProgress?: (line: string) => void } = {}): Promise<SessionRecord> {
 		if (!sandboxes.configured()) throw new Error("no sandbox host in the settings (sandboxes)");
 		// Scratch work gets a repository of its own here, made once its ID is known, which its sandbox's template is cloned from.
 		const dir = sandboxes.dirFor({ name: project?.name ?? SCRATCH_NAME, dir: project?.dir ?? scratchRoot });
@@ -661,6 +665,7 @@ export async function openHost(options: HostOptions) {
 					sandboxState: "preparing",
 					...(options.approvals === undefined ? {} : { approvals: options.approvals }),
 					...(options.group === undefined ? {} : { group: options.group }),
+					...(options.size === undefined ? {} : { sandboxSize: options.size }),
 					source: project?.dir ?? resolve(scratchRoot, String(id)),
 					...(project === undefined ? { scratch: true } : {}),
 				};
@@ -690,9 +695,12 @@ export async function openHost(options: HostOptions) {
 				: record.scratch === true ? { name: SCRATCH_NAME, dir: record.source }
 				: projects().find((p) => p.dir === record.source) ?? { name: record.project, dir: record.source };
 			try {
+				// Its own size, else the project's at the commit its template is made from.
+				const size = record.sandboxSize ?? (project === undefined ? undefined : parseProjectConfig(await runCommand("git", ["-C", project.dir, "show", "HEAD:.agents/project.json"]).catch(() => undefined)).size) ?? "small";
+				if (record.sandboxSize !== size) await changeRecord(id, (r) => void (r.sandboxSize = size));
 				const made = await sandboxes.create(project === undefined ? undefined : { name: project.name, dir: project.dir }, onProgress, (step) => void changeRecord(id, (r) => {
 					if (r.sandboxState === "preparing") r.sandboxStep = step;
-				}));
+				}).catch(() => undefined), size);
 				// The directory was named when the session was made; a sandbox host that put it elsewhere moves the agent too.
 				if (made.dir !== record.dir) await (await conversation(id)).configure({ cwd: made.dir }, context);
 				const ready = await changeRecord(id, (r) => {
@@ -706,6 +714,8 @@ export async function openHost(options: HostOptions) {
 				return ready ?? record;
 			} catch (error) {
 				const reason = error instanceof Error ? error.message.slice(-2000) : String(error);
+				// Unless the host closed meanwhile: then a restart makes the sandbox again.
+				if (closing) return record;
 				console.error(`[sandbox] session ${id}: couldn't make its sandbox: ${reason}`);
 				return (await changeRecord(id, (r) => {
 					r.sandboxState = "failed";
@@ -1363,6 +1373,7 @@ export async function openHost(options: HostOptions) {
 			return catchUp();
 		},
 		close: async () => {
+			closing = true;
 			clearInterval(sweeper);
 			stopIndexing();
 			await caughtUp;
