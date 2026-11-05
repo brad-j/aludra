@@ -28,6 +28,9 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   stop --session ID                      stop a session's run
   archive --session ID | unarchive --session ID
                                          hide a session from the lists, or bring it back
+  archive --project NAME | unarchive --project NAME
+                                         hide a project from the lists (amyrlin's sidebar, aludra projects), or
+                                         bring it back; its files and sessions stay as they are
   retitle [--session ID]                 have a model title sessions that still have their first line, or
                                          write one session's title again from its whole conversation
   search [--session ID] [--reindex] WORDS...
@@ -44,7 +47,8 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   restore --session ID CHECKPOINT        put the project's files back to a checkpoint (undoable)
   approvals                              list calls waiting for approval
   approve ID | deny ID                   answer one
-  projects                               list the projects the workspaces' roots match
+  projects [--archived]                  list the projects the workspaces' roots match, archived ones left out
+                                         (or only those, with --archived)
   config                                 list the settings and where they come from
   config set KEY VALUE... | unset KEY    change one, at once if the host runs (a list takes each VALUE as an entry)
   backup                                 copy the database into the backup directory now
@@ -72,6 +76,7 @@ const { values, positionals } = parseArgs({
 		yes: { type: "boolean", short: "y" },
 		force: { type: "boolean" },
 		reindex: { type: "boolean" },
+		archived: { type: "boolean" },
 		help: { type: "boolean", short: "h" },
 	},
 	allowPositionals: true,
@@ -173,6 +178,7 @@ switch (command) {
 		process.exit(await talk(config, { type: "approvals" }));
 	case "archive":
 	case "unarchive":
+		if (values.project !== undefined && values.session === undefined) process.exit(await talk(config, { type: "archive", project: values.project, archived: command === "archive" }));
 		process.exit(await talk(config, { type: "archive", session: sessionId(), archived: command === "archive" }));
 	case "retitle":
 		process.exit(await talk(config, values.session === undefined ? { type: "retitle" } : { type: "retitle", session: sessionId() }));
@@ -198,7 +204,11 @@ switch (command) {
 		if (rest[0] === undefined) fail(`usage: aludra ${command} ID (aludra approvals lists them)`);
 		process.exit(await talk(config, { type: "decide", id: rest[0], allow: command === "approve" }));
 	case "projects":
+		// The host knows which are archived; without it, every project the roots match.
+		if (await isListening(socketPathFor(config))) process.exit(await talk(config, values.archived === true ? { type: "projects", archived: true } : { type: "projects" }));
+		if (values.archived === true) fail("aludra projects --archived needs the host running (aludra service status)");
 		for (const project of findProjects(config.workspaces)) console.log(`${project.name.padEnd(24)} ${project.workspace.padEnd(8)} ${project.dir}`);
+		console.log("the host isn't running, so archived projects are listed too");
 		process.exit(0);
 	case "config":
 		process.exit(await configCommand(config, rest));

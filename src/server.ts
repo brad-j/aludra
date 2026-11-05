@@ -5,6 +5,7 @@
 //                  {"type":"watch","session":3?}, {"type":"sessions","listing":true?}, {"type":"stop","session":3},
 //                  {"type":"approvals"}, {"type":"decide","id":"3f9a1c","allow":true},
 //                  {"type":"retitle","session":3?}, {"type":"archive","session":3,"archived":true},
+//                  {"type":"archive","project":"bdaytrip","archived":true}, {"type":"projects","archived":true?},
 //                  {"type":"settings","changes":{"approvals.hosts":["db"]}?},
 //                  {"type":"checkpoints","session":3,"restore":2?},
 //                  {"type":"search","query":"login test","session":3?,"reindex":true?},
@@ -20,7 +21,7 @@ import { chmodSync, rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { connect, createServer, type Socket } from "node:net";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchEvents } from "@earendil-works/pi-durable";
 import type { SessionSummary, Settings } from "./api-types.ts";
@@ -54,6 +55,8 @@ export type ClientMessage =
 	/** With a session, that session's title written again from its whole conversation; without, every first-line title. */
 	| { type: "retitle"; session?: number }
 	| { type: "archive"; session: number; archived: boolean }
+	| { type: "archive"; project: string; archived: boolean }
+	| { type: "projects"; archived?: boolean }
 	/** A session's checkpoints, each with its turn's changes; with `restore`, that checkpoint put back first. */
 	| { type: "checkpoints"; session: number; restore?: number }
 	/** Messages and answers matching `query`, in one session with `session`; with `reindex`, the index rebuilt first. */
@@ -70,7 +73,7 @@ export type ServerMessage =
 	| { type: "done"; status: string };
 
 const clientMessage = object({
-	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "settings", "checkpoints", "search", "page", "sync", "ship"),
+	type: literal("ask", "watch", "sessions", "stop", "approvals", "decide", "retitle", "archive", "projects", "settings", "checkpoints", "search", "page", "sync", "ship"),
 	to: optional(literal("main", "branch")),
 	sandbox: optional(boolean),
 	into: optional(string),
@@ -139,7 +142,8 @@ export function parseClientMessage(line: string): ClientMessage {
 		case "retitle":
 			return m.session === undefined ? { type: "retitle" } : { type: "retitle", session: m.session };
 		case "archive":
-			if (m.session === undefined) throw new ParseError("an archive needs a session");
+			if (m.project !== undefined && m.session === undefined) return { type: "archive", project: m.project, archived: m.archived !== false };
+			if (m.session === undefined) throw new ParseError("an archive needs a session or a project");
 			return { type: "archive", session: m.session, archived: m.archived !== false };
 		case "checkpoints":
 			if (m.session === undefined) throw new ParseError("checkpoints needs a session");
@@ -149,6 +153,8 @@ export function parseClientMessage(line: string): ClientMessage {
 			return { type: "page", session: m.session, page: m.page };
 		case "search":
 			return { type: "search", query: m.query ?? "", ...(m.session === undefined ? {} : { session: m.session }), ...(m.reindex === true ? { reindex: true } : {}) };
+		case "projects":
+			return m.archived === true ? { type: "projects", archived: true } : { type: "projects" };
 		case "settings":
 			return m.changes === undefined ? { type: "settings" } : { type: "settings", changes: m.changes };
 		case "decide":
@@ -417,8 +423,28 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				return finish(pending.length === 0 ? ["nothing waits for approval"] : pending.map((r) => `[${r.conversationId}] ${describeApproval(r)}`));
 			}
 			case "archive": {
+				if ("project" in request) {
+					try {
+						const done = await host.projectArchive.set(request.project, request.archived);
+						return finish([done.archived ? `archived project ${done.project.name} (${done.project.dir})` : `brought back project ${done.project.name} (${done.project.dir})`]);
+					} catch (error) {
+						return finish([error instanceof Error ? error.message : String(error)], "failed");
+					}
+				}
 				const record = await host.sessions.archive(request.session, request.archived);
 				return finish([request.archived ? `archived session ${record.id}: ${record.title}` : `brought back session ${record.id}: ${record.title}`]);
+			}
+			case "projects": {
+				const archived = new Set(await host.projectArchive.list());
+				const listed = host.projects().filter((p) => archived.has(p.dir) === (request.archived === true));
+				const lines = listed.map((p) => `${p.name.padEnd(24)} ${p.workspace.padEnd(8)} ${p.dir}`);
+				if (request.archived === true) {
+					// Archived folders the roots no longer match, so they can still be brought back by directory.
+					const known = new Set(host.projects().map((p) => p.dir));
+					for (const dir of archived) if (!known.has(dir)) lines.push(`${basename(dir).padEnd(24)} ${"(gone)".padEnd(8)} ${dir}`);
+					if (lines.length === 0) lines.push("no archived projects");
+				} else if (archived.size > 0) lines.push(`${archived.size} archived; aludra projects --archived lists them`);
+				return finish(lines);
 			}
 			case "retitle": {
 				if (request.session !== undefined) {

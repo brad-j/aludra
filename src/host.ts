@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { createModels, type Models, type Provider } from "@earendil-works/pi-ai/models";
@@ -31,7 +31,7 @@ import { askSession, createShips, type ShipLanded, type Shipping, shipOutcome, t
 import { createResults, parseProjectConfig, TurnChecks } from "./results.ts";
 import { readShot } from "./shots.ts";
 import { HUES } from "./project-colors.ts";
-import { findProjects, type Project } from "./projects.ts";
+import { findProject, findProjects, type Project } from "./projects.ts";
 import { createNewProjects, ghProblem, NewProjectRefused, type NewProjectsOptions } from "./new-projects.ts";
 import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
@@ -125,6 +125,14 @@ export const Colors = defineDoc<{ colors: Record<string, number> }>({
 	version: 1,
 	scope: "session",
 	initial: () => ({ colors: {} }),
+});
+
+/** Projects hidden from the lists, by directory, with when each was archived. Nothing else about them changes. */
+export const ArchivedProjects = defineDoc<{ dirs: Record<string, number> }>({
+	kind: "aludra.archivedProjects",
+	version: 1,
+	scope: "session",
+	initial: () => ({ dirs: {} }),
 });
 
 /** Messages a sandbox session got while its sandbox was being made, by session, each its content's JSON; sent in order once it's ready. */
@@ -1039,6 +1047,45 @@ export async function openHost(options: HostOptions) {
 		return () => void colorListeners.delete(listener);
 	}
 
+	const projectArchiveListeners = new Set<(dirs: string[]) => void>();
+
+	/** The directories of the archived projects. */
+	async function archivedProjects(): Promise<string[]> {
+		return Object.keys((await harness.snapshot(ArchivedProjects, context))?.dirs ?? {});
+	}
+
+	/**
+	 * Archives the project `query` names (name, parent/name or directory), or brings it back with `archived` false. The
+	 * project's files and sessions are untouched; clients leave it out of their lists. A directory no longer listed can
+	 * still be brought back by its directory.
+	 */
+	async function archiveProject(query: string, archived: boolean): Promise<{ project: Project; archived: boolean }> {
+		if (query.trim() === "") throw new ParseError("archiving takes a project");
+		const known = projects();
+		let project: Project;
+		try {
+			project = findProject(known, query);
+		} catch (error) {
+			const dir = resolve(expandHome(query));
+			const listed = await archivedProjects();
+			if (archived || !listed.includes(dir)) throw new ParseError(error instanceof Error ? error.message : String(error));
+			project = { workspace: "", name: basename(dir), path: `${basename(dirname(dir))}/${basename(dir)}`, dir };
+		}
+		const dirs = await root.commit(async (tx) => {
+			const doc = await tx.doc(ArchivedProjects);
+			if (archived) doc.dirs[project.dir] ??= Date.now();
+			else delete doc.dirs[project.dir];
+			return Object.keys(doc.dirs);
+		}, context);
+		projectArchiveListeners.forEach((listener) => listener(dirs));
+		return { project, archived };
+	}
+
+	function onProjectArchive(listener: (dirs: string[]) => void): () => void {
+		projectArchiveListeners.add(listener);
+		return () => void projectArchiveListeners.delete(listener);
+	}
+
 	const ideaListeners = new Set<() => void>();
 	const ideasChanged = () => ideaListeners.forEach((listener) => listener());
 
@@ -1349,6 +1396,8 @@ export async function openHost(options: HostOptions) {
 		newProjects: { info: newProjectsInfo, create: createProject, promote },
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },
+		/** Projects hidden from the lists (aludra.archivedProjects), by directory. */
+		projectArchive: { list: archivedProjects, set: archiveProject, onChange: onProjectArchive },
 		conversation,
 		submit,
 		image,

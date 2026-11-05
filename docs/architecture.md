@@ -40,6 +40,7 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
   | `aludra.ideas` | Ideas, by ID. |
   | `aludra.approvals` | Approval requests and decisions; decided ones are dropped after a week. |
   | `aludra.colors` | Picked project colors: name to hue index. |
+  | `aludra.archivedProjects` | Archived projects: directory to when it was archived. |
   | `aludra.push` | Devices signed up for notifications. |
   | `aludra.amyrlin` | The host's ID for amyrlin, and `conversations.create` request IDs already handled. |
   | `aludra.checkpoints` | Each session's checkpoints (a git tree each, by hash), and a note about a restore for its next message. |

@@ -123,6 +123,10 @@ With `--session ID`, writes that session's title again from its whole conversati
 
 Hides a session from the lists (amyrlin's and `aludra sessions`), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
 
+### `aludra archive --project NAME` and `aludra unarchive --project NAME`
+
+Hides a project from the lists (amyrlin's sidebar and `aludra projects`), or brings it back. `NAME` is the folder name, `parent/name` or the path. The folder, its sessions and `--project` still work as before.
+
 ### `aludra page --session ID PAGE`
 
 Writes a page the agent published in a session to `aludra-pages/` in the temporary directory and prints its title and path, to open in a browser on this machine. Pages are numbered from 1 in each session; the agent's tool result says which number it published.
@@ -151,7 +155,7 @@ Answers one. Exits 1 if nothing with that ID is waiting (it was answered, expire
 
 ### `aludra projects`
 
-Lists what the workspace roots match: each project's name, workspace and directory.
+Lists what the workspace roots match: each project's name, workspace and directory, leaving out archived projects and counting them at the foot. `--archived` lists only those, including any whose folder has gone. Archived projects are known to the host, so with the host stopped this lists every project and says so.
 
 ### `aludra config`
 

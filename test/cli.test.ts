@@ -58,3 +58,30 @@ test("the CLI says what's wrong with a bad command or a missing server", (t) => 
 	assert.match(cli("sessions").stderr, /can't reach the aludra server/);
 	assert.match(cli("stop").stderr, /needs --session ID/);
 });
+
+test("aludra archive --project hides a project from aludra projects, and unarchive brings it back", async (t) => {
+	const dir = tempDir(t);
+	makeProject(dir, "one");
+	const two = makeProject(dir, "two");
+	const config = join(dir, "aludra.json");
+	writeFileSync(config, JSON.stringify({ workspaces: [{ name: "test", roots: [join(dir, "Projects/*/*")] }] }));
+	const env = { ...process.env, ALUDRA_CONFIG: config, ALUDRA_DATA_DIR: join(dir, "data"), ALUDRA_MODEL: "faux" };
+	const cli = (...args: string[]) => spawnSync(process.execPath, ["--no-warnings", main, ...args], { env, encoding: "utf8", timeout: 30_000 });
+	assert.match(cli("projects").stdout, /the host isn't running, so archived projects are listed too/);
+	const server = spawn(process.execPath, ["--no-warnings", main, "serve"], { env, stdio: "ignore" });
+	t.after(() => server.kill("SIGKILL"));
+	while (!(await isListening(join(dir, "data", "aludra.sock")))) await new Promise((resolve) => setTimeout(resolve, 50));
+
+	const archived = cli("archive", "--project", "two");
+	assert.equal(archived.status, 0, archived.stderr);
+	assert.match(archived.stdout, new RegExp(`archived project two \\(${two.dir}\\)`));
+	const listed = cli("projects").stdout;
+	assert.match(listed, /^one /m);
+	assert.doesNotMatch(listed, /^two /m);
+	assert.match(listed, /1 archived; aludra projects --archived lists them/);
+	assert.match(cli("projects", "--archived").stdout, /^two /m);
+	assert.equal(cli("archive", "--project", "nowhere").status, 1);
+	assert.equal(cli("unarchive", "--project", "two").status, 0);
+	assert.match(cli("projects").stdout, /^two /m);
+	assert.match(cli("projects", "--archived").stdout, /no archived projects/);
+});

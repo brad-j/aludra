@@ -234,6 +234,17 @@ Brad asked for OpenRouter, signed in through the browser, and asked why models h
 - **amyrlin (later the same day):** protocol v1's `spend` prices every model at API rates, plan-paid ones too, so the Mac could show dollars never charged. Summaries now also carry `cost` (charged dollars, billed providers only), and `host.info` and `host.snapshot` carry `monthCost`. A session's cost comes from Pi Durable's usage ledger (it counts compaction summaries); the month's total adds up answers by time, which the ledger can't, so it leaves compaction out.
 - **Not checked live:** no OpenRouter account was signed in during the work; the catalog, picking and cost counting are tested with a stored key and recorded answers.
 
+## Archiving projects (2026-11-04)
+
+amyrlin's sidebar listed every project the workspace roots match, with no way to drop one. Projects now archive like sessions: hidden, not deleted, undoable. The host keeps the archived directories in `aludra.archivedProjects`, keyed by directory so two projects sharing a name stay apart and a moved-away folder can still be brought back. `projects.archive { project, archived }` sets it, `host.info` and `host.projects` mark each archived project `archived: true`, and every host watcher gets `host.projects` on a change. `aludra archive`/`unarchive --project NAME` do it from the terminal, and `aludra projects` leaves archived ones out (`--archived` for those). Sessions in an archived project are left as they are; the app decides whether to show them.
+
+What amyrlin needs (not done; it's a separate repository):
+- An Archive item on a project's sidebar menu, sending `projects.archive { project: dir, archived: true }`, and Unarchive in the archived group sending `archived: false`. Show the item only when `host.info.projects` entries could carry `archived` (an older host answers `unknown_method`; treat that as unsupported).
+- Leave projects with `archived: true` out of the sidebar's project list and its "N more" count, and the new-session project picker's Recent; list them in a folded Archived group at the end.
+- Take `archived` from `host.projects` as it does `checkout`, so another client's change shows at once.
+- Decide whether an archived project's sessions leave Home and the task lists too; the host doesn't hide them.
+- Add `projects.archive` to its `docs/protocol.md` beside `projects.setColor`.
+
 ## Archiving (2026-10-13)
 
 A session whose project folder was gone kept its old project group in amyrlin's sidebar, with no way to clear it. amyrlin's protocol v1 already had `conversations.archive` (hide, don't delete, idempotent), and amyrlin hides archived sessions; aludra answered `unsupported`. Now the session record has `archived`; amyrlin's endpoint archives and unarchives and reports it in summaries; the web app archives from the session menu into a folded Archived group at the end of the drawer; `aludra archive`/`unarchive --session ID` do it from the terminal, and `aludra sessions` and the terminal UI leave archived sessions out. There's no delete: archiving is undoable, and nothing else needed one. amyrlin still needs an Archive item in its session menu (its other session offered to add it), and its `docs/protocol.md` still says aludra answers archiving with `unsupported`.

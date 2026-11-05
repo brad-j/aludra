@@ -83,8 +83,20 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 	const hostListeners = new Set<(event: Json) => void>();
 	/** Each project's checkout (src/checkout.ts), read every 5 s while a client watches the host. */
 	const checkouts = watchCheckouts(() => host.projects(), () => host.sandboxSettings() !== undefined, options.checkoutMs);
+	/** The archived projects' directories, kept current from the host, so a listing marks them without a read. */
+	let archivedDirs = new Set<string>();
+	const archivedRead = host.projectArchive.list().then((dirs) => {
+		archivedDirs = new Set(dirs);
+	});
 	const projectsOf = (found: Map<string, Checkout>): Json =>
-		host.projects().map((p) => ({ workspace: p.workspace, name: p.name, path: p.path, dir: p.dir, ...(found.has(p.dir) ? { checkout: found.get(p.dir) } : {}) }));
+		host.projects().map((p) => ({
+			workspace: p.workspace,
+			name: p.name,
+			path: p.path,
+			dir: p.dir,
+			...(found.has(p.dir) ? { checkout: found.get(p.dir) } : {}),
+			...(archivedDirs.has(p.dir) ? { archived: true } : {}),
+		}));
 	const callIds = new Map<string, string>();
 	const dirty = new Set<number>();
 	let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -293,6 +305,14 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 	});
 	const stopCreated = host.sessions.onCreate((record) => markDirty(record.id));
 	const stopUpdated = host.sessions.onUpdate((record) => markDirty(record.id));
+	// An archived or restored project reaches every host watcher as the whole list, as a new one does.
+	const stopProjectArchive = host.projectArchive.onChange((dirs) => {
+		archivedDirs = new Set(dirs);
+		void checkouts.current().then((found) => {
+			const listed = projectsOf(found);
+			for (const listener of hostListeners) listener({ type: "host.projects", projects: listed });
+		});
+	});
 	const stopResults = host.results.onChange((id) => {
 		lines.delete(id);
 		markDirty(id);
@@ -625,7 +645,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			tools,
 			defaults: { model: host.model, thinkingLevel: host.thinking },
 			// Each with its checkout's state (protocol section 10 item 19); git is read, never fetched.
-			projects: projectsOf(await checkouts.current()),
+			projects: (await archivedRead, projectsOf(await checkouts.current())),
 			projectColors: await host.colors.list(),
 			// Messages take videos (src/videos.ts); a host from before them leaves this out, and the app sends it none.
 			videos: { maxVideos: MAX_VIDEOS, maxBytes: MAX_VIDEO_BYTES, maxFrames: MAX_FRAMES, keepDays: UPLOAD_DAYS },
@@ -940,6 +960,19 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 					markDirty(record.id);
 					return answer;
 				}
+				// aludra's own: hiding a project from the lists; its files and sessions stay as they are.
+				case "projects.archive": {
+					if (typeof p.project !== "string" || !(p.archived === undefined || typeof p.archived === "boolean")) throw new ProtocolError("bad_request", "projects.archive takes a project (its directory or name) and archived: true or false");
+					let done: { project: { dir: string }; archived: boolean };
+					try {
+						done = await host.projectArchive.set(p.project, p.archived !== false);
+					} catch (error) {
+						throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+					}
+					await archivedRead;
+					const listed = projectsOf(await checkouts.current()) as Json[];
+					return { project: listed.find((found) => found.dir === done.project.dir) ?? { dir: done.project.dir, archived: done.archived }, archived: done.archived };
+				}
 				case "projects.setColor": {
 					if (typeof p.project !== "string" || !(p.color === null || typeof p.color === "number")) throw new ProtocolError("bad_request", "projects.setColor takes a project name and a color, or null");
 					try {
@@ -1100,6 +1133,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			stopCreated();
 			stopUpdated();
 			stopResults();
+			stopProjectArchive();
 		},
 	};
 }

@@ -78,6 +78,8 @@ A message can carry files of any kind: a log, a PDF, a CSV, a zip, at most 20 an
 
 A session you're done with can be archived: it leaves the lists, and unarchiving brings it back. Nothing is deleted, and a run that's going carries on. A session whose project folder has gone away stays under the old project name until you archive it. In amyrlin, archive from a session's menu; on the command line, `aludra archive --session ID`.
 
+A project can be archived too, to take it out of amyrlin's sidebar and `aludra projects` without touching its folder or sessions: `aludra archive --project NAME`, and `aludra unarchive --project NAME` to bring it back.
+
 The host also archives sessions on its own once they've been idle for `archive.afterDays` (default 3) with nothing waiting for your approval. It checks a minute after start and hourly, whether or not any client is open. A session you bring back from the archive is kept: it stays in the lists however long it sits, until you archive it again. Set `archive.afterDays` to 0 to turn it off.
 
 ## Ideas

@@ -326,6 +326,32 @@ test("a picked project color is in host.info and the host snapshot, and reaches 
 	assert.deepEqual((await mac.event(again, type("host.snapshot"), "a new snapshot")).find(type("host.snapshot")).projectColors, {});
 });
 
+test("an archived project is marked in host.info, reaches every watcher as host.projects, and comes back", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const other = await client(t, url);
+	const listed = (info: Json) => info.projects.find((p: Json) => p.dir === project.dir);
+	assert.equal(listed(await mac.request("host.info")).archived, undefined);
+	const { subscription } = await other.request("host.watch");
+	await other.event(subscription, type("host.snapshot"), "the snapshot");
+
+	const answer = await mac.request("projects.archive", { project: project.dir, archived: true });
+	assert.equal(answer.archived, true);
+	assert.equal(answer.project.dir, project.dir);
+	assert.equal(answer.project.archived, true);
+	const seen = await other.event(subscription, (e) => e.type === "host.projects" && e.projects.some((p: Json) => p.dir === project.dir && p.archived === true), "the archived project");
+	assert.ok(seen.length > 0);
+	assert.equal(listed(await mac.request("host.info")).archived, true);
+	// Archiving twice is the same as once, and a name finds the project as a directory does.
+	assert.equal((await mac.request("projects.archive", { project: "one", archived: true })).archived, true);
+
+	await assert.rejects(mac.request("projects.archive", { project: "nowhere" }), { code: "bad_request" });
+	await assert.rejects(mac.request("projects.archive", { archived: true }), { code: "bad_request" });
+	assert.equal((await mac.request("projects.archive", { project: "one", archived: false })).project.archived, undefined);
+	await other.event(subscription, (e) => e.type === "host.projects" && e.projects.some((p: Json) => p.dir === project.dir && p.archived === undefined), "the project back");
+	assert.equal(listed(await mac.request("host.info")).archived, undefined);
+});
+
 test("a conversation is renamed from the Mac, and every watcher hears the new title", async (t) => {
 	const { url, project } = await api(t);
 	const mac = await client(t, url);
