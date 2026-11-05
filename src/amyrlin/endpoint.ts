@@ -24,6 +24,7 @@ import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, isSandboxSession, SandboxNotReady, sandboxBranch, type SessionRecord } from "../host.ts";
 import { ShipRefused, type ShipResult } from "../ship.ts";
 import { codeChanges, codeDiff } from "../results.ts";
+import { NewProjectRefused } from "../new-projects.ts";
 import { type Checkout, watchCheckouts } from "../checkout.ts";
 import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
 import { PAGE_CSP } from "../pages.ts";
@@ -629,8 +630,26 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			files: { maxFiles: MAX_FILES, maxBytes: MAX_FILE_BYTES, pasteBytes: PASTE_BYTES, keepDays: UPLOAD_DAYS, maxMessageBytes: MAX_MESSAGE_BYTES },
 			// Sessions may run in sandboxes (protocol section 10 item 19); a host without a sandbox host leaves this out.
 			...sandboxInfo(),
+			// Where new projects go, on a host that can make them now (protocol section 10 item 20).
+			...(await host.newProjects.info().then((info) => ("reason" in info ? {} : { newProjects: info }))),
 			...(await monthCostOf()),
 		};
+	}
+
+	/** Makes a project with `make`, and answers with it and its checkout; host watchers hear the new list. */
+	async function newProject(make: () => Promise<{ dir: string }>): Promise<Json> {
+		let made: { dir: string };
+		try {
+			made = await make();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (error instanceof NewProjectRefused || /can't make projects/.test(message)) throw new ProtocolError("bad_request", message);
+			throw new ProtocolError("internal", message);
+		}
+		const found = await checkouts.current();
+		const listed = projectsOf(found) as Json[];
+		for (const listener of hostListeners) listener({ type: "host.projects", projects: listed });
+		return listed.find((p) => p.dir === made.dir);
 	}
 
 	function sandboxInfo(): Json {
@@ -903,6 +922,11 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 					const summary = await summaryOf(record, (await host.sessions.states()).get(record.id) ?? "idle");
 					publishSummary(summary);
 					return { conversation: summary };
+				}
+				// aludra's own: new projects (protocol section 10 item 20).
+				case "projects.create": {
+					if (p.description != null && typeof p.description !== "string") throw new ProtocolError("bad_request", "description should be text");
+					return { project: await newProject(() => host.newProjects.create(p.name, p.description ?? undefined)) };
 				}
 				case "projects.setColor": {
 					if (typeof p.project !== "string" || !(p.color === null || typeof p.color === "number")) throw new ProtocolError("bad_request", "projects.setColor takes a project name and a color, or null");

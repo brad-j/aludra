@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createDecipheriv, createECDH, type ECDH, hkdfSync, randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { TestContext } from "node:test";
@@ -162,3 +162,34 @@ export function gitProject(root: string, name: string, files: Record<string, str
 	git(project.dir, "push", "-q", "-u", "origin", "main");
 	return { project, remote };
 }
+
+/**
+ * gh in place of the real one: `repo view` finds a repository when its bare repository exists in `remotes`, `repo create`
+ * makes one, and `auth status` fails while `signedIn` is false. `failCreate` makes `repo create` fail.
+ */
+export function fakeGh(remotes: string, options: { signedIn?: boolean; failCreate?: boolean; failAfterCreate?: boolean } = {}) {
+	const calls: string[][] = [];
+	mkdirSync(remotes, { recursive: true });
+	const gh = async (args: readonly string[]) => {
+		calls.push([...args]);
+		if (args[0] === "auth") {
+			if (options.signedIn === false) throw new Error("gh auth status: X Failed to log in to github.com account t (default)\n  - The token in default is invalid.");
+			return "";
+		}
+		const name = (args[2] ?? "").split("/")[1]!;
+		const bare = join(remotes, `${name}.git`);
+		if (args[1] === "view") {
+			if (!existsSync(bare)) throw new Error("gh repo view: GraphQL: Could not resolve to a Repository with the name 't/x'.");
+			return "{}";
+		}
+		if (args[1] === "create") {
+			if (options.failCreate === true) throw new Error("gh repo create: HTTP 403");
+			execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare]);
+			return "";
+		}
+		throw new Error(`fake gh: ${args.join(" ")}`);
+	};
+	const remoteUrl = (repository: string) => (options.failAfterCreate === true ? join(remotes, "nowhere", "x.git") : join(remotes, `${repository.split("/")[1]}.git`));
+	return { gh, remoteUrl, calls };
+}
+

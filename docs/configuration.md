@@ -150,6 +150,15 @@ pnpm exec playwright install --with-deps chromium
 `playwright` or `@playwright/test` has to be among the project's dependencies; aludra uses the project's own. The dev server should listen on the declared port (it gets `PORT` too) and answer `/` on it. Pages the run's changed routes make, for file-based routers (TanStack Router, Remix, SvelteKit, Astro, Next's app router), are shot too. Without a dev server declared, or without Playwright and its Chromium in the sandbox, there are no screenshots and nothing says so.
 - `shipTo`: where `aludra ship` lands work by default: `main` (the default) pushes to the project's upstream branch, `branch` pushes a branch of its own and opens a pull request with `gh`.
 
+### `newProjects`
+
+Where the apps' New project makes projects, if anywhere. Only the settings file sets it.
+
+- `root`: the folder new projects go in, each `<root>/<name>`. A workspace root must match the folders in it (`<root>/*`, or a pattern covering it), so a new project lists at once; aludra refuses one that doesn't.
+- `owner`: the GitHub account or organization the repository is made under, private.
+
+Making one runs `git init` on `main`, writes a `README.md` with the name and description, commits with this machine's git identity, creates `<owner>/<name>` with `gh repo create --private`, and pushes `main` to `git@github.com:<owner>/<name>.git`. So it needs `gh` signed in to github.com with the `repo` scope (`gh auth login`), and this machine's SSH access to GitHub. While `gh auth status` fails, the apps aren't offered New project, and `aludra doctor` says why.
+
 ### `dataDir`
 
 Where the database, keys, scratch directories, uploaded videos and screenshots go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.

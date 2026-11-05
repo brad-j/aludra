@@ -10,6 +10,7 @@ import { claudeCodeProvider, claudeExecutable, loadClaudeCode, PROVIDER } from "
 import { claudeConfigDir, type Config, type Loaded, type ProviderId } from "./config.ts";
 import { accountModels, signInModels } from "./login.ts";
 import { expandRoot } from "./projects.ts";
+import { ghProblem } from "./new-projects.ts";
 import { isListening, socketPathFor } from "./server.ts";
 import { currentSpec, installedUnit, launchdPlist, lingers, platformOf, serviceState, systemdUnit, withoutPath } from "./service.ts";
 import { servesPort, tailnetSelf, tailscaleFor } from "./tailscale.ts";
@@ -28,7 +29,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), openrouter(config), api(config), push(), video(), service(config), backups(config)];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), openrouter(config), api(config), push(), video(), service(config), backups(config), newProjects(config)];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -181,6 +182,14 @@ async function backups(config: Config): Promise<Check[]> {
 	const age = hours < 1 ? "under an hour" : hours < 48 ? `${Math.round(hours)} hours` : `${Math.round(hours / 24)} days`;
 	const late = hours > config.backup.everyHours * 2;
 	return [{ status: late ? "warn" : "ok", area: "backup", detail: `newest ${age} old${late ? ", later than it should be; is the host running?" : ""}; ${where}` }];
+}
+
+/** New projects need newProjects in the settings and gh signed in (src/new-projects.ts); the apps hide New project otherwise. */
+async function newProjects(config: Config): Promise<Check[]> {
+	if (config.newProjects === undefined) return [{ status: "skip", area: "projects", detail: "newProjects isn't set, so the apps can't make projects" }];
+	const problem = await ghProblem();
+	if (problem !== undefined) return [{ status: "warn", area: "projects", detail: `can't make new projects: ${problem}` }];
+	return [{ status: "ok", area: "projects", detail: `new projects go in ${config.newProjects.root}, private on github.com/${config.newProjects.owner}` }];
 }
 
 async function push(): Promise<Check[]> {

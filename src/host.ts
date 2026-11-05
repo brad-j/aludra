@@ -31,6 +31,7 @@ import { createResults, TurnChecks } from "./results.ts";
 import { readShot } from "./shots.ts";
 import { HUES } from "./project-colors.ts";
 import { findProjects, type Project } from "./projects.ts";
+import { createNewProjects, ghProblem, type NewProjectsOptions } from "./new-projects.ts";
 import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
 import { messagesOf, openSearch } from "./search.ts";
@@ -226,6 +227,8 @@ export type HostOptions = {
 	sandboxes?: Sandboxes;
 	/** Writes sessions' titles. Default: the smallest model on hand (src/titles.ts); none for the faux model, given models or a given Claude Code provider. */
 	titler?: Titler;
+	/** gh, and the remote a new project pushes to, in place of the real ones (src/new-projects.ts); tests pass fakes. */
+	newProjects?: Pick<NewProjectsOptions, "gh" | "remoteUrl">;
 };
 
 export async function openHost(options: HostOptions) {
@@ -356,6 +359,28 @@ export async function openHost(options: HostOptions) {
 	const created = new Set<(session: SessionRecord) => void>();
 
 	const projects = (): Project[] => findProjects(config.workspaces);
+
+	/** Whether gh can make repositories, read at most once a minute: undefined when it can, else why not. */
+	let ghChecked: { at: number; problem: Promise<string | undefined> } | undefined;
+	const ghStatus = () => {
+		if (ghChecked === undefined || Date.now() - ghChecked.at > 60_000) ghChecked = { at: Date.now(), problem: ghProblem(options.newProjects?.gh) };
+		return ghChecked.problem;
+	};
+	/** Where new projects go and on whose GitHub, when this host can make them now; else why not (src/new-projects.ts). */
+	async function newProjectsInfo(): Promise<{ root: string; owner: string } | { reason: string }> {
+		if (config.newProjects === undefined) return { reason: "newProjects isn't set" };
+		const problem = await ghStatus();
+		return problem === undefined ? { ...config.newProjects } : { reason: problem };
+	}
+	/** Makes project `name` in newProjects.root (src/new-projects.ts); the project it is, as the workspaces now list it. */
+	async function createProject(name: unknown, description?: string, from?: { source: string; ref: string }): Promise<Project> {
+		const info = await newProjectsInfo();
+		if ("reason" in info) throw new Error(`this host can't make projects: ${info.reason}`);
+		const made = await createNewProjects({ ...info, ...options.newProjects }).create(name, description, from);
+		const found = projects().find((p) => p.dir === made.dir);
+		if (found === undefined) throw new Error(`${made.dir} was made, but no workspace root lists it`);
+		return found;
+	}
 	/** Where no-project sessions keep the files they make, one directory per session. */
 	const scratchRoot = resolve(config.dataDir, "scratch");
 	/** Where videos sent with messages are kept, one directory per session, until sweepUploads takes them. */
@@ -1243,6 +1268,8 @@ export async function openHost(options: HostOptions) {
 		},
 		scratchRoot,
 		uploads,
+		/** New projects (src/new-projects.ts): where they go when this host can make them, and making one. */
+		newProjects: { info: newProjectsInfo, create: createProject },
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },
 		conversation,

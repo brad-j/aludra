@@ -150,6 +150,13 @@ aludra's own, from amyrlin's protocol section 10 item 19. A host with a sandbox 
 - `task.shot { conversationId, shot }` returns `{ mimeType: "image/png", data }`, `data` base64, for a shot `id` from the result; `not_found` for an unknown one or one past its days.
 - These answer `bad_request` for a session that isn't in a sandbox, has no project, or whose sandbox isn't ready or was deleted; `task.result` takes any session.
 
+### New projects and scratch sandboxes
+
+aludra's own, from amyrlin's protocol section 10 item 20.
+
+- `host.info` carries `newProjects: { root, owner }` when the settings name them ([configuration.md](configuration.md#newprojects)) and `gh` is signed in to github.com; otherwise it's absent. gh's sign-in is read at most once a minute.
+- `projects.create { name, description? }` makes `<root>/<name>`: `git init` on `main`, a `README.md` with the name and description, a first commit, then a private `<owner>/<name>` on GitHub with `main` pushed, so `origin/main` is its upstream. It returns `{ project }`, the project as `host.info` lists it, with its `checkout`, and every `host.watch` gets `host.projects`. `name` is lowercase letters, digits and `-`, starting with a letter or digit and not ending with `-`. It's `bad_request` for a bad name, an existing folder or repository (the message says which), or a host that can't make projects (the message says why), and `internal` when git or gh fails after it started. A failure removes the folder it made; a repository gh had created is left on GitHub, and the message says so. A project made this way can take a sandbox at once: its first commit is its template's.
+
 `test/amyrlin.test.ts` checks the translation against amyrlin's recorded scenarios (`test/fixtures/amyrlin/`).
 
 ## MCP: `POST /mcp`

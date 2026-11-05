@@ -83,6 +83,8 @@ export type Config = {
 	mcp: { write: boolean };
 	/** The sandbox host (spike, src/sandboxes.ts), if sessions may run in sandboxes. */
 	sandboxes?: SandboxSetting;
+	/** Where new projects are made and whose GitHub account their repositories go on (src/new-projects.ts), if anywhere. */
+	newProjects?: { root: string; owner: string };
 	dataDir: string;
 };
 
@@ -135,6 +137,7 @@ const settingsFile = object({
 	archive: optional(object({ afterDays: optional(number) })),
 	mcp: optional(object({ write: optional(boolean) })),
 	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")), approvals: optional(literal("ask", "off")) })),
+	newProjects: optional(object({ root: string, owner: string })),
 	dataDir: optional(string),
 });
 
@@ -198,6 +201,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 			shipTo: file.sandboxes.shipTo ?? "main",
 			approvals: file.sandboxes.approvals ?? "off",
 		} }),
+		...(file.newProjects === undefined ? {} : { newProjects: { root: resolve(expandHome(file.newProjects.root)), owner: file.newProjects.owner.trim() } }),
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
 		backup: { ...DEFAULTS.backup, dir: "" },
 	};
@@ -219,6 +223,12 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	const names = config.workspaces.map((w) => w.name);
 	if (new Set(names).size !== names.length) errors.push("two workspaces share a name");
 	if (config.sandboxes !== undefined && !/^ssh-ed25519 [A-Za-z0-9+/=]+$/.test(config.sandboxes.sandboxHostKey)) errors.push("sandboxes.sandboxHostKey should be the sandboxes' host key, ssh-ed25519 AAAA..., as `stedding hostkey` prints it without its comment");
+	if (config.newProjects !== undefined) {
+		const { root, owner } = config.newProjects;
+		if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(owner)) errors.push(`newProjects.owner ${owner} isn't a GitHub account or organization name`);
+		// A project made there has to list at once, so the root's folders must be what a workspace root matches.
+		if (!rootListsChildren(config.workspaces, root)) errors.push(`newProjects.root ${root} isn't under a workspace root: no workspace root matches the folders in it, so a new project wouldn't list. Add "${root}/*" to a workspace's roots, or pick a root one already matches`);
+	}
 	if (config.workspaces.length === 0) errors.push(`no workspaces: name the folders that hold your projects, such as ${EXAMPLE_WORKSPACE}`);
 	if (config.claude.configDir !== undefined && !isDirectory(config.claude.configDir)) errors.push(`claude.configDir ${config.claude.configDir} isn't a directory; log in there with CLAUDE_CONFIG_DIR=${config.claude.configDir} claude auth login`);
 	if (!(config.approvals.waitHours > 0)) errors.push("approvals.waitHours should be more than 0");
@@ -227,6 +237,17 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	if (config.backup.keep < 1) errors.push("backup.keep should be 1 or more");
 	if (!(config.archive.afterDays >= 0)) errors.push("archive.afterDays should be 0 (off) or more");
 	return { config, errors };
+}
+
+/** Whether some workspace root, a glob, matches every folder directly in `root`: `root/*`, or a pattern that covers it. */
+export function rootListsChildren(workspaces: readonly Workspace[], root: string): boolean {
+	const child = join(root, "a-new-project");
+	return workspaces.some((w) => w.roots.some((pattern) => {
+		const parts = resolve(expandHome(pattern)).split("/");
+		const want = child.split("/");
+		if (parts.length !== want.length) return false;
+		return parts.every((part, i) => part === "*" ? !want[i]!.startsWith(".") : new RegExp(`^${part.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}$`).test(want[i]!));
+	}));
 }
 
 /** The settings from the file `--config` names, ALUDRA_CONFIG, or the default file. */

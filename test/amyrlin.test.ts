@@ -11,11 +11,11 @@ import { UsageDoc } from "@earendil-works/pi-durable";
 import { WebSocket } from "ws";
 import { createApi } from "../src/api.ts";
 import { type Json, translateFixture } from "../src/amyrlin/translate.ts";
-import { context, conversationId } from "../src/host.ts";
+import { context, conversationId, type HostOptions } from "../src/host.ts";
 import { PAGE_CSP, Pages } from "../src/pages.ts";
 import { removeSandboxesOnArchive } from "../src/sandbox-cleanup.ts";
 import type { Sandboxes } from "../src/sandboxes.ts";
-import { fakeSandboxes, git, gitProject, makeProject, PNG, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
+import { fakeGh, fakeSandboxes, git, gitProject, makeProject, PNG, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
 const FIXTURES = join(import.meta.dirname, "fixtures", "amyrlin");
@@ -48,7 +48,7 @@ const lastUser = (ctx: TranscriptContext) => JSON.stringify(ctx.messages.findLas
  * NAME.txt and commits it; a ship prompt rebases onto refs/aludra/base and says SHIP-READY, or SHIP-BLOCKED when the
  * ship's note says "block"; anything else is answered. With `sandboxes`, the host has a sandbox host.
  */
-async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: string; settings?: Record<string, unknown> } = {}) {
+async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: string; settings?: Record<string, unknown>; newProjects?: HostOptions["newProjects"] } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000 }, { id: "faux-2", name: "Faux 2" }] });
 	const prompts: string[] = [];
 	faux.setResponses(Array.from({ length: 100 }, () => (ctx: TranscriptContext) => {
@@ -73,7 +73,7 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 	}));
 	const models = createModels();
 	models.setProvider(faux.provider);
-	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(options.sandboxes === undefined ? {} : { sandboxes: options.sandboxes, settings: { ...SANDBOX_SETTINGS, ...options.settings } }), ...(options.dir === undefined ? {} : { dir: options.dir }) });
+	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(options.sandboxes === undefined ? (options.settings === undefined ? {} : { settings: options.settings }) : { sandboxes: options.sandboxes, settings: { ...SANDBOX_SETTINGS, ...options.settings } }), ...(options.dir === undefined ? {} : { dir: options.dir }), ...(options.newProjects === undefined ? {} : { newProjects: options.newProjects }) });
 	const project = options.dir !== undefined || options.sandboxes !== undefined ? { workspace: "test", name: "one", path: "Software/one", dir: join(dir, "Projects", "Software", "one") } : makeProject(dir, "one");
 	const server = createApi(host, { users: [USER], name: "test-host", checkoutMs: 100 });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -918,4 +918,32 @@ test("a sandbox session runs git push without asking by default, and one made wi
 	await host.sandboxes.prepared(ask.id);
 	await waitFor(async () => (await host.approvals.pending()).some((r) => r.conversationId === ask.id && r.summary === "git push"), "the push to wait");
 	await host.stop(ask.id);
+});
+
+test("projects.create makes a project with its repository, lists it with its checkout, and host.info says where they go", async (t) => {
+	const dir = tempDir(t);
+	const root = join(dir, "Projects", "Software");
+	const signedIn = fakeGh(join(dir, "github"));
+	const { url } = await api(t, { dir, settings: { newProjects: { root, owner: "t" } }, newProjects: signedIn });
+	const mac = await client(t, url);
+	assert.deepEqual((await mac.request("host.info")).newProjects, { root, owner: "t" });
+	const list = (await mac.request("host.watch")).subscription;
+	await mac.event(list, type("host.snapshot"), "the host snapshot");
+
+	const { project } = await mac.request("projects.create", { name: "waygate", description: "Gates." });
+	assert.equal(project.dir, join(root, "waygate"));
+	assert.equal(project.name, "waygate");
+	assert.deepEqual(project.checkout, { branch: "main", dirty: 0, ahead: 0, behind: 0, upstream: "origin/main", sandboxes: { reason: "this host has no sandbox host" } });
+	const listed = (await mac.event(list, (e) => e.type === "host.projects" && e.projects.some((p: Json) => p.name === "waygate"), "host.projects")).findLast(type("host.projects"));
+	assert.ok(listed.projects.some((p: Json) => p.dir === project.dir));
+	await assert.rejects(mac.request("projects.create", { name: "waygate" }), { code: "bad_request", message: /already exists/ });
+	await assert.rejects(mac.request("projects.create", { name: "Way Gate" }), { code: "bad_request" });
+});
+
+test("a host whose gh isn't signed in has no newProjects, and refuses projects.create saying why", async (t) => {
+	const dir = tempDir(t);
+	const { url } = await api(t, { dir, settings: { newProjects: { root: join(dir, "Projects", "Software"), owner: "t" } }, newProjects: fakeGh(join(dir, "github"), { signedIn: false }) });
+	const mac = await client(t, url);
+	assert.equal((await mac.request("host.info")).newProjects, undefined);
+	await assert.rejects(mac.request("projects.create", { name: "x" }), { code: "bad_request", message: /token for github.com is invalid/ });
 });
