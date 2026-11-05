@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Installs what .agents/project.json's checks need, from the lockfile.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+corepack enable 2>/dev/null || true
+pnpm install --frozen-lockfile

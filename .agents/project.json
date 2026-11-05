@@ -1,0 +1,8 @@
+{
+	"checks": [
+		{ "name": "lint", "command": "pnpm lint" },
+		{ "name": "types", "command": "pnpm exec tsc" },
+		{ "name": "build", "command": "pnpm build" },
+		{ "name": "tests", "command": "pnpm test" }
+	]
+}

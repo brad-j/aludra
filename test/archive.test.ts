@@ -73,7 +73,9 @@ test("archive.afterDays: 3 by default, 0 turns it off, a negative is refused, an
 	assert.equal(configFor(JSON.stringify({ workspaces, archive: { afterDays: 0 } }), {}).config.archive.afterDays, 0);
 	assert.match(configFor(JSON.stringify({ workspaces, archive: { afterDays: -1 } }), {}).errors.join(), /archive\.afterDays/);
 
-	const { host } = await testHost(t, { settingsFile: true });
+	const models = createModels();
+	models.setProvider(fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] }).provider);
+	const { host } = await testHost(t, { settingsFile: true, models, model: { provider: "faux", modelId: "faux-1" } });
 	const setting = host.settings.get().settings.find((s) => s.key === "archive.afterDays");
 	assert.deepEqual([setting?.value, setting?.editable, setting?.live], [3, true, true]);
 	host.settings.set({ "archive.afterDays": 0 });

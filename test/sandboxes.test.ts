@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createModels } from "@earendil-works/pi-ai/models";
+import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import { Connection, localDaemon } from "@earendil-works/pi-env";
 import { context } from "../src/host.ts";
 import { createSandboxes, fastForward, templateName } from "../src/sandboxes.ts";
@@ -210,7 +212,9 @@ test("sandbox sessions number their branches in one count across projects, past 
 	const fake = fakeSandboxes(root);
 	t.after(() => fake.close());
 	fake.control.hold = true;
-	const { host } = await testHost(t, { dir: root, sandboxes: fake.sandboxes, settings: SANDBOX_SETTINGS });
+	const models = createModels();
+	models.setProvider(fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] }).provider);
+	const { host } = await testHost(t, { dir: root, sandboxes: fake.sandboxes, settings: SANDBOX_SETTINGS, models, model: { provider: "faux", modelId: "faux-1" } });
 	const a = await host.sessions.startSandbox(one, "a");
 	const b = await host.sessions.startSandbox(two, "b");
 	const c = await host.sessions.startSandbox(one, "c");
