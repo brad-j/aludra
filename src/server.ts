@@ -389,6 +389,7 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				}
 				await events.stop();
 				if (!result.shipped) return finish([`! not shipped: ${result.reason}`], "failed");
+				if (result.commits === 0) return finish([`nothing to push: it's all on ${result.pushed} already, at ${result.head.slice(0, 12)}`]);
 				return finish([
 					`shipped ${result.commits} commit${result.commits === 1 ? "" : "s"} to ${result.pushed}, at ${result.head.slice(0, 12)}`,
 					...(result.pr === undefined ? [] : [`pull request: ${result.pr}`]),

@@ -8,7 +8,8 @@
 //    SHIP-BLOCKED line.
 // 3. Here: fetch the result into `sandbox/N` (forced, since the rebase rewrote it), check it sits on the base, and
 //    push it: to the base branch (`main` mode), or to a branch of its own with a pull request (`branch` mode).
-//    Then the local branch is fast-forwarded when that's safe.
+//    Then the local branch is fast-forwarded when that's safe. Work that has nothing beyond the base once rebased (it
+//    landed already, or changed nothing) lands with no push and `commits: 0`: there's nothing left to do.
 //
 // Pressing Ship is the approval for the push, so it doesn't wait in the approvals queue as an agent's push would.
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
@@ -29,7 +30,7 @@ export type ShipResult =
 	| { shipped: true; mode: ShipMode; pushed: string; head: string; commits: number; pr?: string; local?: MergeResult }
 	| { shipped: false; kind: ShipFailure; reason: string };
 
-/** The latest ship that landed, kept on the session's record until another lands. */
+/** The latest ship that landed, kept on the session's record until another lands; `commits: 0` when it was all upstream already. */
 export type ShipLanded = { at: number; to: ShipMode; pushed: string; head: string; commits: number; pr?: string };
 /** The latest ship that stopped short, kept on the record until the next one starts or lands. */
 export type ShipStopped = { at: number; kind: ShipFailure; reason: string };
@@ -47,10 +48,14 @@ function landedWhere(shipped: ShipLanded): string {
 	return shipped.to === "branch" ? `${branch} for review` : branch;
 }
 
+/** The branch a landed ship with nothing to push found its work on: "main". */
+const baseOf = (shipped: ShipLanded) => shipped.pushed.replace(/^[^/]+\//, "");
+
 /** A ship's outcome as a sentence, for a summary or a notification: "Shipped to main: 2 commits.", "Ship stopped: …". */
 export function shipSentence(outcome: { shipped: ShipLanded } | { shipStopped: ShipStopped }): string {
 	if ("shipped" in outcome) {
 		const { commits } = outcome.shipped;
+		if (commits === 0) return `Nothing to ship: it's all on ${baseOf(outcome.shipped)} already.`;
 		return `Shipped to ${landedWhere(outcome.shipped)}: ${commits} commit${commits === 1 ? "" : "s"}.`;
 	}
 	return `Ship stopped: ${outcome.shipStopped.reason}`;
@@ -60,6 +65,7 @@ export function shipSentence(outcome: { shipped: ShipLanded } | { shipStopped: S
 export function shipLine(outcome: { shipped: ShipLanded } | { shipStopped: ShipStopped }): string {
 	if ("shipped" in outcome) {
 		const { commits } = outcome.shipped;
+		if (commits === 0) return `Already on ${baseOf(outcome.shipped)}`;
 		return `Shipped to ${landedWhere(outcome.shipped)} · ${commits} commit${commits === 1 ? "" : "s"}`;
 	}
 	const reason = outcome.shipStopped.reason;
@@ -102,7 +108,7 @@ export function shipPrompt(base: string, sha: string, note?: string): string {
 		`4. If a check fails the same way on refs/aludra/base, the sandbox is the problem, not the work: stop there and say \`SHIP-BLOCKED: <check> fails on the base too: <first line of its error>\`. Don't change the system (sysctl, packages, limits, swap) to make it pass, and don't dig into the machine. Each command is stopped after ${SHIP_COMMAND_S / 60} minutes.`,
 		"5. Don't push, and don't change git remotes: the host pushes once you're done.",
 		"Keep a plan block as for any work, with these steps (bring in the upstream, rebase, run the checks, ready), so the user sees which one you're on.",
-		"End your reply with one line on its own: `SHIP-READY` when HEAD is the rebased, tested work, or `SHIP-BLOCKED: <why>` when it isn't. Put the result block after it, as for any reply. Its summary and changes describe the work being shipped, for someone who uses the project, not the rebase or the checks; leave the git steps to your prose. When you're blocked on a decision only the user can make, its question names the choices as options.",
+		"End your reply with one line on its own: `SHIP-READY` when HEAD is the rebased, tested work, or `SHIP-BLOCKED: <why>` when it isn't. When there's nothing beyond refs/aludra/base after the rebase (the work is upstream already, or changed nothing) and nothing is uncommitted, that's `SHIP-READY` too: the host sees there's nothing to push and says so. Put the result block after it, as for any reply. Its summary and changes describe the work being shipped, for someone who uses the project, not the rebase or the checks; leave the git steps to your prose. When you're blocked on a decision only the user can make, its question names the choices as options.",
 	].join("\n");
 }
 
@@ -201,7 +207,12 @@ async function shipping(host: ShipHost, id: number, options: ShipOptions & { ask
 	const onBase = await git("merge-base", "--is-ancestor", sha, synced.head).then(() => true, () => false);
 	if (!onBase) throw new Stop("check_failed", `${synced.branch} isn't on ${base.remote}/${base.branch}; the rebase didn't happen, nothing pushed`);
 	const commits = Number(await git("rev-list", "--count", `${sha}..${synced.head}`));
-	if (commits === 0) throw new Stop("check_failed", `nothing to ship: ${synced.branch} has no commits beyond ${base.remote}/${base.branch}`);
+	// Everything is upstream already: nothing to push, and nothing left for this work to do.
+	if (commits === 0) {
+		say(`nothing to push: ${synced.branch} has no commits beyond ${base.remote}/${base.branch}`);
+		// `main` whichever mode was asked: the work is on the base branch, and no branch or pull request was made.
+		return { shipped: true, mode: "main", pushed: `${base.remote}/${base.branch}`, head: synced.head, commits: 0 };
+	}
 
 	if (mode === "main") {
 		say(`pushing ${commits} commit${commits === 1 ? "" : "s"} to ${base.remote}/${base.branch}`);
@@ -277,7 +288,7 @@ export function createShips(options: ShipsOptions) {
 				ask: (session, prompt) => options.ask(session, prompt, shipping.requestId),
 			});
 			await options.mark(id, { done: result, at: Date.now() }).catch((error) => log(`[ship] session ${id}: ${error instanceof Error ? error.message : String(error)}`));
-			log(result.shipped ? `[ship] session ${id}: ${result.commits} commit${result.commits === 1 ? "" : "s"} to ${result.pushed}` : `[ship] session ${id} stopped (${result.kind}): ${result.reason}`);
+			log(result.shipped ? result.commits === 0 ? `[ship] session ${id}: nothing to push, all on ${result.pushed}` : `[ship] session ${id}: ${result.commits} commit${result.commits === 1 ? "" : "s"} to ${result.pushed}` : `[ship] session ${id} stopped (${result.kind}): ${result.reason}`);
 			for (const listener of listeners) listener(id, result);
 			return result;
 		})().finally(() => going.delete(id));

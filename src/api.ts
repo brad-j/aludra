@@ -166,7 +166,7 @@ export function createApi(host: Host, options: ApiOptions) {
 			if (record === undefined) return;
 			const outcome = shipOutcome(result, Date.now());
 			notify(id, {
-				title: `${result.shipped ? "Shipped" : "Ship stopped"} · ${record.project}`,
+				title: `${!result.shipped ? "Ship stopped" : result.commits === 0 ? "Already shipped" : "Shipped"} · ${record.project}`,
 				body: `${record.title}\n${shipSentence(outcome)}`,
 				tag: `session-${id}`,
 				url: `/s/${id}`,

@@ -921,7 +921,7 @@ test("host.info carries each project's checkout, and host.watch sends host.proje
 	const { url, project } = await sandboxApi(t);
 	const mac = await client(t, url);
 	const info = await mac.request("host.info");
-	assert.deepEqual(info.projects.find((p: Json) => p.dir === project.dir).checkout, { branch: "main", dirty: 0, ahead: 0, behind: 0, upstream: "origin/main", sandboxes: true });
+	assert.deepEqual(info.projects.find((p: Json) => p.dir === project.dir).checkout, { branch: "main", dirty: 0, ahead: 0, behind: 0, upstream: "origin/main", sandboxes: true, checks: 0, code: false });
 	const list = (await mac.request("host.watch")).subscription;
 	await mac.event(list, type("host.snapshot"), "the host snapshot");
 	writeFileSync(join(project.dir, "wip.txt"), "x\n");
@@ -960,7 +960,7 @@ test("projects.create makes a project with its repository, lists it with its che
 	const { project } = await mac.request("projects.create", { name: "waygate", description: "Gates." });
 	assert.equal(project.dir, join(root, "waygate"));
 	assert.equal(project.name, "waygate");
-	assert.deepEqual(project.checkout, { branch: "main", dirty: 0, ahead: 0, behind: 0, upstream: "origin/main", sandboxes: { reason: "this host has no sandbox host" } });
+	assert.deepEqual(project.checkout, { branch: "main", dirty: 0, ahead: 0, behind: 0, upstream: "origin/main", sandboxes: { reason: "this host has no sandbox host" }, checks: 0, code: false });
 	const listed = (await mac.event(list, (e) => e.type === "host.projects" && e.projects.some((p: Json) => p.name === "waygate"), "host.projects")).findLast(type("host.projects"));
 	assert.ok(listed.projects.some((p: Json) => p.dir === project.dir));
 	await assert.rejects(mac.request("projects.create", { name: "waygate" }), { code: "bad_request", message: /already exists/ });

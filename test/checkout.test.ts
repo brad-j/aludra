@@ -25,7 +25,7 @@ test("a checkout's ahead and behind are against the upstream as last fetched, an
 	writeFileSync(join(project.dir, "new.txt"), "new\n");
 
 	const before = await readCheckout(project.dir, true);
-	assert.deepEqual(before, { branch: "main", dirty: 2, ahead: 1, behind: 0, upstream: "origin/main", sandboxes: true });
+	assert.deepEqual(before, { branch: "main", dirty: 2, ahead: 1, behind: 0, upstream: "origin/main", sandboxes: true, checks: 0, code: false });
 	assert.equal(git(project.dir, "rev-parse", "origin/main"), git(project.dir, "rev-parse", "HEAD~1"), "nothing was fetched");
 	git(project.dir, "fetch", "-q");
 	assert.equal((await readCheckout(project.dir, true)).behind, 1);
@@ -39,7 +39,7 @@ test("a project that isn't a repository of its own can't take a sandbox, and say
 	const root = tempDir(t);
 	const plain = join(root, "plain");
 	mkdirSync(plain);
-	assert.deepEqual(await readCheckout(plain, true), { dirty: 0, ahead: 0, behind: 0, sandboxes: { reason: "it isn't in git" } });
+	assert.deepEqual(await readCheckout(plain, true), { dirty: 0, ahead: 0, behind: 0, sandboxes: { reason: "it isn't in git" }, checks: 0, code: false });
 	const empty = join(root, "empty");
 	mkdirSync(empty);
 	git(empty, "init", "-q", "-b", "main");
@@ -48,6 +48,30 @@ test("a project that isn't a repository of its own can't take a sandbox, and say
 	const inner = join(project.dir, "inner");
 	mkdirSync(inner);
 	assert.match(((await readCheckout(inner, true)).sandboxes as { reason: string }).reason, /inside the repository at/);
+});
+
+test("a checkout says what its last commit declares as checks, and whether it has code to check", async (t) => {
+	const root = tempDir(t);
+	const { project } = gitProject(root, "one", { "README.md": "# one\n" });
+	assert.deepEqual(await readCheckout(project.dir, true).then(({ checks, code }) => ({ checks, code })), { checks: 0, code: false });
+	writeFileSync(join(project.dir, "package.json"), "{}\n");
+	assert.equal((await readCheckout(project.dir, true)).code, false, "an uncommitted manifest isn't in a sandbox");
+	git(project.dir, "add", "-A");
+	git(project.dir, "commit", "-q", "-m", "code");
+	assert.deepEqual(await readCheckout(project.dir, true).then(({ checks, code }) => ({ checks, code })), { checks: 0, code: true });
+	mkdirSync(join(project.dir, ".agents"));
+	writeFileSync(join(project.dir, ".agents", "project.json"), JSON.stringify({ checks: [{ name: "tests", command: "pnpm test" }, "pnpm lint"] }));
+	git(project.dir, "add", "-A");
+	git(project.dir, "commit", "-q", "-m", "checks");
+	assert.equal((await readCheckout(project.dir, true)).checks, 2);
+	// A project inside a bigger repository reads its own folder.
+	const { project: outer } = gitProject(root, "outer", { "package.json": "{}\n" });
+	const inner = join(outer.dir, "inner");
+	mkdirSync(inner);
+	writeFileSync(join(inner, "notes.txt"), "x\n");
+	git(outer.dir, "add", "-A");
+	git(outer.dir, "commit", "-q", "-m", "inner");
+	assert.equal((await readCheckout(inner, true)).code, false);
 });
 
 test("watchers hear the whole list when a checkout changes, and only then", async (t) => {

@@ -85,6 +85,40 @@ test("ship rebases the sandbox's work onto a main that moved, then pushes it to 
 	}
 });
 
+test("work that's upstream already lands with nothing pushed and no commits, in either mode", async () => {
+	for (const mode of ["main", "branch"] as const) {
+		const t = setup();
+		try {
+			// The same change landed on main another way, so the rebase drops the sandbox's commit.
+			writeFileSync(join(t.box, "b.txt"), "agent\n");
+			git(t.box, "add", "b.txt");
+			git(t.box, "commit", "-q", "-m", "agent's work");
+			const other = join(t.root, "other");
+			execFileSync("git", ["clone", "-q", t.remote, other]);
+			writeFileSync(join(other, "b.txt"), "agent\n");
+			git(other, "add", "b.txt");
+			git(other, "commit", "-q", "-m", "the same, landed already");
+			git(other, "push", "-q", "origin", "main");
+			const before = git(t.remote, "rev-parse", "main");
+			const refs = git(t.remote, "for-each-ref", "--format=%(refname)");
+			const result = await ship(t.host, 3, {
+				mode,
+				ask: async () => {
+					git(t.box, "rebase", "-q", "refs/aludra/base");
+					return { status: "done", answer: "It's all upstream already.\nSHIP-READY" };
+				},
+			});
+			assert.ok(result.shipped, mode);
+			assert.deepEqual(result.shipped && { mode: result.mode, pushed: result.pushed, commits: result.commits, head: result.head }, { mode: "main", pushed: "origin/main", commits: 0, head: before }, mode);
+			assert.equal(git(t.remote, "rev-parse", "main"), before, `${mode}: the remote is untouched`);
+			assert.equal(git(t.remote, "for-each-ref", "--format=%(refname)"), refs, `${mode}: no branch was pushed`);
+		} finally {
+			t.done();
+		}
+	}
+	assert.match(shipPrompt("origin/main", "0123456789abcdef"), /nothing beyond refs\/aludra\/base[\s\S]*SHIP-READY/);
+});
+
 test("nothing is pushed when the session is blocked, didn't rebase, or left files uncommitted", async () => {
 	for (const [what, agent, reason, kind] of [
 		["blocked", async () => ({ status: "done", answer: "SHIP-BLOCKED: a test fails on main too" }), /a test fails on main too/, "blocked"],
@@ -164,6 +198,9 @@ test("a ship's outcome reads in plain words, as a sentence and as a task's line"
 	assert.equal(shipLine(landed), "Shipped to main · 2 commits");
 	const pr = shipOutcome({ shipped: true, mode: "branch", pushed: "origin/sandbox-4-ab12cd3", head: "abc", commits: 1, pr: "https://github.com/o/r/pull/9" }, 6);
 	assert.equal(shipLine(pr), "Shipped to sandbox-4-ab12cd3 for review · 1 commit");
+	const already = shipOutcome({ shipped: true, mode: "main", pushed: "origin/main", head: "abc", commits: 0 }, 8);
+	assert.equal(shipSentence(already), "Nothing to ship: it's all on main already.");
+	assert.equal(shipLine(already), "Already on main");
 	assert.equal("shipped" in pr && pr.shipped.pr, "https://github.com/o/r/pull/9");
 	const stopped = shipOutcome({ shipped: false, kind: "blocked", reason: "pnpm check fails on the base too: oxlint panicked. More after." }, 7);
 	assert.deepEqual(stopped, { shipStopped: { at: 7, kind: "blocked", reason: "pnpm check fails on the base too: oxlint panicked. More after." } });

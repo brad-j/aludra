@@ -1,9 +1,11 @@
 // A project's checkout as the Mac app's project table shows it (amyrlin's protocol section 10 item 19): the branch,
 // how many paths are uncommitted, how far it is ahead of and behind its upstream as last fetched, and whether a sandbox
 // can start from it. Read with one `git status`, which never fetches and, with --no-optional-locks, never writes the
-// index, so reading every project every few seconds leaves the checkouts as they were.
+// index, so reading every project every few seconds leaves the checkouts as they were. Its last commit also says what
+// a sandbox task could check there: the checks its `.agents/project.json` declares, and whether it has code to check.
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
+import { parseProjectConfig } from "./results.ts";
 
 export type Checkout = {
 	/** The checked-out branch; absent when HEAD is detached. */
@@ -16,7 +18,32 @@ export type Checkout = {
 	upstream?: string;
 	/** Whether a sandbox can start from it, or why not. */
 	sandboxes: true | { reason: string };
+	/** Checks the last commit's `.agents/project.json` declares, which a sandbox (made from that commit) runs. */
+	checks: number;
+	/** Whether the last commit has something to check: a package manifest, Makefile or the like in the project's folder. */
+	code: boolean;
 };
+
+/** Files at a project's top that mean it has code with tests, a build or a type check to find. */
+const MANIFESTS = new Set(["package.json", "deno.json", "deno.jsonc", "Makefile", "makefile", "GNUmakefile", "justfile", "Justfile", "Cargo.toml", "go.mod", "pyproject.toml", "setup.py", "requirements.txt", "Package.swift", "project.yml", "Gemfile", "mix.exs", "pom.xml", "build.gradle", "build.gradle.kts", "CMakeLists.txt", "meson.build", "composer.json", "flake.nix", "Taskfile.yml"]);
+
+/** What a commit says about checks, by directory and commit, since a commit never changes. */
+const declared = new Map<string, { checks: number; code: boolean }>();
+
+/** The checks commit `oid` of `dir` declares, and whether it has code to check. */
+async function readDeclared(dir: string, oid: string): Promise<{ checks: number; code: boolean }> {
+	const key = `${dir}\0${oid}`;
+	const known = declared.get(key);
+	if (known !== undefined) return known;
+	// `<commit>:./` is the project's folder in it, which is the repository's top unless the project is inside a bigger one.
+	const top = (await git(dir, ["ls-tree", "--name-only", `${oid}:./`]).catch(() => "")).split("\n").filter((name) => name !== "");
+	const code = top.some((name) => MANIFESTS.has(name) || name.endsWith(".xcodeproj") || name.endsWith(".csproj") || name.endsWith(".sln"));
+	const text = top.includes(".agents") ? await git(dir, ["show", `${oid}:./.agents/project.json`]).catch(() => undefined) : undefined;
+	const found = { checks: parseProjectConfig(text).checks.length, code };
+	if (declared.size > 500) declared.clear();
+	declared.set(key, found);
+	return found;
+}
 
 function git(dir: string, args: readonly string[]): Promise<string> {
 	return new Promise((resolve, reject) => {
@@ -24,8 +51,8 @@ function git(dir: string, args: readonly string[]): Promise<string> {
 	});
 }
 
-/** `git status --porcelain=v2 --branch` read into a checkout, without the sandbox part. */
-export function parseStatus(text: string): Omit<Checkout, "sandboxes"> & { commits: boolean } {
+/** `git status --porcelain=v2 --branch` read into a checkout, without the sandbox part or what its commit checks. */
+export function parseStatus(text: string): Omit<Checkout, "sandboxes" | "checks" | "code"> & { commits: boolean } {
 	let branch: string | undefined;
 	let upstream: string | undefined;
 	let ahead = 0;
@@ -49,7 +76,7 @@ export function parseStatus(text: string): Omit<Checkout, "sandboxes"> & { commi
  * sandbox host at all.
  */
 export async function readCheckout(dir: string, sandboxHost: boolean): Promise<Checkout> {
-	const none = (reason: string): Checkout => ({ dirty: 0, ahead: 0, behind: 0, sandboxes: { reason } });
+	const none = (reason: string): Checkout => ({ dirty: 0, ahead: 0, behind: 0, sandboxes: { reason }, checks: 0, code: false });
 	let top: string;
 	try {
 		top = (await git(dir, ["rev-parse", "--show-toplevel"])).trim();
@@ -57,8 +84,11 @@ export async function readCheckout(dir: string, sandboxHost: boolean): Promise<C
 		return none("it isn't in git");
 	}
 	let status;
+	let oid: string | undefined;
 	try {
-		status = parseStatus(await git(dir, ["status", "--porcelain=v2", "--branch"]));
+		const text = await git(dir, ["status", "--porcelain=v2", "--branch"]);
+		status = parseStatus(text);
+		oid = /^# branch\.oid ([0-9a-f]+)$/m.exec(text)?.[1];
 	} catch (error) {
 		return none(`git status failed: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
 	}
@@ -75,7 +105,8 @@ export async function readCheckout(dir: string, sandboxHost: boolean): Promise<C
 		: !commits ? "it has no commits yet"
 		: !same(top, dir) ? `it's inside the repository at ${top}`
 		: undefined;
-	return { ...checkout, sandboxes: reason === undefined ? true : { reason } };
+	const found = oid === undefined ? { checks: 0, code: false } : await readDeclared(dir, oid);
+	return { ...checkout, sandboxes: reason === undefined ? true : { reason }, ...found };
 }
 
 /**
