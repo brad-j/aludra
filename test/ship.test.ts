@@ -186,7 +186,8 @@ test("the ship prompt stops at a check that fails on the base too, keeps a plan,
 	assert.match(prompt, /Don't change the system/);
 	assert.match(prompt, /stopped after 5 minutes/);
 	assert.match(prompt, /plan block/);
-	assert.match(prompt, /describe the work being shipped/);
+	assert.match(prompt, /question names the choices as options/);
+	assert.doesNotMatch(prompt, /summary and changes/);
 	assert.equal(isShipPrompt(prompt), true);
 	assert.equal(isShipPrompt("Ship this work, please"), false);
 });

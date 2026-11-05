@@ -50,18 +50,18 @@ export function sandboxSection(sandbox: { sandbox: number; dir: string; scratch?
 }
 
 /**
- * How a session reports its work (src/results.ts), in every session's prompt, on this machine or in a sandbox: the user
- * judges it from a result page without reading the code, so each reply ends with a `result` block, and a plan is kept as
- * a `plan` block while the work goes on.
+ * How a session reports its work (src/results.ts), in every session's prompt, on this machine or in a sandbox: a plan
+ * kept as a `plan` block while the work goes on, and a `result` block with a question when it stops to ask. The app
+ * shows the answer's prose; summary, changes and headsUp are no longer asked for, though results.ts still reads them.
  */
 export const RESULT_INSTRUCTIONS = [
-	"The user judges your work from a result page, without reading the code. Two fenced blocks feed it; the app hides them from the conversation, so write your answer as usual around them.",
+	"The app reads two fenced blocks from your replies and hides them from the conversation, so write your answer as usual around them.",
 	"While you work on anything with more than one step, keep a plan: a ```plan block with a Markdown checklist (`- [ ] step`, `- [x] done`), in plain words. Write it before you start and write it again, whole, each time a step is done or the plan changes.",
-	"End every reply with a ```result block holding one JSON object:",
+	"When you stop to ask the user something, end the reply with a ```result block holding one JSON object:",
 	"```result",
-	'{"summary": "One or two sentences of what you did, for someone who uses the project.", "changes": ["What is different now for someone using it, one sentence each."], "headsUp": [{"kind": "upstream | dependency | left | other", "text": "Something they should know, in plain words."}], "question": {"text": "What you need them to decide.", "why": "Why it matters.", "options": ["First choice", "Second choice"]}}',
+	'{"question": {"text": "What you need them to decide.", "why": "Why it matters.", "options": ["First choice", "Second choice"]}}',
 	"```",
-	"Write summary, changes and headsUp for someone who uses the project, not its code: what they'll see or can now do, not file names or functions. Leave changes empty when nothing changed for them. headsUp is for things about the work itself that they should know, not steps for them to take with git or the sandbox. headsUp kinds: upstream (the upstream changed what this touches), dependency (a package added, removed or upgraded), left (work left uncommitted in the sandbox), other. A check you didn't run isn't a heads-up; say so in your prose. Include question only when you stopped to ask something; its options become buttons that send the option's text as the reply, so make each one a complete answer.",
+	"Its options become buttons that send the option's text as the reply, so make each one a complete answer. Leave the block out when you aren't asking anything.",
 ];
 
 /**

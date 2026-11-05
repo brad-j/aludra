@@ -37,6 +37,11 @@ test("a result block is read from the answer's last one, leniently", () => {
 	assert.deepEqual(parsePlan(answer), [{ text: "Read the list", done: true }, { text: "Group by bag", done: true }]);
 });
 
+test("a result block with only a question, as the prompt now asks, leaves changes and headsUp empty and the summary to the prose", () => {
+	const said = parseSaid('Two ways to go.\n\n```result\n{"question": {"text": "Which one?", "options": ["Keep it", "Drop it"]}}\n```');
+	assert.deepEqual(said, { summary: "Two ways to go.", changes: [], headsUp: [], question: { text: "Which one?", options: ["Keep it", "Drop it"] } });
+});
+
 test("without a result block, or with a broken one, the summary is the first paragraph", () => {
 	assert.deepEqual(parseSaid("**Fixed** the `login` test.\nIt was flaky.\n\nMore detail."), { summary: "Fixed the login test. It was flaky.", changes: [], headsUp: [] });
 	assert.equal(parseSaid("Did it.\n\n```result\n{not json\n```").summary, "Did it.");
@@ -127,6 +132,10 @@ test("the result instructions ask for the plan and result blocks, outside the sa
 	assert.doesNotMatch(section, /```result/, "the results section carries them, for every session");
 	assert.match(instructions, /```plan/);
 	assert.match(instructions, /```result/);
+	// Neutral: no result page, and the block is for a question; the app shows the answer's own prose.
+	assert.doesNotMatch(instructions, /result page|without reading the code/);
+	assert.doesNotMatch(instructions, /summary|headsUp/);
+	assert.match(instructions, /"question": \{"text"[\s\S]*"options"/);
 	assert.match(shipPrompt("origin/main", "0123456789abcdef"), /SHIP-BLOCKED[\s\S]*result block[\s\S]*options/);
 });
 
@@ -134,7 +143,7 @@ test("the sandbox section says the work comes home and ships from the app, so th
 	const section = sandboxSection({ sandbox: 3, dir: "/home/user/work/one" });
 	assert.match(section, /come home by themselves/);
 	assert.match(section, /never tell them to fetch, push, merge/);
-	assert.match(RESULT_INSTRUCTIONS.join("\n"), /headsUp is for things about the work itself/);
+
 	assert.doesNotMatch(section, /until the user fetches them/);
 });
 
