@@ -92,6 +92,23 @@ export function priorTemplate(project: string, name: string, listing: string): s
 	return undefined;
 }
 
+/**
+ * The templates to drop once `keep` is saved for `project`, from `stedding templates`'s output: the project's others,
+ * since only its newest is used (for its commit, and to make the next commit's from), and any project's a day old,
+ * which nothing uses again.
+ */
+export function staleTemplates(project: string, keep: string, listing: string): string[] {
+	const prefix = templateName(project, "");
+	const stale: string[] = [];
+	for (const line of listing.split("\n")) {
+		const m = /^template=(\S+) age=(\d+)/.exec(line);
+		if (m === null || m[1] === keep) continue;
+		const ours = m[1]!.startsWith(prefix) && /^[0-9a-f]{12}$/.test(m[1]!.slice(prefix.length));
+		if (ours || Number(m[2]) >= TEMPLATE_MAX_AGE_S) stale.push(m[1]!);
+	}
+	return stale;
+}
+
 /** Holds when the chain of templates a template was made in began from the base image, in seconds since the epoch. */
 const SINCE = "~/.aludra-template-since";
 
@@ -250,7 +267,7 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 	/**
 	 * The template for `project`'s current commit, made if missing or older than a day: from the project's previous
 	 * template when there's one under a day old, else (or when that fails) from the base image, by `templateScript`, and
-	 * saved. Concurrent calls for one template share the work.
+	 * saved; then the templates it makes stale are dropped. Concurrent calls for one template share the work.
 	 */
 	async function template(project: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void): Promise<{ name: string; commit: string }> {
 		const commit = (await run("git", ["-C", project.dir, "rev-parse", "HEAD"])).trim();
@@ -277,7 +294,11 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 			} else onProgress?.(`making the ${project.name} template at ${commit.slice(0, 12)}`);
 			await make(project, name, undefined, onProgress, onStep);
 			return name;
-		})();
+		})().then((made) => {
+			// In the background: the first prune after a while has many to drop, one SSH call each.
+			void prune(project, made);
+			return made;
+		});
 		making.set(name, made);
 		try {
 			return { name: await made, commit };
@@ -331,6 +352,17 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 			close(n);
 			await stedding("rm", String(n)).catch(() => {});
 			throw error;
+		}
+	}
+
+	/** Drops the templates `keep` makes stale (`staleTemplates`); a failure is logged, never thrown. */
+	async function prune(project: ProjectSource, keep: string): Promise<void> {
+		try {
+			for (const stale of staleTemplates(project.name, keep, await stedding("templates"))) {
+				await stedding("drop", stale).catch((error: Error) => log(`[sandbox] dropping template ${stale}: ${error.message}`));
+			}
+		} catch (error) {
+			log(`[sandbox] listing templates to drop: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 
@@ -416,9 +448,16 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 		 */
 		async create(project?: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void, size?: SandboxSize): Promise<{ sandbox: number; dir: string; base?: string }> {
 			if (project === undefined) return { sandbox: Number((await stedding("new", ...sizeWords(size))).trim()), dir: "/home/user" };
-			const { name, commit } = await template(project, onProgress, onStep);
+			let { name, commit } = await template(project, onProgress, onStep);
 			onStep?.("starting");
-			return { sandbox: Number((await stedding("new", "--template", name, ...sizeWords(size))).trim()), dir: sandboxDir(project), base: commit };
+			const fromTemplate = () => stedding("new", "--template", name, ...sizeWords(size));
+			// A template for a newer commit, saved meanwhile, drops this one; then the newer one serves.
+			const made = await fromTemplate().catch(async (error: Error) => {
+				if (!/no template/.test(error.message)) throw error;
+				({ name, commit } = await template(project, onProgress, onStep));
+				return fromTemplate();
+			});
+			return { sandbox: Number(made.trim()), dir: sandboxDir(project), base: commit };
 		},
 		/** Where `project` is in its sandboxes. */
 		dirFor: (project: ProjectSource) => sandboxDir(project),

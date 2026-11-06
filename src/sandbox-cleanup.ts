@@ -2,7 +2,9 @@
 // then the sandbox is deleted on its host and the session marked, so a later message or `aludra sync` says so instead
 // of failing on a sandbox that isn't there. A sandbox holding uncommitted files is kept, since deleting it would lose
 // them; the session can be asked to commit, or unarchived and archived again. A session whose branch was discarded
-// (sandbox.discard) isn't fetched again: its work was thrown away, so the sandbox goes as it is. Nothing here throws.
+// (sandbox.discard) isn't fetched again: its work was thrown away, so the sandbox goes as it is. A session that shipped is
+// fetched with force, as the ship itself does, since its rebase rewrote the commits its branch already has; without force
+// the fetch is refused and the sandbox would stay forever. Nothing here throws.
 import type { Host, SessionRecord } from "./host.ts";
 import type { SyncResult } from "./sandboxes.ts";
 
@@ -26,7 +28,7 @@ export async function removeSandboxOf(host: Pick<Host, "sandboxes" | "sessions">
 	}
 	let sync: SyncResult;
 	try {
-		sync = await host.sandboxes.sync(record.id);
+		sync = await host.sandboxes.sync(record.id, undefined, { force: record.shipped !== undefined || record.shipStopped !== undefined });
 	} catch (error) {
 		return { removed: false, reason: `couldn't fetch its commits first: ${error instanceof Error ? error.message : String(error)}` };
 	}

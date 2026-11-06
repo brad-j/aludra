@@ -19,8 +19,8 @@ function fakeHost(options: { uncommitted?: number; state?: "running" | "idle"; s
 			},
 		},
 		sandboxes: {
-			sync: async (id: number) => {
-				calls.push(`sync ${id}`);
+			sync: async (id: number, _into?: string, o: { force?: boolean } = {}) => {
+				calls.push(`sync ${id}${o.force === true ? " force" : ""}`);
 				if (options.syncFails) throw new Error("no route");
 				return synced({ uncommitted: options.uncommitted ?? 0 });
 			},
@@ -36,6 +36,14 @@ test("an archived session's sandbox is deleted after its commits are fetched", a
 	const outcome = await removeSandboxOf(host, record({ archived: true }));
 	assert.equal(outcome.removed, true);
 	assert.deepEqual(calls, ["sync 9", "forget 9"]);
+});
+
+test("a session that shipped is fetched with force, since the ship's rebase rewrote its branch, then deleted", async () => {
+	for (const over of [{ shipped: { at: 1 } }, { shipStopped: { at: 1 } }] as unknown as Partial<SessionRecord>[]) {
+		const { host, calls } = fakeHost();
+		assert.equal((await removeSandboxOf(host, record({ archived: true, ...over }))).removed, true);
+		assert.deepEqual(calls, ["sync 9 force", "forget 9"]);
+	}
 });
 
 test("a sandbox is kept when it has uncommitted files, when the session is running, or when the fetch fails", async () => {

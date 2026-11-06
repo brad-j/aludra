@@ -8,7 +8,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import { Connection, localDaemon } from "@earendil-works/pi-env";
 import { context } from "../src/host.ts";
-import { createSandboxes, fastForward, priorTemplate, templateName, templateScript } from "../src/sandboxes.ts";
+import { createSandboxes, fastForward, priorTemplate, staleTemplates, templateName, templateScript } from "../src/sandboxes.ts";
 import { sandboxSyncAfterRuns } from "../src/sandbox-sync.ts";
 import { parseClientMessage } from "../src/server.ts";
 
@@ -73,6 +73,12 @@ test("a new commit's template is made from the project's newest other template u
 	assert.equal(priorTemplate("loial", "loial-cccccccccccc", listing), "loial-bbbbbbbbbbbb", "not the template being made");
 	assert.equal(priorTemplate("loial", "loial-dddddddddddd", "template=loial-aaaaaaaaaaaa age=86400\n"), undefined, "not one a day old");
 	assert.equal(priorTemplate("raken", "raken-dddddddddddd", listing), undefined);
+});
+
+test("once a template is saved, its project's others and any template a day old are stale", () => {
+	const listing = ["template=loial-cccccccccccc age=1", "template=loial-pi-0123456789ab age=5", "template=loial-bbbbbbbbbbbb age=10", "template=raken-aaaaaaaaaaaa age=86400", "template=raken-dddddddddddd age=3600", ""].join("\n");
+	assert.deepEqual(staleTemplates("loial", "loial-cccccccccccc", listing), ["loial-bbbbbbbbbbbb", "raken-aaaaaaaaaaaa"]);
+	assert.deepEqual(staleTemplates("raken", "raken-dddddddddddd", listing), ["raken-aaaaaaaaaaaa"], "another project's templates under a day old stay");
 });
 
 test("a template made from the previous one checks out the new commit over it, keeps what the setup built, and asks for a fresh start when the setup changed or the chain is a day old", () => {
