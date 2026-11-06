@@ -8,7 +8,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import { Connection, localDaemon } from "@earendil-works/pi-env";
 import { context } from "../src/host.ts";
-import { createSandboxes, fastForward, templateName } from "../src/sandboxes.ts";
+import { createSandboxes, fastForward, priorTemplate, templateName, templateScript } from "../src/sandboxes.ts";
 import { sandboxSyncAfterRuns } from "../src/sandbox-sync.ts";
 import { parseClientMessage } from "../src/server.ts";
 
@@ -66,6 +66,67 @@ test("without a sandbox host, sandboxes refuse to make one", async () => {
 function git(dir: string, ...args: string[]): string {
 	return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" } }).trim();
 }
+
+test("a new commit's template is made from the project's newest other template under a day old", () => {
+	const listing = ["template=loial-pi-0123456789ab age=5", "template=loial-cccccccccccc age=8", "template=loial-bbbbbbbbbbbb age=10", "template=loial-aaaaaaaaaaaa age=20", ""].join("\n");
+	assert.equal(priorTemplate("loial", "loial-dddddddddddd", listing), "loial-cccccccccccc", "another project's template with a longer name doesn't count");
+	assert.equal(priorTemplate("loial", "loial-cccccccccccc", listing), "loial-bbbbbbbbbbbb", "not the template being made");
+	assert.equal(priorTemplate("loial", "loial-dddddddddddd", "template=loial-aaaaaaaaaaaa age=86400\n"), undefined, "not one a day old");
+	assert.equal(priorTemplate("raken", "raken-dddddddddddd", listing), undefined);
+});
+
+test("a template made from the previous one checks out the new commit over it, keeps what the setup built, and asks for a fresh start when the setup changed or the chain is a day old", () => {
+	const root = mkdtempSync(join(tmpdir(), "aludra-template-"));
+	const env = { ...process.env, HOME: join(root, "home"), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+	const src = join(root, "src");
+	const dir = join(root, "home", "work", "p");
+	const commit = (message: string) => { git(src, "add", "-A"); git(src, "commit", "-q", "-m", message); };
+	const bundle = () => git(src, "bundle", "create", "-q", join(root, "home", "project.bundle"), "HEAD");
+	const script = (since: number) => {
+		writeFileSync(join(root, "home", ".aludra-template-since"), `${since}\n`);
+		bundle();
+		return execFileSync("bash", ["-c", templateScript({ dir, branch: "main", from: true, userName: "", userEmail: "" })], { encoding: "utf8", env });
+	};
+	const now = Math.floor(Date.now() / 1000);
+	try {
+		mkdirSync(join(src, ".agents"), { recursive: true });
+		git(src, "init", "-q", "-b", "main");
+		writeFileSync(join(src, ".gitignore"), "built/\n");
+		writeFileSync(join(src, "a.txt"), "one\n");
+		writeFileSync(join(src, ".agents", "setup"), "#!/bin/sh\nmkdir -p built && touch built/$(git rev-parse --short HEAD)\n", { mode: 0o755 });
+		commit("first");
+		// The previous template: a clone with no remote, set up once.
+		mkdirSync(join(root, "home", "work"), { recursive: true });
+		execFileSync("git", ["clone", "-q", src, dir], { env });
+		git(dir, "remote", "remove", "origin");
+		execFileSync(join(dir, ".agents", "setup"), { cwd: dir, env });
+		const first = git(dir, "rev-parse", "--short", "HEAD");
+
+		writeFileSync(join(src, "a.txt"), "two\n");
+		commit("second");
+		const out = script(now - 60);
+		assert.doesNotMatch(out, /fresh/);
+		assert.equal(git(dir, "rev-parse", "HEAD"), git(src, "rev-parse", "HEAD"));
+		assert.equal(git(dir, "symbolic-ref", "--short", "HEAD"), "main");
+		assert.equal(readFileSync(join(dir, "a.txt"), "utf8"), "two\n");
+		assert.ok(existsSync(join(dir, "built", first)), "the previous setup's output stays");
+		assert.ok(existsSync(join(dir, "built", git(src, "rev-parse", "--short", "HEAD"))), "and the setup ran again");
+		assert.equal(existsSync(join(root, "home", "project.bundle")), false);
+		const second = git(dir, "rev-parse", "HEAD");
+
+		writeFileSync(join(src, "a.txt"), "three\n");
+		commit("third");
+		assert.match(script(now - 86_400), /@@aludra-step fresh/, "a chain begun a day ago starts again");
+		assert.equal(git(dir, "rev-parse", "HEAD"), second, "and checks nothing out");
+
+		writeFileSync(join(src, ".agents", "setup"), "#!/bin/sh\necho changed\n", { mode: 0o755 });
+		commit("fourth");
+		assert.match(script(now - 60), /@@aludra-step fresh/, "a changed setup starts again");
+		assert.equal(git(dir, "rev-parse", "HEAD"), second);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
 
 test("sync fetches a sandbox's commits into a branch of the local checkout, leaving its branch and files alone", async () => {
 	const root = mkdtempSync(join(tmpdir(), "aludra-sync-"));

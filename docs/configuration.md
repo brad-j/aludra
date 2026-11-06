@@ -128,6 +128,8 @@ aludra runs the Claude Code you installed and logged in to, as `claude -p`, for 
 
 A sandbox host, if sessions may run in sandboxes: Firecracker VMs from stedding on another machine, one per session, holding a copy of the project's last commit. Absent, `--sandbox` is refused. Only the settings file sets it. A project's template sets `vm.overcommit_memory=1` in the sandbox, since tools that reserve a large address range up front, such as oxlint, fail under the kernel's default in a VM with no swap; templates made before this change lack it until they're a day old and made again.
 
+A template is made once per commit of the project, at the largest size whatever the session's, since a saved template keeps only its disk. When the project has another template under a day old, the new one starts from it: the new commit is checked out over the previous one and the install runs again, so `.agents/setup` should be safe to run twice, and a package manager or a build redoes only what changed. It starts from the base image instead once that chain of templates is a day old, when the commit changes `.agents/setup`, or when making it from the previous template fails.
+
 - `ssh`: the sandbox host's SSH destination, such as `user@host`.
 - `gateKey`: a key for it whose `authorized_keys` line forces `stedding gate`, so it can only manage and reach sandboxes.
 - `knownHosts`: a known-hosts file with the sandbox host's key; it's checked strictly.
@@ -136,7 +138,7 @@ A sandbox host, if sessions may run in sandboxes: Firecracker VMs from stedding 
 - `afterRun`: what happens to a sandbox session's commits when its run ends. `fetch` (default) brings them to `sandbox/N` in the project; `merge` also fast-forwards the checked-out branch when it's safe; `off` waits for `aludra sync` ([cli.md](cli.md#sandboxes)).
 - `approvals`: whether sandbox sessions' tools wait for approvals as other sessions' do. `off` (default) runs `git push` and SSH to the approval hosts without asking, since a sandbox has no remotes, keys or route to those hosts; `ask` waits as usual. A session made from amyrlin can choose for itself. The protected-path gate applies either way.
 
-A project can ask for a bigger sandbox with `"size": "medium"` or `"large"` in `.agents/project.json` (small is 2 CPUs and 4 GB, medium 4 and 8 GB, large 8 and 16 GB); its template is made at that size. An executable `.agents/resume` runs each time a paused sandbox wakes, before the call that woke it, for at most 60 s: for restarting what a pause stops, such as a dev server.
+A project can ask for a bigger sandbox with `"size": "medium"` or `"large"` in `.agents/project.json` (small is 2 CPUs and 4 GB, medium 4 and 8 GB, large 8 and 16 GB). An executable `.agents/resume` runs each time a paused sandbox wakes, before the call that woke it, for at most 60 s: for restarting what a pause stops, such as a dev server.
 
 A project can declare checks for its sandbox sessions in `.agents/project.json` in its repository, `{ "checks": ["pnpm test", { "name": "types", "command": "pnpm exec tsc --noEmit" }] }`; `aludra serve` runs them in the sandbox after each run that ends with an answer, and amyrlin shows them on the task's result ([api.md](api.md#sandbox-tasks)).
 

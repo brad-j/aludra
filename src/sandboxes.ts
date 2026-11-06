@@ -2,7 +2,8 @@
 // daemon over SSH. The agent loop, the transcript and the model stay here.
 //
 // Each sandbox session gets its own sandbox, made from its project's template: the base image with the project cloned and its
-// dependencies installed, saved once and reused for 24 hours or until the project's commit changes. Everything on the
+// dependencies installed, saved once and reused for 24 hours or until the project's commit changes. A new commit's template
+// is made from the project's previous one when it can, so the install and any build redo only what changed. Everything on the
 // sandbox host goes through one restricted key whose authorized_keys line forces `stedding gate`, which allows only
 // `new`, `save`, `connect`, `rm`, `status` and `templates` with plain arguments. The sandbox's own SSH runs through
 // `connect N`, which resumes a paused sandbox before relaying, so a tool call wakes it.
@@ -46,6 +47,8 @@ const sizeWords = (size: SandboxSize = "small") => ["--mem", String(SIZES[size].
 type Live = { connection: Connection; inFlight: number; timer?: NodeJS.Timeout };
 
 const TEMPLATE_MAX_AGE_S = 24 * 3600;
+/** Templates are made at the largest size: a saved template keeps only its disk, so the CPUs and memory cost nothing after. */
+const TEMPLATE_SIZE: SandboxSize = "large";
 /** Longest a project's `.agents/resume` may run after its sandbox wakes. */
 export const RESUME_S = 60;
 
@@ -73,6 +76,64 @@ export function sandboxDir(project: Pick<ProjectSource, "name">): string {
 /** A template name for `project` at `commit`: safe for stedding, stable while the commit is. */
 export function templateName(project: string, commit: string): string {
 	return `${project.replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[^A-Za-z0-9]+/, "p")}-${commit.slice(0, 12)}`;
+}
+
+/**
+ * The template to make `name` from: `project`'s newest other template under a day old, from `stedding templates`'s
+ * output (newest first), or undefined to start from the base image.
+ */
+export function priorTemplate(project: string, name: string, listing: string): string | undefined {
+	const prefix = templateName(project, "");
+	for (const line of listing.split("\n")) {
+		const m = /^template=(\S+) age=(\d+)/.exec(line);
+		if (m === null || m[1] === name || Number(m[2]) >= TEMPLATE_MAX_AGE_S) continue;
+		if (m[1]!.startsWith(prefix) && /^[0-9a-f]{12}$/.test(m[1]!.slice(prefix.length))) return m[1];
+	}
+	return undefined;
+}
+
+/** Holds when the chain of templates a template was made in began from the base image, in seconds since the epoch. */
+const SINCE = "~/.aludra-template-since";
+
+/**
+ * The script that makes a template in a sandbox whose home holds `project.bundle` of the project's HEAD. From the base
+ * image (`from` false) it clones the bundle into `dir`; from the project's previous template it fetches the bundle and
+ * checks it out over the previous commit, keeping what the setup made (dependencies, build output). It prints
+ * `STEP_MARK fresh` and stops, for a start from the base image instead, when the chain began a day ago or more or the
+ * new commit changes `.agents/setup`. Then it installs: `.agents/setup` if the project has one, else with the lockfile's
+ * package manager.
+ */
+export function templateScript(o: { dir: string; branch: string; from: boolean; userName: string; userEmail: string }): string {
+	const dir = shellQuote(o.dir);
+	const start = o.from ? [
+		`cd ${dir}`,
+		"git fetch -q ~/project.bundle HEAD && rm ~/project.bundle",
+		`since=$(cat ${SINCE} 2>/dev/null || echo 0)`,
+		`if (( $(date +%s) - since >= ${TEMPLATE_MAX_AGE_S} )) || ! git diff --quiet HEAD FETCH_HEAD -- .agents/setup; then echo ${STEP_MARK}fresh; exit 0; fi`,
+		o.branch === "HEAD" ? "git checkout -q -f --detach FETCH_HEAD" : `git checkout -q -f -B ${shellQuote(o.branch)} FETCH_HEAD`,
+	] : [
+		`git clone -q --branch ${o.branch === "HEAD" ? "HEAD" : shellQuote(o.branch)} ~/project.bundle ${dir} 2>/dev/null || git clone -q ~/project.bundle ${dir}`,
+		`cd ${dir} && git remote remove origin && rm ~/project.bundle`,
+		`date +%s > ${SINCE}`,
+		// Tools that reserve a large address range up front (oxlint's allocator pool) fail under the kernel's overcommit
+		// heuristic in a VM with no swap. A throwaway sandbox has nothing the heuristic protects; set at every boot.
+		"echo vm.overcommit_memory=1 | sudo tee /etc/sysctl.d/60-aludra.conf >/dev/null && sudo sysctl -q vm.overcommit_memory=1",
+	];
+	return [
+		"set -euo pipefail",
+		...start,
+		...(o.userName === "" ? [] : [`git config --global user.name ${shellQuote(o.userName)}`]),
+		...(o.userEmail === "" ? [] : [`git config --global user.email ${shellQuote(o.userEmail)}`]),
+		`echo ${STEP_MARK}installing`,
+		"if [ -x .agents/setup ]; then .agents/setup",
+		"elif [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile",
+		"elif [ -f package-lock.json ]; then npm ci",
+		"elif [ -f package.json ]; then pnpm install",
+		"elif [ -f Cargo.toml ]; then command -v cargo >/dev/null && cargo fetch || echo 'no cargo in the image; .agents/setup can install it'",
+		"elif [ -f requirements.txt ]; then python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt",
+		"fi",
+		"sync",
+	].join("\n");
 }
 
 export function createSandboxes(host: SandboxHost | undefined, options: {
@@ -187,85 +248,89 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 	}
 
 	/**
-	 * The template for `project`'s current commit, made if missing or older than a day: a fresh sandbox clones the project
-	 * from a bundle, runs `.agents/setup` if the project has one, else installs with the lockfile's package manager,
-	 * and is saved. Concurrent calls for one template share the work.
+	 * The template for `project`'s current commit, made if missing or older than a day: from the project's previous
+	 * template when there's one under a day old, else (or when that fails) from the base image, by `templateScript`, and
+	 * saved. Concurrent calls for one template share the work.
 	 */
-	async function template(project: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void, size?: SandboxSize): Promise<{ name: string; commit: string }> {
+	async function template(project: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void): Promise<{ name: string; commit: string }> {
 		const commit = (await run("git", ["-C", project.dir, "rev-parse", "HEAD"])).trim();
 		const name = templateName(project.name, commit);
-		const existing = (await stedding("templates")).split("\n").map((l) => /^template=(\S+) age=(\d+)/.exec(l)).find((m) => m?.[1] === name);
+		const listing = await stedding("templates");
+		const existing = listing.split("\n").map((l) => /^template=(\S+) age=(\d+)/.exec(l)).find((m) => m?.[1] === name);
 		if (existing && Number(existing[2]) < TEMPLATE_MAX_AGE_S) return { name, commit };
 		const already = making.get(name);
 		if (already !== undefined) {
 			onStep?.("waiting");
 			return { name: await already, commit };
 		}
+		const prior = priorTemplate(project.name, name, listing);
 		const made = (async () => {
-			onProgress?.(`making the ${project.name} template at ${commit.slice(0, 12)}`);
-			onStep?.("cloning");
-			// Made at the project's size, so a big install has the memory it needs.
-			const n = Number((await stedding("new", ...sizeWords(size))).trim());
-			try {
-				const env = await prepared(n);
-				const scratch = await mkdtemp(join(tmpdir(), "aludra-bundle-"));
+			if (prior !== undefined) {
 				try {
-					const bundle = join(scratch, "project.bundle");
-					await run("git", ["-C", project.dir, "bundle", "create", bundle, "HEAD"]);
-					const branch = (await run("git", ["-C", project.dir, "rev-parse", "--abbrev-ref", "HEAD"])).trim();
-					// The project's commit identity, so the agent can commit in the sandbox and sync brings commits back as the user's.
-					const who = async (key: string) => (await run("git", ["-C", project.dir, "config", "--get", key]).catch(() => "")).trim();
-					const [userName, userEmail] = [await who("user.name"), await who("user.email")];
-					const put = await env.writeFile("/home/user/project.bundle", await readFile(bundle), BACKGROUND);
-					if (!put.ok) throw put.error;
-					const dir = sandboxDir(project);
-					const script = [
-						"set -euo pipefail",
-						`git clone -q --branch ${branch === "HEAD" ? "HEAD" : shellQuote(branch)} ~/project.bundle ${shellQuote(dir)} 2>/dev/null || git clone -q ~/project.bundle ${shellQuote(dir)}`,
-						`cd ${shellQuote(dir)} && git remote remove origin && rm ~/project.bundle`,
-						// Tools that reserve a large address range up front (oxlint's allocator pool) fail under the kernel's overcommit
-						// heuristic in a VM with no swap. A throwaway sandbox has nothing the heuristic protects; set at every boot.
-						"echo vm.overcommit_memory=1 | sudo tee /etc/sysctl.d/60-aludra.conf >/dev/null && sudo sysctl -q vm.overcommit_memory=1",
-						...(userName === "" ? [] : [`git config --global user.name ${shellQuote(userName)}`]),
-						...(userEmail === "" ? [] : [`git config --global user.email ${shellQuote(userEmail)}`]),
-						`echo ${STEP_MARK}installing`,
-						"if [ -x .agents/setup ]; then .agents/setup",
-						"elif [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile",
-						"elif [ -f package-lock.json ]; then npm ci",
-						"elif [ -f package.json ]; then pnpm install",
-						"elif [ -f Cargo.toml ]; then command -v cargo >/dev/null && cargo fetch || echo 'no cargo in the image; .agents/setup can install it'",
-						"elif [ -f requirements.txt ]; then python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt",
-						"fi",
-						"sync",
-					].join("\n");
-					let out = "";
-					const onOutput = (text: string) => {
-						out += text;
-						if (text.includes(`${STEP_MARK}installing`)) onStep?.("installing");
-						onProgress?.(text.replace(`${STEP_MARK}installing\n`, "").trimEnd());
-					};
-					const result = await env.exec(["bash", "-lc", script], { onOutput, timeout: 20 * 60_000 }, BACKGROUND);
-					if (!result.ok) throw result.error;
-					if (result.value.exitCode !== 0) throw new Error(`setting up ${project.name} failed (exit ${result.value.exitCode}):\n${out.slice(-2000)}`);
-				} finally {
-					await rm(scratch, { recursive: true, force: true });
+					onProgress?.(`making the ${project.name} template at ${commit.slice(0, 12)} from ${prior}`);
+					if (await make(project, name, prior, onProgress, onStep)) return name;
+					onProgress?.("starting again from the base image");
+				} catch (error) {
+					log(`[sandbox] making ${name} from ${prior} failed, so from the base image: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
+					onProgress?.(`that failed; starting again from the base image`);
 				}
-				close(n);
-				onStep?.("saving");
-				await stedding("save", String(n), name);
-				onProgress?.(`saved ${name}`);
-				return name;
-			} catch (error) {
-				close(n);
-				await stedding("rm", String(n)).catch(() => {});
-				throw error;
-			}
+			} else onProgress?.(`making the ${project.name} template at ${commit.slice(0, 12)}`);
+			await make(project, name, undefined, onProgress, onStep);
+			return name;
 		})();
 		making.set(name, made);
 		try {
 			return { name: await made, commit };
 		} finally {
 			making.delete(name);
+		}
+	}
+
+	/**
+	 * Makes template `name` for `project` in a new sandbox, from template `from` or the base image, and saves it. False
+	 * when the script asked for a start from the base image instead; the sandbox is gone then, as after a failure.
+	 */
+	async function make(project: ProjectSource, name: string, from: string | undefined, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void): Promise<boolean> {
+		onStep?.("cloning");
+		const n = Number((await stedding("new", ...(from === undefined ? [] : ["--template", from]), ...sizeWords(TEMPLATE_SIZE))).trim());
+		try {
+			const env = await prepared(n);
+			const scratch = await mkdtemp(join(tmpdir(), "aludra-bundle-"));
+			let out = "";
+			try {
+				const bundle = join(scratch, "project.bundle");
+				await run("git", ["-C", project.dir, "bundle", "create", bundle, "HEAD"]);
+				const branch = (await run("git", ["-C", project.dir, "rev-parse", "--abbrev-ref", "HEAD"])).trim();
+				// The project's commit identity, so the agent can commit in the sandbox and sync brings commits back as the user's.
+				const who = async (key: string) => (await run("git", ["-C", project.dir, "config", "--get", key]).catch(() => "")).trim();
+				const put = await env.writeFile("/home/user/project.bundle", await readFile(bundle), BACKGROUND);
+				if (!put.ok) throw put.error;
+				const script = templateScript({ dir: sandboxDir(project), branch, from: from !== undefined, userName: await who("user.name"), userEmail: await who("user.email") });
+				const onOutput = (text: string) => {
+					out += text;
+					if (text.includes(`${STEP_MARK}installing`)) onStep?.("installing");
+					const shown = text.replace(`${STEP_MARK}installing\n`, "").replace(`${STEP_MARK}fresh\n`, "").trimEnd();
+					if (shown !== "") onProgress?.(shown);
+				};
+				const result = await env.exec(["bash", "-lc", script], { onOutput, timeout: 20 * 60_000 }, BACKGROUND);
+				if (!result.ok) throw result.error;
+				if (result.value.exitCode !== 0) throw new Error(`setting up ${project.name} failed (exit ${result.value.exitCode}):\n${out.slice(-2000)}`);
+			} finally {
+				await rm(scratch, { recursive: true, force: true });
+			}
+			close(n);
+			if (out.includes(`${STEP_MARK}fresh`)) {
+				await stedding("rm", String(n)).catch(() => {});
+				return false;
+			}
+			onStep?.("saving");
+			await stedding("save", String(n), name);
+			onProgress?.(`saved ${name}`);
+			return true;
+		} catch (error) {
+			close(n);
+			await stedding("rm", String(n)).catch(() => {});
+			throw error;
 		}
 	}
 
@@ -351,7 +416,7 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 		 */
 		async create(project?: ProjectSource, onProgress?: (line: string) => void, onStep?: (step: SandboxStep) => void, size?: SandboxSize): Promise<{ sandbox: number; dir: string; base?: string }> {
 			if (project === undefined) return { sandbox: Number((await stedding("new", ...sizeWords(size))).trim()), dir: "/home/user" };
-			const { name, commit } = await template(project, onProgress, onStep, size);
+			const { name, commit } = await template(project, onProgress, onStep);
 			onStep?.("starting");
 			return { sandbox: Number((await stedding("new", "--template", name, ...sizeWords(size))).trim()), dir: sandboxDir(project), base: commit };
 		},
