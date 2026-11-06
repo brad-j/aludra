@@ -394,6 +394,8 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 					`shipped ${result.commits} commit${result.commits === 1 ? "" : "s"} to ${result.pushed}, at ${result.head.slice(0, 12)}`,
 					...(result.pr === undefined ? [] : [`pull request: ${result.pr}`]),
 					...(result.local === undefined ? [] : [result.local.merged ? `fast-forwarded ${result.local.onto} here` : `${result.local.reason}`]),
+					...(result.baseFailures ?? []).map((f) => `${f.name} fails on the base too: ${f.reason}`),
+					...(result.unchecked === true ? ["no checks ran: the project declares none, and the work's turn ran none"] : []),
 				]);
 			}
 			case "sync": {

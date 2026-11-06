@@ -12,6 +12,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, defineDocFamily, defineExtension, type EntryId, Harness, hook, type Extension, type JsonObject, type ModelRef, ToolTask } from "@earendil-works/pi-durable";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { fakeSandboxes } from "./fake-sandboxes.ts";
 import { createSandboxes, deleteBranch, run, run as runCommand, type Sandboxes, fastForward, type MergeResult, type SandboxSize, type SandboxStep, type SyncResult } from "./sandboxes.ts";
@@ -1196,6 +1197,11 @@ export async function openHost(options: HostOptions) {
 			const record = await sandboxRecord(id);
 			return sandboxes.receiveBase(record.sandbox, record.dir, record.source, ref);
 		},
+		/** Sandbox session `id`'s environment and its project's directory there, for a ship's checks. */
+		async env(id: number): Promise<{ env: ExecutionEnv; dir: string }> {
+			const record = await sandboxRecord(id);
+			return { env: sandboxes.env(record.sandbox, record.dir), dir: record.dir };
+		},
 		/**
 		 * Fetches sandbox session `id`'s commits into its project's local checkout, as `into` (default its branch);
 		 * with `merge`, then fast-forwards the checked-out branch to them when that's safe (src/sandboxes.ts).
@@ -1214,6 +1220,7 @@ export async function openHost(options: HostOptions) {
 	const ships = createShips({
 		sessions: { get },
 		sandboxes: sandboxApi,
+		turnCommands: (id) => results.commands(id),
 		states,
 		// After the checks and screenshots of the run before, so a ship never runs beside them.
 		ask: async (id, prompt, requestId) => {

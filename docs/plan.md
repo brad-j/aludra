@@ -131,6 +131,15 @@ Also worth doing whenever text can come in from outside (MCP, pasted text): stri
 
 Dropped: prompt links. Not picked this round: the usage meter (the rate-limit diagnostic is already there), scheduled and webhook tasks, a worktree per session, triage, editing queued messages, forking.
 
+## The host runs a ship's checks (2026-11-05)
+
+loial, with no checks declared, was shipped from a sandbox without Rust. The ship prompt told the agent to run "the project's tests and checks"; it guessed `pnpm typecheck`, which runs `cargo check`, saw it fail on refs/aludra/base too, and said `SHIP-BLOCKED: pnpm typecheck fails on the base too: sh: 1: cargo: not found`, as the prompt's step 4 asked. Nothing was wrong with the work.
+
+- The host runs the checks after `SHIP-READY` and before pushing (`src/ship.ts` checkShip): `.agents/project.json` read at the rebased HEAD, run as after each answer (`runChecks`, 15 minutes each). Without declared checks, the work's last non-ship turn's commands (`callCommands`, through `results.commands`), only passing ones and none naming a path outside the project: that session's fallback had included `pnpm exec playwright test --config /tmp/shots/spec/...`. With neither, it ships with `unchecked: true`.
+- A failing check is run again at the base in a worktree beside the project (node_modules borrowed as the screenshots' `before` side does). Failing there too: the ship goes on, with `baseFailures: [{ name, reason }]` on the result, `sandbox.shipped`, the summary's `shipped`, and the line (`Shipped to main · 1 commit · types fails on main too: cargo: not found`). Passing there: `check_failed`, nothing pushed. Existing fields and kinds are unchanged; loial adds `baseFailures` after.
+- The prompt no longer names checks or says when to block on them; steps 3 and 4 became one saying the host runs them.
+- Brad decided: a work-only failure stops at once, with no fix round for the agent, since a second prompt would complicate resuming a ship after a restart; and a ship always runs its checks, since the ones after the last answer aren't tied to a commit or a clean tree. `unchecked` doesn't change the line or sentence, which clients match.
+
 ## pi-claude-code (2026-10-30)
 
 Brad replaced pi-claude-bridge with [pi-claude-code](https://github.com/earendil-works/pi-claude-code), Earendil's own provider for Claude subscriptions through Claude Code. The bridge drove Claude Code through the Agent SDK and kept a long-lived query and its own Claude Code session per conversation, which is what the five fixes in the old `src/bridge.ts` worked around. pi-claude-code is a plain pi-ai provider: each turn it runs `claude -p` with Pi's transcript, Pi's system prompt and an inert list of Pi's tools, and Claude Code returns the model's response without running anything or saving a session. That fits Pi Durable as it is.

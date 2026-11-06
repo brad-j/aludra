@@ -22,7 +22,7 @@ import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-d
 import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
 import { context, conversationId, type Host, isSandboxSession, SandboxNotReady, sandboxBranch, type SessionRecord } from "../host.ts";
-import { ShipRefused, type ShipResult } from "../ship.ts";
+import { checkedOf, ShipRefused, type ShipResult } from "../ship.ts";
 import { codeChanges, codeDiff } from "../results.ts";
 import { changesSince, fileDiff } from "../changes.ts";
 import { NewProjectRefused } from "../new-projects.ts";
@@ -686,7 +686,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 	/** `sandbox.shipped` for host watchers. */
 	function shippedEvent(id: number, result: ShipResult): Json {
 		return result.shipped
-			? { type: "sandbox.shipped", conversationId: id, shipped: true, to: result.mode, pushed: result.pushed, head: result.head, commits: result.commits, ...(result.pr === undefined ? {} : { pr: result.pr }) }
+			? { type: "sandbox.shipped", conversationId: id, shipped: true, to: result.mode, pushed: result.pushed, head: result.head, commits: result.commits, ...(result.pr === undefined ? {} : { pr: result.pr }), ...checkedOf(result) }
 			: { type: "sandbox.shipped", conversationId: id, shipped: false, kind: result.kind, reason: result.reason };
 	}
 	const stopShipped = host.ships.onShipped((id, result) => {

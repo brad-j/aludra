@@ -203,9 +203,14 @@ export function checkSegments(command: string): string[] {
 
 /** Checks read from the turn's own bash calls that test or build: the last run of each command, passing or not. */
 export function callChecks(turn: Turn): Check[] {
+	return callCommands(turn).map((c) => ({ name: c.name, ok: c.ok, ...(c.detail === undefined ? {} : { detail: c.detail }) }));
+}
+
+/** callChecks with the command each ran: its check segments joined with `&&`. */
+export function callCommands(turn: Turn): (Check & { command: string })[] {
 	const results = new Map<string, { isError: boolean; text: string }>();
 	for (const m of turn.messages) if (m.role === "toolResult") results.set(m.toolCallId, { isError: m.isError, text: textOf(m.content) });
-	const byName = new Map<string, Check>();
+	const byName = new Map<string, Check & { command: string }>();
 	for (const m of turn.messages) {
 		if (m.role !== "assistant") continue;
 		for (const block of m.content) {
@@ -217,7 +222,7 @@ export function callChecks(turn: Turn): Check[] {
 			const joined = segments.join(" && ");
 			const name = joined.length > 80 ? `${joined.slice(0, 79)}…` : joined;
 			byName.delete(name);
-			byName.set(name, { name, ok: !result.isError, ...(result.isError ? { detail: tail(result.text) } : {}) });
+			byName.set(name, { name, command: joined, ok: !result.isError, ...(result.isError ? { detail: tail(result.text) } : {}) });
 		}
 	}
 	return [...byName.values()];
@@ -312,7 +317,7 @@ export async function runChecks(env: ExecutionEnv, dir: string, checks: ProjectC
  * The turn of the latest final answer: from the user message that started it to that answer. Turns after it that
  * ended without one (stopped, failed) are passed over, so the result stays the last one the agent gave.
  */
-export async function answeredTurn(page: EntryPages, maxEntries = 2000): Promise<Turn | undefined> {
+export async function answeredTurn(page: EntryPages, maxEntries = 2000, skip?: (turn: Turn) => boolean): Promise<Turn | undefined> {
 	const newestFirst: EntryRecord[] = [];
 	let answered = false;
 	let seen = 0;
@@ -329,7 +334,11 @@ export async function answeredTurn(page: EntryPages, maxEntries = 2000): Promise
 			newestFirst.push(entry);
 			if (entry.kind === "pi.user") {
 				const messages = newestFirst.reverse().flatMap((e) => (e.kind === "pi.user" || e.kind === "pi.assistant" || e.kind === "pi.tool-result" ? [...(e.model ?? [])] : []));
-				return { started: messages[0]?.timestamp ?? 0, messages };
+				const turn = { started: messages[0]?.timestamp ?? 0, messages };
+				if (skip === undefined || !skip(turn)) return turn;
+				// Passed over: look for the answered turn before it.
+				newestFirst.length = 0;
+				answered = false;
 			}
 		}
 		cursor = got.next;
@@ -533,6 +542,18 @@ export function createResults(host: ResultsHost) {
 		return work;
 	}
 
+	/**
+	 * The test, build, type-check and lint commands of session `id`'s latest answered turn that isn't a ship's, with how
+	 * each went (callCommands): what its result shows as checks when the project declares none.
+	 */
+	async function commands(id: number): Promise<(Check & { command: string })[]> {
+		const turn = await answeredTurn(host.entries(id), 2000, (t) => {
+			const asked = t.messages[0];
+			return asked?.role === "user" && isShipPrompt(textOf(asked.content));
+		});
+		return turn === undefined ? [] : callCommands(turn);
+	}
+
 	/** Whether session `id`'s latest turn is a ship's. */
 	async function shipTurn(id: number): Promise<boolean> {
 		const asked = (await latestTurn(host.entries(id), 400))?.messages[0];
@@ -543,6 +564,7 @@ export function createResults(host: ResultsHost) {
 		result,
 		line,
 		shipTurn,
+		commands,
 		afterRun,
 		/** Resolves once the checks going now are done; for shutdown and tests. */
 		settled: () => Promise.all(going.values()).then(() => undefined),

@@ -692,7 +692,8 @@ test("sandbox.ship lands the work on origin/main and tells host watchers, and a 
 	const summaryOf = async () => (await mac.request("conversations.list")).conversations.find((c: Json) => c.id === id);
 	await waitFor(async () => (await summaryOf()).sandbox.shipped !== undefined, "the summary to keep the ship");
 	const landed = await summaryOf();
-	assert.deepEqual(Object.keys(landed.sandbox.shipped).sort(), ["at", "commits", "head", "pushed", "to"]);
+	// `unchecked`, as the test project declares no checks and its turn ran none.
+	assert.deepEqual(Object.keys(landed.sandbox.shipped).sort(), ["at", "commits", "head", "pushed", "to", "unchecked"]);
 	assert.equal(landed.sandbox.shipped.pushed, "origin/main");
 	assert.equal(landed.sandbox.shipped.head, shipped.head);
 	assert.equal(landed.sandbox.shipStopped, undefined);
