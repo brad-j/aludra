@@ -9,20 +9,23 @@ import { createApi } from "../src/api.ts";
 import { configFor } from "../src/config.ts";
 import { context } from "../src/host.ts";
 import { transcriptText } from "../src/mcp.ts";
-import { makeProject, testHost } from "./helpers.ts";
+import { fakeSandboxes, gitProject, makeProject, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
 
 /** A faux host with its API on a free port and a read token and a write token for /mcp. `write` turns on mcp.write;
  * `connect` uses the write token unless given other headers. */
-async function mcp(t: TestContext, write: boolean) {
+async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; sandboxes?: boolean } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
 	faux.setResponses(Array.from({ length: 20 }, () => fauxAssistantMessage(fauxText("The build passes now."))));
 	const models = createModels();
 	models.setProvider(faux.provider);
-	const { host, dir, config } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" } });
+	const fake = options.sandboxes === true ? fakeSandboxes(tempDir(t)) : undefined;
+	if (fake !== undefined) t.after(() => fake.close());
+	const { host, dir, config } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(fake === undefined ? {} : { sandboxes: fake.sandboxes, settings: SANDBOX_SETTINGS }) });
 	config.mcp.write = write;
-	const project = makeProject(dir, "site");
+	config.mcp.sandboxOnly = options.sandboxOnly === true;
+	const project = fake === undefined ? makeProject(dir, "site") : gitProject(dir, "site").project;
 	const server = createApi(host, { users: [USER], name: "egwene" });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
@@ -93,6 +96,105 @@ test("with a write token and mcp.write, an agent starts a session, messages it a
 	assert.equal(wrong.isError, true);
 });
 
+const WRITE_TOOLS = ["list_projects", "list_sessions", "read_session", "search_messages", "send_message", "start_session", "stop_session"];
+
+/** Waits until session `id` has finished its run. */
+async function idle(host: Awaited<ReturnType<typeof mcp>>["host"], id: number) {
+	while ((await host.sessions.states()).get(id) !== "idle") await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+test("sandboxOnly: start_session always makes a sandbox session and refuses to make a local one", async (t) => {
+	const { host, connect } = await mcp(t, true, { sandboxOnly: true, sandboxes: true });
+	const client = await connect();
+	const tools = (await client.listTools()).tools;
+	assert.deepEqual(tools.map((tool) => tool.name).sort(), WRITE_TOOLS, "no tool syncs, merges, ships or archives");
+	assert.match(client.getInstructions() ?? "", /in sandboxes only/);
+
+	// No sandbox argument still gets a sandbox.
+	const started = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Make the build pass" } })));
+	assert.equal(typeof started.sandbox, "number");
+	const record = await host.sessions.get(started.id);
+	assert.ok(record?.sandbox !== undefined && record.sandboxNumber !== undefined, "it's a sandbox session");
+	assert.ok(JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Again", sandbox: true } }))).sandbox !== undefined);
+
+	// Asking for a local one is refused, and nothing is made.
+	const before = (await host.sessions.list()).length;
+	const local = await client.callTool({ name: "start_session", arguments: { project: "site", task: "Run here", sandbox: false } });
+	assert.equal(local.isError, true);
+	assert.match(text(local), /only sandbox sessions \(mcp.sandboxOnly\)/);
+	assert.equal((await host.sessions.list()).length, before, "no session was started");
+	assert.ok((await host.sessions.list()).every((r) => r.sandboxNumber !== undefined), "every session is in a sandbox");
+});
+
+test("sandboxOnly: send_message and stop_session act on sandbox sessions and refuse local ones, the user's own too", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { sandboxOnly: true, sandboxes: true });
+	const client = await connect();
+	// Started by the user here, not over MCP.
+	const mine = await host.sessions.create(project, "Mine");
+	await (await host.submit(mine.id, "Mine")).wait(context);
+	for (const call of [{ name: "send_message", arguments: { id: mine.id, text: "Delete everything" } }, { name: "send_message", arguments: { id: mine.id, text: "Now", mode: "steer" } }, { name: "stop_session", arguments: { id: mine.id } }]) {
+		const refused = await client.callTool(call);
+		assert.equal(refused.isError, true, call.name);
+		assert.match(text(refused), new RegExp(`session ${mine.id} isn't in a sandbox`), call.name);
+	}
+	const transcript = text(await client.callTool({ name: "read_session", arguments: { id: mine.id } }));
+	assert.doesNotMatch(transcript, /Delete everything/, "the message never reached it");
+	assert.equal((await client.callTool({ name: "send_message", arguments: { id: 999, text: "x" } })).isError, true);
+
+	// A sandbox session, the user's or one MCP started, takes both.
+	const boxed = await host.sessions.createSandbox(project, "Boxed");
+	await (await host.submit(boxed.id, "Boxed")).wait(context);
+	await idle(host, boxed.id);
+	assert.match(text(await client.callTool({ name: "send_message", arguments: { id: boxed.id, text: "And add a test" } })), /submission/);
+	assert.match(text(await client.callTool({ name: "stop_session", arguments: { id: boxed.id } })), /stopped/);
+});
+
+test("sandboxOnly without a sandbox host: every write tool fails closed and nothing runs locally", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { sandboxOnly: true });
+	const client = await connect();
+	const mine = await host.sessions.create(project, "Mine");
+	await (await host.submit(mine.id, "Mine")).wait(context);
+	for (const call of [
+		{ name: "start_session", arguments: { project: "site", task: "x" } },
+		{ name: "start_session", arguments: { project: "site", task: "x", sandbox: true } },
+		{ name: "start_session", arguments: { project: "site", task: "x", sandbox: false } },
+		{ name: "send_message", arguments: { id: mine.id, text: "x" } },
+		{ name: "stop_session", arguments: { id: mine.id } },
+	]) {
+		const refused = await client.callTool(call);
+		assert.equal(refused.isError, true, JSON.stringify(call));
+		assert.match(text(refused), /mcp.sandboxOnly is on but the settings name no sandbox host/, JSON.stringify(call));
+	}
+	assert.deepEqual((await host.sessions.list()).map((r) => r.id), [mine.id], "no session was started");
+});
+
+test("tool descriptions say sandbox-only when it's on, the same on every connection, and not when it's off", async (t) => {
+	const describe = async (sandboxOnly: boolean) => {
+		const { connect } = await mcp(t, true, { sandboxOnly, sandboxes: true });
+		const list = async () => Object.fromEntries((await (await connect()).listTools()).tools.map((tool) => [tool.name, { description: tool.description, schema: tool.inputSchema }]));
+		const first = await list();
+		assert.deepEqual(await list(), first, "fixed between connections");
+		return first;
+	};
+	const on = await describe(true);
+	for (const name of ["start_session", "send_message", "stop_session"]) assert.match(on[name]!.description ?? "", /[Ss]andbox-only/, name);
+	assert.match(JSON.stringify(on.start_session!.schema), /Sandbox-only here/);
+	const off = await describe(false);
+	for (const name of ["start_session", "send_message", "stop_session"]) assert.doesNotMatch(off[name]!.description ?? "", /[Ss]andbox-only/, name);
+});
+
+test("without sandboxOnly, write tools still act on local sessions", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { sandboxes: true });
+	const client = await connect();
+	const mine = await host.sessions.create(project, "Mine");
+	await (await host.submit(mine.id, "Mine")).wait(context);
+	await idle(host, mine.id);
+	assert.match(text(await client.callTool({ name: "send_message", arguments: { id: mine.id, text: "More" } })), /submission/);
+	const started = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Local", sandbox: false } })));
+	assert.equal(started.sandbox, undefined);
+	await idle(host, started.id);
+});
+
 test("only live tokens, not Tailscale logins, no browsers, and only POST", async (t) => {
 	const { host, url, connect, reader, bearer } = await mcp(t, false);
 	const post = (headers: Record<string, string>) => fetch(`${url}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) });
@@ -122,9 +224,12 @@ test("the API still wants a listed Tailscale login, and a token isn't one", asyn
 	assert.equal((await fetch(`${url}/api/bootstrap`, { headers: { "tailscale-user-login": USER } })).status, 200);
 });
 
-test("mcp.write comes from the settings file and is off by default", () => {
-	assert.equal(configFor(JSON.stringify({ workspaces: [{ name: "a", roots: [] }] }), {}).config.mcp.write, false);
-	assert.equal(configFor(JSON.stringify({ workspaces: [{ name: "a", roots: [] }], mcp: { write: true } }), {}).config.mcp.write, true);
+test("mcp.write and mcp.sandboxOnly come from the settings file and are off by default", () => {
+	const workspaces = [{ name: "a", roots: [] }];
+	assert.deepEqual(configFor(JSON.stringify({ workspaces }), {}).config.mcp, { write: false, sandboxOnly: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true } }), {}).config.mcp, { write: true, sandboxOnly: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: true });
+	assert.match(configFor(JSON.stringify({ workspaces, mcp: { sandboxOnly: "yes" } }), {}).errors.join("\n"), /sandboxOnly/);
 });
 
 test("a long transcript keeps its latest items", () => {

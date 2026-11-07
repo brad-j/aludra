@@ -69,6 +69,8 @@ test("a change is refused, whole, for a setting only the file changes, an unknow
 	refused({ "api.users": ["intruder@example.com"] }, /api.users changes only in the settings file/);
 	refused({ dataDir: "/tmp" }, /dataDir changes only in the settings file/);
 	refused({ "claude.path": "/tmp/evil" }, /claude.path changes only/);
+	refused({ "mcp.write": "on" }, /mcp.write changes only/);
+	refused({ "mcp.sandboxOnly": "off" }, /mcp.sandboxOnly changes only/);
 	refused({ "no.such": 1 }, /there's no setting no.such/);
 	refused({ "approvals.waitHours": "soon" }, /approvals.waitHours should be a number/);
 	refused({ "approvals.hosts": ["ok", " "] }, /approvals.hosts\[1\] needs a name/);

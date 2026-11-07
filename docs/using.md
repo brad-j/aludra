@@ -133,7 +133,7 @@ They go by Web Push, to devices signed up with `POST /api/push/subscribe`, throu
 
 ## Other agents (MCP)
 
-`/mcp` lets an agent aludra didn't start, such as Claude Code in a terminal on your Mac, list this machine's projects and sessions, read a session's transcript and search what was said. With `mcp.write` on in the settings file, it can also start a session with a task, send one a message and stop it, so work can be handed from one machine to another: "start a session in site on egwene to fix the build, then check on it." [setup.md](setup.md#connect-a-client) has the command to add it.
+`/mcp` lets an agent aludra didn't start, such as Claude Code in a terminal on your Mac, list this machine's projects and sessions, read a session's transcript and search what was said. With `mcp.write` on in the settings file, it can also start a session with a task, send one a message and stop it, so work can be handed from one machine to another: "start a session in site on egwene to fix the build, then check on it." With `mcp.sandboxOnly` too, those sessions all run in sandboxes, and the agent can message or stop only sandbox sessions. [setup.md](setup.md#connect-a-client) has the command to add it.
 
 ## amyrlin
 

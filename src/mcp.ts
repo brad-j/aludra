@@ -10,6 +10,11 @@
 // Read-only unless the token's scope is write and the settings' mcp.write is true. Writing lets an agent start
 // sessions, which run with every permission a session has (only git push and remote commands to approval hosts wait),
 // so tokens are read-only and mcp.write is off by default; mcp.write turns writing off for every token at once.
+//
+// mcp.sandboxOnly narrows writing to sandboxes: start_session makes only sandbox sessions, refusing a call that asks for
+// a local one rather than quietly giving it a sandbox, and send_message and stop_session refuse any session that isn't
+// in one, whoever started it. Without a sandbox host every write tool refuses, so nothing falls back to a local
+// session. No tool here syncs, merges, ships or archives; what a run's end does to the checkout is sandboxes.afterRun's.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -19,7 +24,7 @@ import type { Host } from "./host.ts";
 import type { Scope } from "./tokens.ts";
 import { readSummary } from "./live.ts";
 import { findProject } from "./projects.ts";
-import { context } from "./host.ts";
+import { context, isSandboxSession } from "./host.ts";
 import { itemsOf } from "./transcript.ts";
 
 /** Longest text a tool answers with; transcripts keep their latest items within it. */
@@ -67,12 +72,35 @@ export function writeRefusal(host: Host, scope: Scope): string | undefined {
 	return undefined;
 }
 
+/** Why, under mcp.sandboxOnly, no write tool can act at all: there's no sandbox host. Undefined when they can. */
+export function sandboxOnlyRefusal(host: Host): string | undefined {
+	if (!host.mcpSandboxOnly()) return undefined;
+	if (host.sandboxSettings() === undefined) return "mcp.sandboxOnly is on but the settings name no sandbox host (sandboxes), so no session can be started or changed over MCP";
+	return undefined;
+}
+
 /** An MCP server over `host`'s sessions, for one request by a token of `scope`. */
 export function mcpServer(host: Host, options: { machine: string; scope: Scope }): McpServer {
 	const refusal = writeRefusal(host, options.scope);
+	// Fixed for the server's life, so the instructions and descriptions an agent sees don't change between calls.
+	const sandboxOnly = host.mcpSandboxOnly();
+	const writing = refusal !== undefined
+		? `This endpoint is read-only for you: ${refusal}.`
+		: sandboxOnly
+			? "You can also start a session with a task, send one a message, and stop it, in sandboxes only: every session you start runs in a sandbox VM of its own, and you can message or stop only sandbox sessions. Describe the task fully."
+			: "You can also start a session with a task, send one a message, and stop it; sessions run with full permissions in their project, so describe the task fully.";
 	const server = new McpServer({ name: `aludra on ${options.machine}`, version: "1.0.0" }, {
-		instructions: `aludra runs coding-agent sessions on ${options.machine}, each in a project directory there. List projects and sessions, read a session's transcript, and search what was said. ${refusal === undefined ? "You can also start a session with a task, send one a message, and stop it; sessions run with full permissions in their project, so describe the task fully." : `This endpoint is read-only for you: ${refusal}.`}`,
+		instructions: `aludra runs coding-agent sessions on ${options.machine}, each in a project directory there. List projects and sessions, read a session's transcript, and search what was said. ${writing}`,
 	});
+	/** Why a write tool can't act on session `id`, or undefined when it can; under sandboxOnly, only sandbox sessions. */
+	const sessionRefusal = async (id: number): Promise<string | undefined> => {
+		const blocked = sandboxOnlyRefusal(host);
+		if (blocked !== undefined) return blocked;
+		const record = await host.sessions.get(id);
+		if (record === undefined) return `No session ${id}`;
+		if (sandboxOnly && !isSandboxSession(record)) return `session ${id} isn't in a sandbox, and this endpoint acts only on sandbox sessions (mcp.sandboxOnly)`;
+		return undefined;
+	};
 	const readOnly = { readOnlyHint: true, openWorldHint: false };
 
 	server.registerTool("list_projects", { description: `The projects sessions can work in on ${options.machine}: name, workspace and directory.`, annotations: readOnly }, async () =>
@@ -116,15 +144,24 @@ export function mcpServer(host: Host, options: { machine: string; scope: Scope }
 	});
 
 	if (refusal === undefined) {
+		const sandboxText = "a sandbox VM of its own: a copy of the project's last commit that reaches the internet and nothing else, holding no keys. Its commits come back to the project's sandbox/N branch";
 		server.registerTool("start_session", {
-			description: `Start a session in a project on ${options.machine} with a task. It runs on its own with full permissions in the project; read_session shows how it goes. Returns its id.`,
+			description: sandboxOnly
+				? `Start a session in a project on ${options.machine} with a task, sandbox-only: it always runs in ${sandboxText}. A local session is refused. read_session shows how it goes. Returns its id.`
+				: `Start a session in a project on ${options.machine} with a task. It runs on its own with full permissions in the project; read_session shows how it goes. Returns its id.`,
 			inputSchema: {
 				project: z.string().describe("A name from list_projects"),
 				task: z.string().min(1).describe("Everything the agent needs to know; it can't see your conversation"),
-				sandbox: z.boolean().optional().describe("Run its tools in a sandbox VM of its own: a copy of the project's last commit that reaches the internet and nothing else, holding no keys. Its commits come back with `aludra sync`."),
+				sandbox: z.boolean().optional().describe(sandboxOnly
+					? "Sandbox-only here: leave it out or pass true; false is refused."
+					: "Run its tools in a sandbox VM of its own: a copy of the project's last commit that reaches the internet and nothing else, holding no keys. Its commits come back with `aludra sync`."),
 			},
 			annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
 		}, async ({ project, task, sandbox }) => {
+			const blocked = sandboxOnlyRefusal(host);
+			if (blocked !== undefined) return failure(blocked);
+			if (sandboxOnly && sandbox === false) return failure("this endpoint starts only sandbox sessions (mcp.sandboxOnly); leave sandbox out or pass true");
+			const inSandbox = sandboxOnly || sandbox === true;
 			let found;
 			try {
 				found = findProject(host.projects(), project);
@@ -134,7 +171,7 @@ export function mcpServer(host: Host, options: { machine: string; scope: Scope }
 			const title = task.split("\n")[0]!.slice(0, 80);
 			let session;
 			try {
-				session = sandbox === true ? await host.sessions.createSandbox(found, title) : await host.sessions.create(found, title);
+				session = inSandbox ? await host.sessions.createSandbox(found, title) : await host.sessions.create(found, title);
 			} catch (error) {
 				return failure(error instanceof Error ? error.message : String(error));
 			}
@@ -143,21 +180,27 @@ export function mcpServer(host: Host, options: { machine: string; scope: Scope }
 		});
 
 		server.registerTool("send_message", {
-			description: "Send a session a message. While it runs, it goes in at the next tool boundary (steer) or waits until the run answers (followUp, the default).",
+			description: `Send a session a message. While it runs, it goes in at the next tool boundary (steer) or waits until the run answers (followUp, the default).${sandboxOnly ? " Sandbox-only: a session that isn't in a sandbox is refused." : ""}`,
 			inputSchema: { id: z.number().int(), text: z.string().min(1), mode: z.enum(["followUp", "steer"]).optional() },
 			annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
 		}, async ({ id, text, mode }) => {
-			if ((await host.sessions.get(id)) === undefined) return failure(`No session ${id}`);
-			const submission = await host.submit(id, text, { steer: mode === "steer" });
-			return answer({ submission: Number(submission.id) });
+			const refused = await sessionRefusal(id);
+			if (refused !== undefined) return failure(refused);
+			try {
+				const submission = await host.submit(id, text, { steer: mode === "steer" });
+				return answer({ submission: Number(submission.id) });
+			} catch (error) {
+				return failure(error instanceof Error ? error.message : String(error));
+			}
 		});
 
 		server.registerTool("stop_session", {
-			description: "Stop a session's run. Queued messages are dropped.",
+			description: `Stop a session's run. Queued messages are dropped.${sandboxOnly ? " Sandbox-only: a session that isn't in a sandbox is refused." : ""}`,
 			inputSchema: { id: z.number().int() },
 			annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		}, async ({ id }) => {
-			if ((await host.sessions.get(id)) === undefined) return failure(`No session ${id}`);
+			const refused = await sessionRefusal(id);
+			if (refused !== undefined) return failure(refused);
 			await host.stop(id);
 			return answer(`stopped session ${id}`);
 		});

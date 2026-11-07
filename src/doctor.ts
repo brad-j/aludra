@@ -187,7 +187,9 @@ async function mcp(config: Config): Promise<Check[]> {
 	}
 	if (live.length === 0) return [{ status: "skip", area: "mcp", detail: "no tokens, so no agent can use /mcp; aludra token add NAME makes one" }];
 	const writers = live.filter((t) => t.scope === "write");
-	const checks: Check[] = [{ status: "ok", area: "mcp", detail: `${live.length} token${live.length === 1 ? "" : "s"}: ${live.map((t) => `${t.name} (${t.scope})`).join(", ")}; mcp.write ${config.mcp.write ? "on" : "off"}` }];
+	const checks: Check[] = [{ status: "ok", area: "mcp", detail: `${live.length} token${live.length === 1 ? "" : "s"}: ${live.map((t) => `${t.name} (${t.scope})`).join(", ")}; mcp.write ${config.mcp.write ? "on" : "off"}${config.mcp.sandboxOnly ? ", sandbox-only" : ""}` }];
+	if (config.mcp.sandboxOnly && config.sandboxes === undefined) checks.push({ status: "fail", area: "mcp", detail: "mcp.sandboxOnly is on but the settings name no sandbox host, so every MCP write tool refuses; add sandboxes or turn sandboxOnly off" });
+	if (config.mcp.sandboxOnly && config.sandboxes?.afterRun === "merge") checks.push({ status: "warn", area: "mcp", detail: "mcp.sandboxOnly is on with sandboxes.afterRun merge, so a run an MCP agent started fast-forwards the checked-out branch when it ends; fetch keeps its work on sandbox/N" });
 	if (writers.length > 0 && !config.mcp.write) checks.push({ status: "warn", area: "mcp", detail: `mcp.write is off, so ${writers.map((t) => t.name).join(", ")} can only read; set it in the settings file to let write tokens start sessions` });
 	return checks;
 }

@@ -187,6 +187,15 @@ For a token made with `--write`, while `mcp.write` is on in the settings file, a
 | `send_message` | `id`, `text`, `mode?` (`followUp` or `steer`) | `{ submission }`. |
 | `stop_session` | `id` | Stops the run. |
 
+With `mcp.sandboxOnly` on as well:
+
+- `start_session` always makes a sandbox session, with or without `sandbox: true`. `sandbox: false` is an error and starts nothing.
+- `send_message` and `stop_session` are an error for a session that isn't in a sandbox, whoever started it.
+- Without a sandbox host in the settings, all three are an error for every call.
+- The tools' descriptions and the server's instructions say sandbox-only. They're fixed per setting, so they don't change from one connection to the next.
+
+No MCP tool syncs, merges, ships or archives. A sandbox session's work comes home as `sandboxes.afterRun` says.
+
 A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool with a read token or while `mcp.write` is off. The server's instructions say which machine it is and, when it can't write, why.
 
 ## The CLI socket

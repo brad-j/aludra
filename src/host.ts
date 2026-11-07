@@ -1408,6 +1408,8 @@ export async function openHost(options: HostOptions) {
 		archiveAfterDays: () => config.archive.afterDays,
 		/** Whether the MCP endpoint may start, message and stop sessions for a write token (the settings file's mcp.write). */
 		mcpWrite: () => config.mcp.write,
+		/** Whether the MCP endpoint's write tools start and act on sandbox sessions only (the settings file's mcp.sandboxOnly). */
+		mcpSandboxOnly: () => config.mcp.sandboxOnly,
 		/** The tokens agents send to /mcp. */
 		tokens,
 		/** Where a ship lands by default (src/ship.ts). */
