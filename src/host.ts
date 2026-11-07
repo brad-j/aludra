@@ -38,6 +38,7 @@ import { createNewProjects, ghProblem, NewProjectRefused, type NewProjectsOption
 import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
 import { messagesOf, openSearch } from "./search.ts";
+import { openTokens } from "./tokens.ts";
 import { type Exchange, excerptOf, modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
 import { fileBlocks, type FileInput, isLong, preview, saveFiles, withoutFileNotes } from "./files.ts";
@@ -503,6 +504,8 @@ export async function openHost(options: HostOptions) {
 
 	// Search over what was said (src/search.ts), in its own file beside the database.
 	const searchIndex = openSearch(resolve(config.dataDir, "search.sqlite"));
+	// The tokens agents send to /mcp (src/tokens.ts).
+	const tokens = openTokens(resolve(config.dataDir, "tokens.sqlite"));
 	const stopIndexing = harness.subscribeCommits((publication) => {
 		const found = publication.changes.flatMap((change) => (change.type === "entry" ? messagesOf({ ...change.value, id: Number(change.value.id), conversationId: Number(change.value.conversationId) }) : []));
 		if (found.length === 0) return;
@@ -1340,8 +1343,10 @@ export async function openHost(options: HostOptions) {
 		settings: { get: readSettings, set: saveSettings, onChange: onSettings },
 		/** Days idle before a session is archived; 0 for never. */
 		archiveAfterDays: () => config.archive.afterDays,
-		/** Whether the MCP endpoint may start, message and stop sessions (the settings file's mcp.write). */
+		/** Whether the MCP endpoint may start, message and stop sessions for a write token (the settings file's mcp.write). */
 		mcpWrite: () => config.mcp.write,
+		/** The tokens agents send to /mcp. */
+		tokens,
 		/** Where a ship lands by default (src/ship.ts). */
 		shipMode: (): "main" | "branch" => config.sandboxes?.shipTo ?? "main",
 		/** Ships started from clients (src/ship.ts). */
@@ -1467,6 +1472,7 @@ export async function openHost(options: HostOptions) {
 			await caughtUp;
 			await harness.close(context);
 			searchIndex.close();
+			tokens.close();
 			sandboxes.close();
 		},
 	};

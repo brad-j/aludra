@@ -167,7 +167,7 @@ aludra's own, from amyrlin's protocol section 10 item 20.
 
 ## MCP: `POST /mcp`
 
-Streamable HTTP, for agents aludra didn't start (Claude Code, pi, anything with an MCP client) to work with its sessions. It's stateless: each request stands alone, with JSON responses rather than streams. It takes the same `Tailscale-User-Login` check as the API; a request with an `Origin` header is 403, as on `/amyrlin`, so a browser page can't call it. Only POST; other methods are 405.
+Streamable HTTP, for agents aludra didn't start (Claude Code, pi, anything with an MCP client) to work with its sessions. It's stateless: each request stands alone, with JSON responses rather than streams. It takes a bearer token, `Authorization: Bearer <TOKEN>`, made with `aludra token add NAME` (one per agent; see [cli.md](cli.md#aludra-token-add-name---write)), not the API's `Tailscale-User-Login`, which a tagged machine doesn't have. A missing, wrong or revoked token is 401 with `WWW-Authenticate: Bearer`. A request with an `Origin` header is 403, as on `/amyrlin`, so a browser page can't call it. Only POST; other methods are 405.
 
 Tools, always:
 
@@ -178,7 +178,7 @@ Tools, always:
 | `read_session` | `id` | The session's title, project and state, then its transcript as text: messages, answers and a line per tool call, the latest 60,000 characters. |
 | `search_messages` | `query`, `session?`, `limit?` (default 20) | As `GET /api/search`. |
 
-With `mcp.write` set in the settings file, also:
+For a token made with `--write`, while `mcp.write` is on in the settings file, also:
 
 | Tool | Arguments | Answer |
 | --- | --- | --- |
@@ -186,7 +186,7 @@ With `mcp.write` set in the settings file, also:
 | `send_message` | `id`, `text`, `mode?` (`followUp` or `steer`) | `{ submission }`. |
 | `stop_session` | `id` | Stops the run. |
 
-A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool when `mcp.write` is off. The server's instructions say which machine it is and whether it can write.
+A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool with a read token or while `mcp.write` is off. The server's instructions say which machine it is and, when it can't write, why.
 
 ## The CLI socket
 

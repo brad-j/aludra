@@ -46,6 +46,7 @@ import type { Push, PushMessage } from "./push.ts";
 import { createLive, type Live } from "./live.ts";
 import { checkFiles } from "./files.ts";
 import { handleMcp } from "./mcp.ts";
+import { bearerOf } from "./tokens.ts";
 import { changesSince, fileDiff } from "./changes.ts";
 
 class HttpError extends Error {
@@ -410,15 +411,19 @@ export function createApi(host: Host, options: ApiOptions) {
 	}
 
 	const server = createServer((request, response) => {
-		const login = loginOf(request);
-		if (login === undefined) return reply(response, 403, "Forbidden", "text/plain");
-		// Agents' MCP clients (src/mcp.ts). Like /amyrlin, no Origin: a browser always sends one, so a web page can't
-		// reach the sessions with the user's Tailscale identity.
+		// Agents' MCP clients (src/mcp.ts), by a token of their own (src/tokens.ts) rather than a Tailscale login, which a
+		// tagged machine doesn't have. Like /amyrlin, no Origin: a browser always sends one, so a web page can't call it.
 		if (new URL(request.url ?? "/", "http://host").pathname === "/mcp") {
 			if (request.headers.origin !== undefined) return reply(response, 403, "Cross-site request", "text/plain");
 			if (request.method !== "POST") return reply(response, 405, "Method not allowed", "text/plain");
+			const secret = bearerOf(request.headers.authorization);
+			const token = secret === undefined ? undefined : host.tokens.authenticate(secret);
+			if (token === undefined) {
+				response.setHeader("www-authenticate", "Bearer");
+				return reply(response, 401, "Missing or invalid bearer token; aludra token add NAME makes one", "text/plain");
+			}
 			readBody(request, MCP_BODY)
-				.then((text) => handleMcp(host, request, response, JSON.parse(text), { machine }))
+				.then((text) => handleMcp(host, request, response, JSON.parse(text), { machine, scope: token.scope }))
 				.catch((error) => {
 					const status = error instanceof HttpError ? error.status : error instanceof SyntaxError ? 400 : 500;
 					if (status === 500) console.error("[mcp]", error);
@@ -427,6 +432,8 @@ export function createApi(host: Host, options: ApiOptions) {
 				});
 			return;
 		}
+		const login = loginOf(request);
+		if (login === undefined) return reply(response, 403, "Forbidden", "text/plain");
 		if (request.method === "POST" && !sameOrigin(request, true)) return reply(response, 403, "Cross-site request", "text/plain");
 		route(request, response, login).catch((error) => {
 			const status = error instanceof HttpError ? error.status : error instanceof ParseError ? 400 : /^no (session|project|model|idea)|could be/.test(String(error?.message)) ? 404 : 500;

@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node --no-warnings
 // The aludra command.
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { backupNow } from "./backup.ts";
@@ -12,6 +13,7 @@ import { isListening, serve, socketPathFor } from "./server.ts";
 import { currentSpec, installService, platformOf, serviceState, uninstallService } from "./service.ts";
 import { login, logout } from "./login.ts";
 import { init } from "./setup.ts";
+import { openTokens } from "./tokens.ts";
 
 const USAGE = `usage: aludra [--config FILE] COMMAND
 
@@ -49,6 +51,9 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   approve ID | deny ID                   answer one
   projects [--archived]                  list the projects the workspaces' roots match, archived ones left out
                                          (or only those, with --archived)
+  token add NAME [--write]               make a token for an agent on /mcp, shown once; read-only unless
+                                         --write, which also needs mcp.write in the settings file
+  token list | token revoke ID           list the tokens, or revoke one at once
   config                                 list the settings and where they come from
   config set KEY VALUE... | unset KEY    change one, at once if the host runs (a list takes each VALUE as an entry)
   backup                                 copy the database into the backup directory now
@@ -77,6 +82,7 @@ const { values, positionals } = parseArgs({
 		force: { type: "boolean" },
 		reindex: { type: "boolean" },
 		archived: { type: "boolean" },
+		write: { type: "boolean" },
 		help: { type: "boolean", short: "h" },
 	},
 	allowPositionals: true,
@@ -210,6 +216,36 @@ switch (command) {
 		for (const project of findProjects(config.workspaces)) console.log(`${project.name.padEnd(24)} ${project.workspace.padEnd(8)} ${project.dir}`);
 		console.log("the host isn't running, so archived projects are listed too");
 		process.exit(0);
+	case "token": {
+		const [action, argument] = rest;
+		const usage = "usage: aludra token add NAME [--write]   or   aludra token list   or   aludra token revoke ID";
+		mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+		const tokens = openTokens(resolve(config.dataDir, "tokens.sqlite"));
+		if (action === "add" && argument !== undefined && argument.trim() !== "") {
+			const { token, secret } = tokens.create(argument.trim(), values.write === true ? "write" : "read");
+			console.log(`token ${token.id} (${token.name}, ${token.scope})`);
+			console.log(`secret ${secret}`);
+			console.log("Shown once. The agent sends it as Authorization: Bearer on /mcp.");
+			if (token.scope === "write" && !config.mcp.write) console.log("mcp.write is off in the settings file, so this token can only read until it's on.");
+			process.exit(0);
+		}
+		if (action === "list" && argument === undefined) {
+			const all = tokens.list();
+			if (all.length === 0) console.log("no tokens; aludra token add NAME makes one");
+			for (const t of all) {
+				const state = t.revokedAt === null ? `last used ${t.lastSeenAt?.toISOString() ?? "never"}` : `revoked ${t.revokedAt.toISOString()}`;
+				console.log(`${String(t.id).padEnd(4)} ${t.name.padEnd(24)} ${t.scope.padEnd(6)} ${state}`);
+			}
+			process.exit(0);
+		}
+		if (action === "revoke" && argument !== undefined) {
+			const id = Number(argument);
+			if (!Number.isInteger(id)) fail(usage);
+			console.log(tokens.revoke(id) ? `revoked token ${id}` : `no live token ${id}; aludra token list lists them`);
+			process.exit(0);
+		}
+		fail(usage);
+	}
 	case "config":
 		process.exit(await configCommand(config, rest));
 	case "backup":

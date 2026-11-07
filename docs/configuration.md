@@ -122,7 +122,7 @@ aludra runs the Claude Code you installed and logged in to, as `claude -p`, for 
 
 ### `mcp`
 
-- `write`: whether agents on `/mcp` may start sessions, send them messages and stop them, besides reading. Default `false`. Only the settings file sets it, never a client, so nothing reaching the host can turn it on; it applies after a restart. [security.md](security.md#mcp) says what it gives away.
+- `write`: whether agents with a write token (`aludra token add NAME --write`) may start sessions on `/mcp`, send them messages and stop them, besides reading. Off takes the write tools from every token at once. Default `false`. Only the settings file sets it, never a client, so nothing reaching the host can turn it on; it applies after a restart. [security.md](security.md#mcp) says what it gives away.
 
 ### `sandboxes`
 

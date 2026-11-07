@@ -177,6 +177,14 @@ aludra config unset backup.dir
 
 When the host is running, the change goes through it and takes effect at once where it can. Otherwise it's written straight to the file for the next start. The settings it can change, and when each takes effect, are in [configuration.md](configuration.md#changing-settings-while-the-host-runs).
 
+### `aludra token add NAME [--write]`
+
+Makes a token for an agent on `/mcp` and prints its secret, once; only its SHA-256 is kept. Read-only unless `--write`, which also needs `mcp.write` in the settings file (it says so when that's off). Name it for the agent and machine, such as `lan` or `claude-code-egwene`, so `token list` says who's calling. Works whether or not the host is running, and a new token works at once.
+
+### `aludra token list` and `aludra token revoke ID`
+
+Lists every token with its id, name, scope and last use, or when it was revoked. `revoke` stops one at once, even with the host running.
+
 ### `aludra backup`
 
 Copies the database into the backup directory now and prints the file's path. Works whether or not the host is running.

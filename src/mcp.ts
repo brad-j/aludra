@@ -2,19 +2,21 @@
 // another machine, so work can be handed between machines. Streamable HTTP at POST /mcp, served by the same server as
 // the API (src/api.ts) and reached the same way, through tailscale serve.
 //
-// Who gets in is the API's rule: the Tailscale-User-Login header names a login in api.users, and a request with an
-// Origin is refused, since a browser always sends one and an agent's MCP client doesn't. So there's no OAuth: whoever
-// the tailnet says is calling. It's stateless, a server and transport per request, which suits a host that restarts
-// and clients that reconnect.
+// Who gets in: a bearer token made with `aludra token add` (src/tokens.ts), one per agent, and a request with an Origin
+// is refused, since a browser always sends one and an agent's MCP client doesn't. Not the API's Tailscale login: a
+// tagged machine has none, and it names a person rather than the agent. There's no OAuth. It's stateless, a server and
+// transport per request, which suits a host that restarts and clients that reconnect.
 //
-// Read-only unless the settings' mcp.write is true. Writing lets an agent start sessions, which run with every
-// permission a session has (only git push and remote commands to approval hosts wait), so it's off by default.
+// Read-only unless the token's scope is write and the settings' mcp.write is true. Writing lets an agent start
+// sessions, which run with every permission a session has (only git push and remote commands to approval hosts wait),
+// so tokens are read-only and mcp.write is off by default; mcp.write turns writing off for every token at once.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import type { Item } from "./api-types.ts";
 import type { Host } from "./host.ts";
+import type { Scope } from "./tokens.ts";
 import { readSummary } from "./live.ts";
 import { findProject } from "./projects.ts";
 import { context } from "./host.ts";
@@ -58,10 +60,18 @@ export function transcriptText(items: readonly Item[], limit = MAX_TEXT): string
 	return kept.join("\n\n");
 }
 
-/** An MCP server over `host`'s sessions, for one request. */
-export function mcpServer(host: Host, options: { machine: string }): McpServer {
+/** Why a token of `scope` can't write on `host`, or undefined when it can. */
+export function writeRefusal(host: Host, scope: Scope): string | undefined {
+	if (scope !== "write") return "this token is read-only";
+	if (!host.mcpWrite()) return "the host's mcp.write setting is off";
+	return undefined;
+}
+
+/** An MCP server over `host`'s sessions, for one request by a token of `scope`. */
+export function mcpServer(host: Host, options: { machine: string; scope: Scope }): McpServer {
+	const refusal = writeRefusal(host, options.scope);
 	const server = new McpServer({ name: `aludra on ${options.machine}`, version: "1.0.0" }, {
-		instructions: `aludra runs coding-agent sessions on ${options.machine}, each in a project directory there. List projects and sessions, read a session's transcript, and search what was said. ${host.mcpWrite() ? "You can also start a session with a task, send one a message, and stop it; sessions run with full permissions in their project, so describe the task fully." : "This endpoint is read-only: the host's mcp.write setting is off."}`,
+		instructions: `aludra runs coding-agent sessions on ${options.machine}, each in a project directory there. List projects and sessions, read a session's transcript, and search what was said. ${refusal === undefined ? "You can also start a session with a task, send one a message, and stop it; sessions run with full permissions in their project, so describe the task fully." : `This endpoint is read-only for you: ${refusal}.`}`,
 	});
 	const readOnly = { readOnlyHint: true, openWorldHint: false };
 
@@ -105,7 +115,7 @@ export function mcpServer(host: Host, options: { machine: string }): McpServer {
 		return answer(results.map((r) => ({ session: r.session, project: r.project, title: r.title, from: r.from, at: new Date(r.at).toISOString(), snippet: r.snippet })));
 	});
 
-	if (host.mcpWrite()) {
+	if (refusal === undefined) {
 		server.registerTool("start_session", {
 			description: `Start a session in a project on ${options.machine} with a task. It runs on its own with full permissions in the project; read_session shows how it goes. Returns its id.`,
 			inputSchema: {
@@ -156,7 +166,7 @@ export function mcpServer(host: Host, options: { machine: string }): McpServer {
 }
 
 /** Handles one request to /mcp: a fresh server and transport each time, the JSON body read already. */
-export async function handleMcp(host: Host, request: IncomingMessage, response: ServerResponse, body: unknown, options: { machine: string }): Promise<void> {
+export async function handleMcp(host: Host, request: IncomingMessage, response: ServerResponse, body: unknown, options: { machine: string; scope: Scope }): Promise<void> {
 	const server = mcpServer(host, options);
 	const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
 	response.on("close", () => {

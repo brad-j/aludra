@@ -85,3 +85,22 @@ test("aludra archive --project hides a project from aludra projects, and unarchi
 	assert.match(cli("projects").stdout, /^two /m);
 	assert.match(cli("projects", "--archived").stdout, /no archived projects/);
 });
+
+test("aludra token add, list and revoke manage /mcp's tokens without the host", (t) => {
+	const dir = tempDir(t);
+	const config = join(dir, "aludra.json");
+	writeFileSync(config, JSON.stringify({ workspaces: [{ name: "test", roots: [join(dir, "Projects/*/*")] }] }));
+	const env = { ...process.env, ALUDRA_CONFIG: config, ALUDRA_DATA_DIR: join(dir, "data"), ALUDRA_MODEL: "faux" };
+	const cli = (...args: string[]) => spawnSync(process.execPath, ["--no-warnings", main, ...args], { env, encoding: "utf8", timeout: 30_000 });
+
+	const reader = cli("token", "add", "Lan");
+	assert.equal(reader.status, 0, reader.stderr);
+	assert.match(reader.stdout, /^token 1 \(Lan, read\)\nsecret aludra_[\w-]{43}\n/);
+	const writer = cli("token", "add", "claude-code", "--write");
+	assert.match(writer.stdout, /\(claude-code, write\)[\s\S]*mcp\.write is off/);
+	assert.match(cli("token", "list").stdout, /^1 +Lan +read +last used never\n2 +claude-code +write +last used never\n$/);
+	assert.match(cli("token", "revoke", "1").stdout, /revoked token 1/);
+	assert.match(cli("token", "revoke", "1").stdout, /no live token 1/);
+	assert.match(cli("token", "list").stdout, /^1 +Lan +read +revoked /);
+	assert.equal(cli("token", "add").status, 1);
+});

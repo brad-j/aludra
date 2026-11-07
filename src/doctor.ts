@@ -14,6 +14,7 @@ import { ghProblem } from "./new-projects.ts";
 import { isListening, socketPathFor } from "./server.ts";
 import { currentSpec, installedUnit, launchdPlist, lingers, platformOf, serviceState, systemdUnit, withoutPath } from "./service.ts";
 import { servesPort, tailnetSelf, tailscaleFor } from "./tailscale.ts";
+import { openTokens } from "./tokens.ts";
 
 export type Check = { status: "ok" | "warn" | "fail" | "skip"; area: string; detail: string };
 
@@ -29,7 +30,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 /** Each check resolves to one or more lines; none of them throws. */
 export async function runChecks(loaded: Loaded): Promise<Check[]> {
 	const { config } = loaded;
-	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), openrouter(config), api(config), push(), video(), service(config), backups(config), newProjects(config)];
+	const groups = [settings(loaded), node(), data(config), workspaces(config), versions(), claude(config), model(config), openai(config), openrouter(config), api(config), mcp(config), push(), video(), service(config), backups(config), newProjects(config)];
 	return (await Promise.all(groups.map((group) => group.catch((error): Check[] => [{ status: "fail", area: "doctor", detail: message(error) }])))).flat();
 }
 
@@ -172,6 +173,23 @@ async function api(config: Config): Promise<Check[]> {
 		...checks,
 		{ status: "ok", area: "api", detail: `https://${self.dnsName}/api is the API; the Mac app adds wss://${self.dnsName}/amyrlin` },
 	];
+}
+
+async function mcp(config: Config): Promise<Check[]> {
+	let live;
+	try {
+		mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+		const tokens = openTokens(`${config.dataDir}/tokens.sqlite`);
+		live = tokens.list().filter((t) => t.revokedAt === null);
+		tokens.close();
+	} catch (error) {
+		return [{ status: "fail", area: "mcp", detail: `can't read the tokens: ${message(error)}` }];
+	}
+	if (live.length === 0) return [{ status: "skip", area: "mcp", detail: "no tokens, so no agent can use /mcp; aludra token add NAME makes one" }];
+	const writers = live.filter((t) => t.scope === "write");
+	const checks: Check[] = [{ status: "ok", area: "mcp", detail: `${live.length} token${live.length === 1 ? "" : "s"}: ${live.map((t) => `${t.name} (${t.scope})`).join(", ")}; mcp.write ${config.mcp.write ? "on" : "off"}` }];
+	if (writers.length > 0 && !config.mcp.write) checks.push({ status: "warn", area: "mcp", detail: `mcp.write is off, so ${writers.map((t) => t.name).join(", ")} can only read; set it in the settings file to let write tokens start sessions` });
+	return checks;
 }
 
 async function backups(config: Config): Promise<Check[]> {
