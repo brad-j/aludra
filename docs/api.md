@@ -178,14 +178,22 @@ Tools, always:
 | `list_sessions` | `project?`, `includeArchived?`, `limit?` (default 30) | Sessions newest first: id, project, title, state, latest activity, when. |
 | `read_session` | `id` | The session's title, project and state, then its transcript as text: messages, answers and a line per tool call, the latest 60,000 characters. |
 | `search_messages` | `query`, `session?`, `limit?` (default 20) | As `GET /api/search`. |
+| `check_sessions` | | `{ wake, data, topic, through? }`, a gate for an agent that wakes on session changes without a model running. Moves nothing. |
+| `mark_sessions_handled` | `through` | `{ through }`: this token's changes up to and including change `through` are handled. |
+
+`check_sessions` and `mark_sessions_handled` work as a mail connector's `check_new_mail` and `mark_handled(throughUid)`. A change is a session that's new, or that has come to rest in `done`, `failed`, `stopped`, `waiting` or `idle` since it was last seen: a new state, or the same state after a newer run (`done → done`). A session that's only started running isn't one, so the next change reads `running → done`. `wake` is true when the calling token has changes it hasn't marked handled. `data` has one entry per changed session, oldest change first: `change` (the newest change's number), `id`, `project`, `title`, `from` (`null` for a new session), `to`, `transition` (`"new → done"`, `"running → stopped"`), `state` now, `updated`, `line` (as `list_sessions`), `agent` (the last line of the latest answer's prose, without its `plan` and `result` blocks), `question: { text, options }` when that answer asks one, and `sandbox` and `archived` when they apply. `topic` is the newest change in a line, `site #12 Fix the build: running → done (+2 more)`, empty when there's nothing. `through` is the newest change's number, the value to mark once all of them are handled.
+
+Each token has its own cursor, so one agent marking changes leaves them for another. A token that has never marked anything gets the changes to sessions updated since it was made. A cursor never moves back, and `through` past the newest change stops at it. Sessions are compared when an agent checks, not as they change, so a run that starts and ends between two checks is one change. What was last seen is kept in `session-changes.sqlite`, so changes made while nobody checked, or while the host was down, show at the next check. Sessions last updated before that file was made don't count as new. Both tools are there for read tokens: marking moves only the caller's own cursor.
 
 For a token made with `--write`, while `mcp.write` is on in the settings file, also:
 
 | Tool | Arguments | Answer |
 | --- | --- | --- |
-| `start_session` | `project`, `task`, `sandbox?` | `{ id, project, dir, sandbox? }`. The task is the first message; its first line is the title until a model writes one. With `sandbox`, its tools run in a sandbox of its own, `dir` is in the sandbox, and `sandbox` is its number. |
-| `send_message` | `id`, `text`, `mode?` (`followUp` or `steer`) | `{ submission }`. |
+| `start_session` | `project`, `task`, `sandbox?`, `model?`, `effort?` | `{ id, project, dir, sandbox? }`. The task is the first message; its first line is the title until a model writes one. With `sandbox`, its tools run in a sandbox of its own, `dir` is in the sandbox, and `sandbox` is its number. |
+| `send_message` | `id`, `text`, `mode?` (`followUp` or `steer`), `model?`, `effort?` | `{ submission }`. |
 | `stop_session` | `id` | Stops the run. |
+
+`model` is a pinned model's ID or `provider/id` for any model the host has, as the API takes; `effort` is a thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`) that the model takes. Either is checked before anything happens, and an unknown model or a level the model doesn't take is an error that lists the ones it does. They're the session's settings from that turn on, as `POST /api/sessions/:id/agent` sets them, so a later message without them keeps them. Left out, a new session gets the host's defaults and a message changes nothing. `send_message` with either is an error while the session runs, since the running turn would pick them up partway; send them once it's idle.
 
 With `mcp.sandboxOnly` on as well:
 
@@ -196,7 +204,7 @@ With `mcp.sandboxOnly` on as well:
 
 No MCP tool syncs, merges, ships or archives. A sandbox session's work comes home as `sandboxes.afterRun` says.
 
-A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool with a read token or while `mcp.write` is off. The server's instructions say which machine it is and, when it can't write, why.
+A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool with a read token or while `mcp.write` is off, or an unknown model or effort. The server's instructions say which machine it is and, when it can't write, why.
 
 ## The CLI socket
 

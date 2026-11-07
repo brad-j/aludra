@@ -56,6 +56,17 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces.
 
+## Lan as captain over MCP (2026-11-07)
+
+Lan wakes on session changes without a model running: its server calls a connector tool as a gate that answers `{ wake, data, topic }`, as the mail connector's `check_new_mail` and `mark_handled(throughUid)` do. Built:
+
+- **`check_sessions`** (read tokens too) answers `wake`, an entry per changed session (`change`, id, project, title, `from → to`, `updated`, `line`, the answer's last prose line, and the result block's question with options) and a one-line `topic`. A change is a new session or one come to rest in done, failed, stopped, waiting or idle, a newer run counting even in the same state. It never moves a cursor.
+- **`mark_sessions_handled(through)`** moves the calling token's cursor, by token ID, so loial or another agent keeps its own place. Read tokens may call it.
+- The journal is `session-changes.sqlite` (`src/session-changes.ts`): what was last seen per session, the changes numbered in order, and the cursors. Sessions are compared when a gate checks, not from the live feed, so it's correct after a restart and needs no listener; a start and end between two checks is one change. Sessions from before the file are not new; a new token gets changes to sessions updated since it was made.
+- **`model` and `effort`** on `start_session` and `send_message`, checked with the host's own model chooser and pi-ai's `getSupportedThinkingLevels` for that model. They're set with `configure` before the message goes in and stay the session's settings after, as amyrlin's `configure` does; reverting them after the turn would race queued follow-ups. `send_message` with either is refused while the session runs.
+
+Lan's connector needs the two new tool names, `check_sessions` as its gate, and `mark_sessions_handled` with the answer's `through`. A read token is enough for the gate; `model` and `effort` need the write token it already uses for `start_session`.
+
 ## Skills in sandboxes and host.info (2026-11-06)
 
 A loial sandbox session ran `ls` on 2026-11-06 and showed that its prompt listed Brad's skills at `/home/brad/.pi/agent/skills/...`, which isn't in the VM. The `skills` section reads a sandbox session's skills from its local checkout and `~/.pi/agent` on this machine, so both user and project skills point at the host. Local sessions are right: they load from the project's directory and the agent directory, which are real paths here. loial wants a skill picker in its composer, so aludra reports the skills too.

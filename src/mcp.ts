@@ -15,17 +15,25 @@
 // a local one rather than quietly giving it a sandbox, and send_message and stop_session refuse any session that isn't
 // in one, whoever started it. Without a sandbox host every write tool refuses, so nothing falls back to a local
 // session. No tool here syncs, merges, ships or archives; what a run's end does to the checkout is sandboxes.afterRun's.
+//
+// check_sessions and mark_sessions_handled are a gate for an agent that wakes on sessions changing without a model
+// running (Lan's): check_sessions answers { wake, data, topic } and moves nothing, mark_sessions_handled moves the
+// calling token's cursor (src/session-changes.ts). Both are reading tools, since a cursor is only that token's.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import type { Item } from "./api-types.ts";
 import type { Host } from "./host.ts";
-import type { Scope } from "./tokens.ts";
+import type { Thinking } from "./config.ts";
+import type { Scope, Token } from "./tokens.ts";
+import { prose, parseSaid } from "./results.ts";
 import { readSummary } from "./live.ts";
 import { findProject } from "./projects.ts";
 import { context, isSandboxSession } from "./host.ts";
 import { itemsOf } from "./transcript.ts";
+
+const THINKING_LIST = "off, minimal, low, medium, high, xhigh";
 
 /** Longest text a tool answers with; transcripts keep their latest items within it. */
 const MAX_TEXT = 60_000;
@@ -79,9 +87,89 @@ export function sandboxOnlyRefusal(host: Host): string | undefined {
 	return undefined;
 }
 
-/** An MCP server over `host`'s sessions, for one request by a token of `scope`. */
-export function mcpServer(host: Host, options: { machine: string; scope: Scope }): McpServer {
-	const refusal = writeRefusal(host, options.scope);
+/** The last non-empty line of an answer's prose, without Markdown's marks, cut to 300 characters. */
+function lastLine(text: string): string {
+	const line = prose(text).split("\n").map((l) => l.trim()).filter((l) => l !== "" && !/^(`{3,}|~{3,})/.test(l)).at(-1) ?? "";
+	const plain = line.replace(/[*_`#>]/g, "").trim();
+	return plain.length > 300 ? `${plain.slice(0, 299)}…` : plain;
+}
+
+/** What check_sessions tells a gate: whether to wake, an entry per changed session, and the newest change in a line. */
+export async function checkSessions(host: Host, token: Pick<Token, "id" | "createdAt">) {
+	const records = await host.sessions.list();
+	const summaries = new Map((await Promise.all(records.map((r) => readSummary(host, r.id)))).filter((s) => s !== undefined).map((s) => [s.id, s]));
+	host.sessionChanges.observe([...summaries.values()].map((s) => ({ id: s.id, state: s.state, updatedAt: s.updatedAt })));
+	// One entry per session: from the state before its first unhandled change to its latest.
+	const bySession = new Map<number, { change: number; from: string | null; to: string }>();
+	for (const c of host.sessionChanges.pending(token.id, token.createdAt.getTime())) {
+		const before = bySession.get(c.session);
+		bySession.set(c.session, { change: c.change, from: before === undefined ? c.from : before.from, to: c.to });
+	}
+	const data = [];
+	for (const [id, c] of bySession) {
+		const summary = summaries.get(id);
+		if (summary === undefined) continue;
+		const state = await (await host.conversation(id)).viewState(context);
+		let agent = "";
+		let question: { text: string; options: string[] } | undefined;
+		try {
+			const answer = itemsOf(state.value).findLast((item) => item.kind === "answer" && item.streaming !== true);
+			if (answer?.kind === "answer") {
+				agent = lastLine(answer.text);
+				const asked = parseSaid(answer.text).question;
+				if (asked !== undefined) question = { text: asked.text, options: asked.options ?? [] };
+			}
+		} finally {
+			state.dispose();
+		}
+		data.push({
+			change: c.change,
+			id,
+			project: summary.project,
+			title: summary.title,
+			from: c.from,
+			to: c.to,
+			transition: `${c.from ?? "new"} → ${c.to}`,
+			state: summary.state,
+			updated: new Date(summary.updatedAt).toISOString(),
+			line: summary.line,
+			agent,
+			...(question === undefined ? {} : { question }),
+			...(summary.sandbox === undefined ? {} : { sandbox: summary.sandbox }),
+			...(summary.archived === true ? { archived: true } : {}),
+		});
+	}
+	data.sort((a, b) => a.change - b.change);
+	const newest = data.at(-1);
+	const topic = newest === undefined ? "" : `${newest.project} #${newest.id} ${newest.title}: ${newest.transition}${data.length > 1 ? ` (+${data.length - 1} more)` : ""}`;
+	return { wake: data.length > 0, data, topic, ...(newest === undefined ? {} : { through: newest.change }) };
+}
+
+/**
+ * The model and thinking a turn asks for, checked against what the session can run: a model a session can be started
+ * with (a pinned ID, or provider/id), and a thinking level that model takes. `current` is the model the session has
+ * now, which the effort is checked against when no model is given. A string is the reason it's refused.
+ */
+export function turnSettings(host: Host, asked: { model?: string | undefined; effort?: string | undefined }, current: { provider: string; modelId: string }): { model?: string; thinking?: Thinking } | string {
+	let ref = current;
+	if (asked.model !== undefined) {
+		try {
+			ref = host.chooseModel(asked.model)!;
+		} catch {
+			const pinned = host.choices().map((c) => c.id);
+			return `unknown model ${asked.model}: use one of ${pinned.join(", ")}, or provider/id for another model this host has`;
+		}
+	}
+	if (asked.effort !== undefined) {
+		const levels = host.thinkingLevels(ref);
+		if (!(levels as string[]).includes(asked.effort)) return `effort ${asked.effort} isn't one ${ref.provider}/${ref.modelId} takes: use one of ${levels.join(", ")}`;
+	}
+	return { ...(asked.model === undefined ? {} : { model: asked.model }), ...(asked.effort === undefined ? {} : { thinking: asked.effort as Thinking }) };
+}
+
+/** An MCP server over `host`'s sessions, for one request by `token`. */
+export function mcpServer(host: Host, options: { machine: string; token: Pick<Token, "id" | "scope" | "createdAt"> }): McpServer {
+	const refusal = writeRefusal(host, options.token.scope);
 	// Fixed for the server's life, so the instructions and descriptions an agent sees don't change between calls.
 	const sandboxOnly = host.mcpSandboxOnly();
 	const writing = refusal !== undefined
@@ -102,6 +190,16 @@ export function mcpServer(host: Host, options: { machine: string; scope: Scope }
 		return undefined;
 	};
 	const readOnly = { readOnlyHint: true, openWorldHint: false };
+	/** The model session `id` runs on now. */
+	const sessionModel = async (id: number) => {
+		const state = await (await host.conversation(id)).viewState(context);
+		try {
+			// SAFETY: a document in the view is the JSON of its kind's state.
+			return (state.value.docs["pi.agent"] as { model?: { provider: string; modelId: string } } | undefined)?.model ?? host.model;
+		} finally {
+			state.dispose();
+		}
+	};
 
 	server.registerTool("list_projects", { description: `The projects sessions can work in on ${options.machine}: name, workspace and directory.`, annotations: readOnly }, async () =>
 		answer(host.projects().map((p) => ({ name: p.name, workspace: p.workspace, dir: p.dir }))),
@@ -143,7 +241,22 @@ export function mcpServer(host: Host, options: { machine: string; scope: Scope }
 		return answer(results.map((r) => ({ session: r.session, project: r.project, title: r.title, from: r.from, at: new Date(r.at).toISOString(), snippet: r.snippet })));
 	});
 
+	server.registerTool("check_sessions", {
+		description: "A gate for waking on session changes: { wake, data, topic }. wake is true when a session is new, or has come to rest (done, failed, stopped, waiting, idle) since this token last called mark_sessions_handled. data has an entry per changed session: change (its number), id, project, title, from and to states, updated, line, the agent's last line, and the question it asks with options when it asks one. topic is the newest change in a line. Moves nothing: call mark_sessions_handled with the change you've handled through.",
+		annotations: readOnly,
+	}, async () => answer(await checkSessions(host, options.token)));
+
+	server.registerTool("mark_sessions_handled", {
+		description: "Marks the session changes check_sessions gave up to and including change `through` handled, for this token only; other clients keep their own place. It never moves back.",
+		inputSchema: { through: z.number().int().min(0).describe("A change number from check_sessions, usually the largest") },
+		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+	}, async ({ through }) => answer(host.sessionChanges.markHandled(options.token.id, through)));
+
 	if (refusal === undefined) {
+		const turnFields = {
+			model: z.string().min(1).optional().describe(`The model for this turn and the session's turns after it: one of ${host.choices().map((c) => c.id).join(", ")}, or provider/id. Default: the session's model, or the host's default for a new session.`),
+			effort: z.string().min(1).optional().describe(`Thinking effort for this turn and after it: one of ${THINKING_LIST} that the model takes. Default: the session's, or the host's default for a new session.`),
+		};
 		const sandboxText = "a sandbox VM of its own: a copy of the project's last commit that reaches the internet and nothing else, holding no keys. Its commits come back to the project's sandbox/N branch";
 		server.registerTool("start_session", {
 			description: sandboxOnly
@@ -155,12 +268,15 @@ export function mcpServer(host: Host, options: { machine: string; scope: Scope }
 				sandbox: z.boolean().optional().describe(sandboxOnly
 					? "Sandbox-only here: leave it out or pass true; false is refused."
 					: "Run its tools in a sandbox VM of its own: a copy of the project's last commit that reaches the internet and nothing else, holding no keys. Its commits come back with `aludra sync`."),
+				...turnFields,
 			},
 			annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-		}, async ({ project, task, sandbox }) => {
+		}, async ({ project, task, sandbox, model, effort }) => {
 			const blocked = sandboxOnlyRefusal(host);
 			if (blocked !== undefined) return failure(blocked);
 			if (sandboxOnly && sandbox === false) return failure("this endpoint starts only sandbox sessions (mcp.sandboxOnly); leave sandbox out or pass true");
+			const agent = turnSettings(host, { model, effort }, host.model);
+			if (typeof agent === "string") return failure(agent);
 			const inSandbox = sandboxOnly || sandbox === true;
 			let found;
 			try {
@@ -171,7 +287,7 @@ export function mcpServer(host: Host, options: { machine: string; scope: Scope }
 			const title = task.split("\n")[0]!.slice(0, 80);
 			let session;
 			try {
-				session = inSandbox ? await host.sessions.createSandbox(found, title) : await host.sessions.create(found, title);
+				session = inSandbox ? await host.sessions.createSandbox(found, title, agent) : await host.sessions.create(found, title, agent);
 			} catch (error) {
 				return failure(error instanceof Error ? error.message : String(error));
 			}
@@ -181,12 +297,20 @@ export function mcpServer(host: Host, options: { machine: string; scope: Scope }
 
 		server.registerTool("send_message", {
 			description: `Send a session a message. While it runs, it goes in at the next tool boundary (steer) or waits until the run answers (followUp, the default).${sandboxOnly ? " Sandbox-only: a session that isn't in a sandbox is refused." : ""}`,
-			inputSchema: { id: z.number().int(), text: z.string().min(1), mode: z.enum(["followUp", "steer"]).optional() },
+			inputSchema: { id: z.number().int(), text: z.string().min(1), mode: z.enum(["followUp", "steer"]).optional(), ...turnFields },
 			annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-		}, async ({ id, text, mode }) => {
+		}, async ({ id, text, mode, model, effort }) => {
 			const refused = await sessionRefusal(id);
 			if (refused !== undefined) return failure(refused);
 			try {
+				if (model !== undefined || effort !== undefined) {
+					const agent = turnSettings(host, { model, effort }, await sessionModel(id));
+					if (typeof agent === "string") return failure(agent);
+					// Set before the message goes in, so it's the turn's from its first request. A run going on would take them
+					// at its next request, so they wait for one that has ended.
+					if ((await host.sessions.states()).get(id) !== "idle") return failure(`session ${id} is running; send model or effort once its run has ended, or leave them out`);
+					await host.configure(id, agent);
+				}
 				const submission = await host.submit(id, text, { steer: mode === "steer" });
 				return answer({ submission: Number(submission.id) });
 			} catch (error) {
@@ -209,7 +333,7 @@ export function mcpServer(host: Host, options: { machine: string; scope: Scope }
 }
 
 /** Handles one request to /mcp: a fresh server and transport each time, the JSON body read already. */
-export async function handleMcp(host: Host, request: IncomingMessage, response: ServerResponse, body: unknown, options: { machine: string; scope: Scope }): Promise<void> {
+export async function handleMcp(host: Host, request: IncomingMessage, response: ServerResponse, body: unknown, options: { machine: string; token: Token }): Promise<void> {
 	const server = mcpServer(host, options);
 	const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
 	response.on("close", () => {

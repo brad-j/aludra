@@ -423,7 +423,7 @@ export function createApi(host: Host, options: ApiOptions) {
 				return reply(response, 401, "Missing or invalid bearer token; aludra token add NAME makes one", "text/plain");
 			}
 			readBody(request, MCP_BODY)
-				.then((text) => handleMcp(host, request, response, JSON.parse(text), { machine, scope: token.scope }))
+				.then((text) => handleMcp(host, request, response, JSON.parse(text), { machine, token }))
 				.catch((error) => {
 					const status = error instanceof HttpError ? error.status : error instanceof SyntaxError ? 400 : 500;
 					if (status === 500) console.error("[mcp]", error);

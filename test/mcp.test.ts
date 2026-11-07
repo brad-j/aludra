@@ -4,7 +4,8 @@ import test, { type TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
+import type { TranscriptContext } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, type FauxResponseStep, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { createApi } from "../src/api.ts";
 import { configFor } from "../src/config.ts";
 import { context } from "../src/host.ts";
@@ -15,9 +16,9 @@ const USER = "you@example.com";
 
 /** A faux host with its API on a free port and a read token and a write token for /mcp. `write` turns on mcp.write;
  * `connect` uses the write token unless given other headers. */
-async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; sandboxes?: boolean } = {}) {
-	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
-	faux.setResponses(Array.from({ length: 20 }, () => fauxAssistantMessage(fauxText("The build passes now."))));
+async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; sandboxes?: boolean; responses?: FauxResponseStep[] } = {}) {
+	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }, { id: "faux-think", reasoning: true }] });
+	faux.setResponses(options.responses ?? Array.from({ length: 20 }, () => fauxAssistantMessage(fauxText("The build passes now."))));
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const fake = options.sandboxes === true ? fakeSandboxes(tempDir(t)) : undefined;
@@ -42,6 +43,9 @@ async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: bool
 	return { host, project, url, connect, reader, writer, bearer };
 }
 
+const READ_TOOLS = ["check_sessions", "list_projects", "list_sessions", "mark_sessions_handled", "read_session", "search_messages"];
+const WRITE_TOOLS = [...READ_TOOLS, "send_message", "start_session", "stop_session"].sort();
+
 const text = (result: unknown) => ((result as { content: { text: string }[] }).content[0]!.text);
 
 test("read-only: an agent lists projects and sessions, reads a transcript and searches, and has no tools to write", async (t) => {
@@ -53,8 +57,8 @@ test("read-only: an agent lists projects and sessions, reads a transcript and se
 	const client = await connect();
 	assert.match(client.getInstructions() ?? "", /egwene.*read-only for you: the host's mcp.write setting is off/s);
 	const tools = (await client.listTools()).tools.map((tool) => tool.name).sort();
-	assert.deepEqual(tools, ["list_projects", "list_sessions", "read_session", "search_messages"]);
-	assert.ok((await client.listTools()).tools.every((tool) => tool.annotations?.readOnlyHint === true));
+	assert.deepEqual(tools, READ_TOOLS);
+	assert.ok((await client.listTools()).tools.every((tool) => tool.annotations?.readOnlyHint === true || tool.name === "mark_sessions_handled"));
 
 	assert.deepEqual(JSON.parse(text(await client.callTool({ name: "list_projects", arguments: {} }))).map((p: { name: string }) => p.name), ["site"]);
 	const sessions = JSON.parse(text(await client.callTool({ name: "list_sessions", arguments: {} })));
@@ -77,7 +81,7 @@ test("a read token can't write even with mcp.write on", async (t) => {
 	const { host, connect, reader, bearer } = await mcp(t, true);
 	const client = await connect(bearer(reader.secret));
 	assert.match(client.getInstructions() ?? "", /read-only for you: this token is read-only/);
-	assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), ["list_projects", "list_sessions", "read_session", "search_messages"]);
+	assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), READ_TOOLS);
 	const refused = await client.callTool({ name: "start_session", arguments: { project: "site", task: "x" } });
 	assert.equal(refused.isError, true);
 	assert.equal((await host.sessions.list()).length, 0, "no session was started");
@@ -86,7 +90,7 @@ test("a read token can't write even with mcp.write on", async (t) => {
 test("with a write token and mcp.write, an agent starts a session, messages it and stops it", async (t) => {
 	const { host, connect } = await mcp(t, true);
 	const client = await connect();
-	assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), ["list_projects", "list_sessions", "read_session", "search_messages", "send_message", "start_session", "stop_session"]);
+	assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), WRITE_TOOLS);
 	const started = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Make the build pass\nIt fails on main." } })));
 	assert.equal((await host.sessions.get(started.id))?.title, "Make the build pass");
 	while ((await host.sessions.states()).get(started.id) !== "idle") await new Promise((resolve) => setTimeout(resolve, 10));
@@ -96,7 +100,6 @@ test("with a write token and mcp.write, an agent starts a session, messages it a
 	assert.equal(wrong.isError, true);
 });
 
-const WRITE_TOOLS = ["list_projects", "list_sessions", "read_session", "search_messages", "send_message", "start_session", "stop_session"];
 
 /** Waits until session `id` has finished its run. */
 async function idle(host: Awaited<ReturnType<typeof mcp>>["host"], id: number) {
@@ -238,4 +241,183 @@ test("a long transcript keeps its latest items", () => {
 	assert.match(shown, /^\(\d+ earlier items left out\)/);
 	assert.match(shown, /message 99/);
 	assert.doesNotMatch(shown, /message 0 /);
+});
+
+type Gate = { wake: boolean; topic: string; through?: number; data: { change: number; id: number; from: string | null; to: string; transition: string; title: string; project: string; updated: string; agent: string; question?: { text: string; options: string[] } }[] };
+const check = async (client: Client): Promise<Gate> => JSON.parse(text(await client.callTool({ name: "check_sessions", arguments: {} })));
+
+test("check_sessions wakes on a new session and on each run's end, and moves no cursor", async (t) => {
+	const { host, project, connect, reader, bearer } = await mcp(t, false);
+	const client = await connect(bearer(reader.secret));
+	assert.deepEqual(await check(client), { wake: false, data: [], topic: "" }, "nothing yet");
+
+	const session = await host.sessions.create(project, "Fix the build");
+	await (await host.submit(session.id, "Fix the build")).wait(context);
+	await idle(host, session.id);
+	const first = await check(client);
+	assert.equal(first.wake, true);
+	assert.equal(first.data.length, 1);
+	const [entry] = first.data;
+	assert.equal(entry!.id, session.id);
+	assert.equal(entry!.project, "site");
+	assert.equal(entry!.from, null);
+	assert.equal(entry!.to, "done");
+	assert.equal(entry!.transition, "new → done");
+	assert.equal(entry!.agent, "The build passes now.");
+	assert.ok(!Number.isNaN(Date.parse(entry!.updated)));
+	assert.match(first.topic, /^site #\d+ Fix the build: new → done$/);
+	assert.equal(first.through, entry!.change);
+
+	// Checking again, with nothing marked, gives the same changes.
+	assert.deepEqual(await check(client), first, "check_sessions moves nothing");
+
+	// Handled through it: nothing until the session changes again.
+	assert.deepEqual(JSON.parse(text(await client.callTool({ name: "mark_sessions_handled", arguments: { through: first.through } }))), { through: first.through });
+	assert.equal((await check(client)).wake, false);
+	await (await host.submit(session.id, "Again")).wait(context);
+	await idle(host, session.id);
+	const second = await check(client);
+	assert.equal(second.wake, true);
+	assert.deepEqual(second.data.map((d) => d.transition), ["done → done"], "a newer run that ended done");
+	assert.ok(second.through! > first.through!);
+});
+
+test("each token keeps its own cursor, so marking for one doesn't hide changes from another", async (t) => {
+	const { host, project, connect, reader, writer, bearer } = await mcp(t, false);
+	const lan = await connect(bearer(reader.secret));
+	const loial = await connect(bearer(writer.secret));
+	const a = await host.sessions.create(project, "One");
+	await (await host.submit(a.id, "One")).wait(context);
+	const b = await host.sessions.create(project, "Two");
+	await (await host.submit(b.id, "Two")).wait(context);
+	const seen = await check(lan);
+	assert.deepEqual(seen.data.map((d) => d.id), [a.id, b.id], "oldest first");
+	assert.match(seen.topic, /#\d+ Two: new → done \(\+1 more\)$/, "the newest change");
+
+	// Marking through the first change only leaves the second.
+	await lan.callTool({ name: "mark_sessions_handled", arguments: { through: seen.data[0]!.change } });
+	assert.deepEqual((await check(lan)).data.map((d) => d.id), [b.id]);
+	assert.deepEqual((await check(loial)).data.map((d) => d.id), [a.id, b.id], "the other token still has both");
+
+	// Never back, never past the newest.
+	await lan.callTool({ name: "mark_sessions_handled", arguments: { through: 0 } });
+	assert.deepEqual((await check(lan)).data.map((d) => d.id), [b.id]);
+	const marked = JSON.parse(text(await lan.callTool({ name: "mark_sessions_handled", arguments: { through: 1_000_000 } })));
+	assert.equal(marked.through, seen.through);
+	assert.equal((await check(lan)).wake, false);
+	assert.equal((await check(loial)).wake, true);
+});
+
+/** Answers by what the last message asks: a push waits for approval, sleep runs until stopped, fail errors, and
+ * question ends with a result block asking one. */
+const SCRIPTED: FauxResponseStep[] = Array.from({ length: 40 }, () => (ctx: TranscriptContext) => {
+	const last = ctx.messages.at(-1);
+	if (last?.role === "toolResult") return fauxAssistantMessage(fauxText("Ran it."));
+	const asked = JSON.stringify(last?.content ?? "");
+	if (/push/.test(asked)) return fauxAssistantMessage(fauxToolCall("bash", { command: "git push --dry-run" }), { stopReason: "toolUse" });
+	if (/sleep/.test(asked)) return fauxAssistantMessage(fauxToolCall("bash", { command: "sleep 30" }), { stopReason: "toolUse" });
+	if (/fail/.test(asked)) return fauxAssistantMessage("", { stopReason: "error", errorMessage: "rate limited" });
+	if (/question/.test(asked)) return fauxAssistantMessage(fauxText('Which way?\n\n```result\n{"question": {"text": "Keep the old API?", "options": ["Keep it", "Drop it"]}}\n```'));
+	return fauxAssistantMessage(fauxText("Done that.\nAll tests pass."));
+});
+
+async function until(test: () => Promise<boolean>, what: string) {
+	const end = Date.now() + 10_000;
+	while (!(await test())) {
+		if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}
+
+test("check_sessions sees waiting, stopped, failed and asking sessions, and a new token only what changed after it was made", async (t) => {
+	const { host, project, connect, bearer } = await mcp(t, false, { responses: SCRIPTED });
+	const before = await host.sessions.create(project, "Before");
+	await (await host.submit(before.id, "Before")).wait(context);
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	const token = host.tokens.create("lan", "read");
+	const client = await connect(bearer(token.secret));
+	assert.equal((await check(client)).wake, false, "the session done before the token was made");
+
+	const pushing = await host.sessions.create(project, "Push it");
+	void host.submit(pushing.id, "push it");
+	await until(async () => (await host.approvals.pending()).some((r) => r.conversationId === pushing.id), "the approval");
+	const waiting = await check(client);
+	assert.deepEqual(waiting.data.map((d) => d.transition), ["new → waiting"]);
+	await client.callTool({ name: "mark_sessions_handled", arguments: { through: waiting.through } });
+
+	const sleeping = await host.sessions.create(project, "Sleep");
+	void host.submit(sleeping.id, "sleep");
+	await until(async () => (await host.sessions.states()).get(sleeping.id) === "running", "the run");
+	const started = await check(client);
+	assert.deepEqual(started.data.map((d) => d.transition), ["new → running"], "a new session wakes, running or not");
+	await client.callTool({ name: "mark_sessions_handled", arguments: { through: started.through } });
+	assert.equal((await check(client)).wake, false, "running on its own wakes nothing");
+	await host.stop(sleeping.id);
+	await idle(host, sleeping.id);
+	const failing = await host.sessions.create(project, "Fail");
+	await (await host.submit(failing.id, "fail")).wait(context);
+	const asking = await host.sessions.create(project, "Ask");
+	await (await host.submit(asking.id, "question")).wait(context);
+	await until(async () => (await host.sessions.states()).get(asking.id) === "idle", "the answer");
+
+	const changes = await check(client);
+	const by = new Map(changes.data.map((d) => [d.id, d]));
+	assert.equal(by.get(sleeping.id)?.transition, "running → stopped");
+	assert.equal(by.get(failing.id)?.transition, "new → failed");
+	assert.equal(by.get(asking.id)?.transition, "new → done");
+	assert.equal(by.get(asking.id)?.agent, "Which way?", "the last prose line, not the result block");
+	assert.deepEqual(by.get(asking.id)?.question, { text: "Keep the old API?", options: ["Keep it", "Drop it"] });
+	assert.equal(by.has(pushing.id), false, "handled, and still waiting");
+	assert.equal(by.has(before.id), false);
+	await host.stop(pushing.id);
+});
+
+test("start_session and send_message take a model and effort for the turn, and refuse ones the session can't run", async (t) => {
+	const { host, connect } = await mcp(t, true);
+	const client = await connect();
+	const settings = async (id: number) => {
+		const state = await (await host.conversation(id)).viewState(context);
+		try {
+			const agent = state.value.docs["pi.agent"] as { model?: { modelId: string }; thinkingLevel?: string };
+			return { model: agent.model?.modelId, thinking: agent.thinkingLevel };
+		} finally {
+			state.dispose();
+		}
+	};
+	// faux-1 is the one pinned; faux-think, which reasons, is reached as faux/faux-think.
+	// Left out: the host's defaults, as before.
+	const plain = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Plain" } })));
+	await idle(host, plain.id);
+	assert.deepEqual(await settings(plain.id), { model: "faux-1", thinking: host.thinking });
+
+	const chosen = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Think hard", model: "faux/faux-think", effort: "low" } })));
+	await idle(host, chosen.id);
+	assert.deepEqual(await settings(chosen.id), { model: "faux-think", thinking: "low" });
+
+	for (const [args, pattern] of [
+		[{ model: "gpt-0" }, /unknown model gpt-0: use one of faux-1, or provider\/id/],
+		[{ effort: "max" }, /effort max isn't one faux\/faux-1 takes: use one of off/],
+		[{ model: "faux/faux-think", effort: "turbo" }, /effort turbo isn't one faux\/faux-think takes: use one of off, minimal, low, medium, high/],
+		[{ effort: "high" }, /effort high isn't one faux\/faux-1 takes: use one of off$/],
+	] as const) {
+		const before = (await host.sessions.list()).length;
+		const refused = await client.callTool({ name: "start_session", arguments: { project: "site", task: "x", ...args } });
+		assert.equal(refused.isError, true, JSON.stringify(args));
+		assert.match(text(refused), pattern);
+		assert.equal((await host.sessions.list()).length, before, "nothing started");
+	}
+
+	// send_message: checked against the session's model, and set before the message goes in.
+	const refused = await client.callTool({ name: "send_message", arguments: { id: chosen.id, text: "x", effort: "xhigh" } });
+	assert.equal(refused.isError, true);
+	assert.match(text(refused), /faux\/faux-think takes/);
+	assert.match(text(await client.callTool({ name: "send_message", arguments: { id: chosen.id, text: "Harder", effort: "high" } })), /submission/);
+	await idle(host, chosen.id);
+	assert.deepEqual(await settings(chosen.id), { model: "faux-think", thinking: "high" });
+	assert.match(text(await client.callTool({ name: "send_message", arguments: { id: chosen.id, text: "Back", model: "faux-1", effort: "off" } })), /submission/);
+	await idle(host, chosen.id);
+	assert.deepEqual(await settings(chosen.id), { model: "faux-1", thinking: "off" });
+	const unknown = await client.callTool({ name: "send_message", arguments: { id: chosen.id, text: "x", model: "nope" } });
+	assert.match(text(unknown), /unknown model nope/);
+	assert.deepEqual(await settings(chosen.id), { model: "faux-1", thinking: "off" }, "a refused call changes nothing");
 });

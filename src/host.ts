@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { Message, TextContent, UserMessage } from "@earendil-works/pi-ai";
-import { createModels, type Models, type Provider } from "@earendil-works/pi-ai/models";
+import { createModels, getSupportedThinkingLevels, type Models, type Provider } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
@@ -26,7 +26,7 @@ import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
 import { createCheckpoints, restoreNoteText } from "./checkpoints.ts";
 import { pagesExtension } from "./pages.ts";
-import { claudeConfigDir, type Config, expandHome, type Thinking } from "./config.ts";
+import { claudeConfigDir, type Config, expandHome, THINKING, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
 import { AGENT_DIR, contextExtension, expandSkill, type Place, projectSkills, type SkillInfo, skillsFor } from "./context.ts";
 import { copySkills } from "./sandbox-skills.ts";
@@ -41,6 +41,7 @@ import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
 import { messagesOf, openSearch } from "./search.ts";
 import { openTokens } from "./tokens.ts";
+import { openSessionChanges } from "./session-changes.ts";
 import { type Exchange, excerptOf, modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
 import { fileBlocks, type FileInput, isLong, preview, saveFiles, withoutFileNotes } from "./files.ts";
@@ -521,6 +522,8 @@ export async function openHost(options: HostOptions) {
 	const searchIndex = openSearch(resolve(config.dataDir, "search.sqlite"));
 	// The tokens agents send to /mcp (src/tokens.ts).
 	const tokens = openTokens(resolve(config.dataDir, "tokens.sqlite"));
+	// What agents on /mcp were last told of each session, and how far each token has handled (src/session-changes.ts).
+	const sessionChanges = openSessionChanges(resolve(config.dataDir, "session-changes.sqlite"));
 	const stopIndexing = harness.subscribeCommits((publication) => {
 		const found = publication.changes.flatMap((change) => (change.type === "entry" ? messagesOf({ ...change.value, id: Number(change.value.id), conversationId: Number(change.value.conversationId) }) : []));
 		if (found.length === 0) return;
@@ -613,6 +616,14 @@ export async function openHost(options: HostOptions) {
 		const modelId = name.slice(slash + 1);
 		if (slash > 0 && models.getProvider(provider) !== undefined && models.getModel(provider, modelId) !== undefined) return { provider, modelId };
 		throw new Error(`no model ${name} to choose`);
+	}
+
+	/** The thinking levels model `ref` takes, of the ones aludra offers; just off for one that doesn't reason. */
+	function thinkingLevels(ref: ModelRef): Thinking[] {
+		const found = models.getModel(ref.provider, ref.modelId);
+		if (found === undefined) return [...THINKING];
+		const supported = new Set<string>(getSupportedThinkingLevels(found));
+		return THINKING.filter((level) => supported.has(level));
 	}
 
 	/** A new session in `project`, titled from `prompt`, with the default model and thinking unless `agent` names others. */
@@ -1412,6 +1423,8 @@ export async function openHost(options: HostOptions) {
 		mcpSandboxOnly: () => config.mcp.sandboxOnly,
 		/** The tokens agents send to /mcp. */
 		tokens,
+		/** Session changes agents on /mcp wake on, with a cursor per token (src/session-changes.ts). */
+		sessionChanges,
 		/** Where a ship lands by default (src/ship.ts). */
 		shipMode: (): "main" | "branch" => config.sandboxes?.shipTo ?? "main",
 		/** Ships started from clients (src/ship.ts). */
@@ -1426,6 +1439,9 @@ export async function openHost(options: HostOptions) {
 		/** Every model a session can run on, by provider (src/catalog.ts). */
 		catalog: () => catalog.list(),
 		modelInfo,
+		/** The model a name picks, as sessions are started and configured with it (a pinned ID or provider/id); throws for none. */
+		chooseModel: choose,
+		thinkingLevels,
 		projects,
 		/** Sandbox connections (spike): `close()` drops them, as being idle would, so the sandbox's host may pause it. */
 		sandboxes: {
@@ -1543,6 +1559,7 @@ export async function openHost(options: HostOptions) {
 			await harness.close(context);
 			searchIndex.close();
 			tokens.close();
+			sessionChanges.close();
 			sandboxes.close();
 		},
 	};
