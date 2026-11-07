@@ -94,6 +94,28 @@ function lastLine(text: string): string {
 	return plain.length > 300 ? `${plain.slice(0, 299)}…` : plain;
 }
 
+/**
+ * The model and effort session `view` runs its next turn on, as start_session and send_message take them: a pinned
+ * model's ID, else provider/id, and its thinking level; the host's defaults where the session names none.
+ */
+export function agentOf(host: Host, view: { docs: Record<string, unknown> }): { ref: { provider: string; modelId: string }; model: string; effort: Thinking } {
+	// SAFETY: a document in the view is the JSON of its kind's state.
+	const agent = view.docs["pi.agent"] as { model?: { provider: string; modelId: string }; thinkingLevel?: Thinking } | undefined;
+	const ref = agent?.model ?? host.model;
+	const pinned = host.choices().some((c) => c.provider === ref.provider && c.id === ref.modelId);
+	return { ref, model: pinned ? ref.modelId : `${ref.provider}/${ref.modelId}`, effort: agent?.thinkingLevel ?? host.thinking };
+}
+
+/** Session `id`'s model and effort, as agentOf gives them. */
+async function sessionAgent(host: Host, id: number) {
+	const state = await (await host.conversation(id)).viewState(context);
+	try {
+		return agentOf(host, state.value);
+	} finally {
+		state.dispose();
+	}
+}
+
 /** What check_sessions tells a gate: whether to wake, an entry per changed session, and the newest change in a line. */
 export async function checkSessions(host: Host, token: Pick<Token, "id" | "createdAt">) {
 	const records = await host.sessions.list();
@@ -112,7 +134,9 @@ export async function checkSessions(host: Host, token: Pick<Token, "id" | "creat
 		const state = await (await host.conversation(id)).viewState(context);
 		let agent = "";
 		let question: { text: string; options: string[] } | undefined;
+		let settings: ReturnType<typeof agentOf>;
 		try {
+			settings = agentOf(host, state.value);
 			const answer = itemsOf(state.value).findLast((item) => item.kind === "answer" && item.streaming !== true);
 			if (answer?.kind === "answer") {
 				agent = lastLine(answer.text);
@@ -133,6 +157,8 @@ export async function checkSessions(host: Host, token: Pick<Token, "id" | "creat
 			state: summary.state,
 			updated: new Date(summary.updatedAt).toISOString(),
 			line: summary.line,
+			model: settings.model,
+			effort: settings.effort,
 			agent,
 			...(question === undefined ? {} : { question }),
 			...(summary.sandbox === undefined ? {} : { sandbox: summary.sandbox }),
@@ -190,34 +216,26 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		return undefined;
 	};
 	const readOnly = { readOnlyHint: true, openWorldHint: false };
-	/** The model session `id` runs on now. */
-	const sessionModel = async (id: number) => {
-		const state = await (await host.conversation(id)).viewState(context);
-		try {
-			// SAFETY: a document in the view is the JSON of its kind's state.
-			return (state.value.docs["pi.agent"] as { model?: { provider: string; modelId: string } } | undefined)?.model ?? host.model;
-		} finally {
-			state.dispose();
-		}
-	};
 
 	server.registerTool("list_projects", { description: `The projects sessions can work in on ${options.machine}: name, workspace and directory.`, annotations: readOnly }, async () =>
 		answer(host.projects().map((p) => ({ name: p.name, workspace: p.workspace, dir: p.dir }))),
 	);
 
 	server.registerTool("list_sessions", {
-		description: "Sessions, newest first: id, project, title, state (running, waiting, done, failed, stopped, idle) and the latest activity.",
+		description: "Sessions, newest first: id, project, title, state (running, waiting, done, failed, stopped, idle), the latest activity, and the model and effort its next turn runs on, as start_session and send_message take them.",
 		inputSchema: { project: z.string().optional().describe("Only this project's sessions"), includeArchived: z.boolean().optional(), limit: z.number().int().min(1).max(200).optional() },
 		annotations: readOnly,
 	}, async ({ project, includeArchived, limit }) => {
 		const records = (await host.sessions.list()).filter((s) => (includeArchived === true || s.archived !== true) && (project === undefined || s.project === project));
 		const summaries = (await Promise.all(records.map((r) => readSummary(host, r.id)))).filter((s) => s !== undefined);
 		summaries.sort((a, b) => b.updatedAt - a.updatedAt);
-		return answer(summaries.slice(0, limit ?? 30).map((s) => ({ id: s.id, project: s.project, title: s.title, state: s.state, line: s.line, updated: new Date(s.updatedAt).toISOString(), ...(s.archived === true ? { archived: true } : {}) })));
+		const shown = summaries.slice(0, limit ?? 30);
+		const agents = await Promise.all(shown.map((s) => sessionAgent(host, s.id)));
+		return answer(shown.map((s, i) => ({ id: s.id, project: s.project, title: s.title, state: s.state, line: s.line, updated: new Date(s.updatedAt).toISOString(), model: agents[i]!.model, effort: agents[i]!.effort, ...(s.archived === true ? { archived: true } : {}) })));
 	});
 
 	server.registerTool("read_session", {
-		description: "A session's state and transcript as text: messages, answers and each tool call on a line, latest kept when it's long.",
+		description: "A session's state, the model and effort its next turn runs on, and its transcript as text: messages, answers and each tool call on a line, latest kept when it's long.",
 		inputSchema: { id: z.number().int() },
 		annotations: readOnly,
 	}, async ({ id }) => {
@@ -225,7 +243,8 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		if (summary === undefined) return failure(`No session ${id}; list_sessions lists them`);
 		const state = await (await host.conversation(id)).viewState(context);
 		try {
-			const header = `Session ${id}: ${summary.title}\nProject: ${summary.project} (${summary.dir})\nState: ${summary.state}\n\n`;
+			const { model, effort } = agentOf(host, state.value);
+			const header = `Session ${id}: ${summary.title}\nProject: ${summary.project} (${summary.dir})\nState: ${summary.state}\nModel: ${model}\nEffort: ${effort}\n\n`;
 			return answer(header + transcriptText(itemsOf(state.value)));
 		} finally {
 			state.dispose();
@@ -304,7 +323,7 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 			if (refused !== undefined) return failure(refused);
 			try {
 				if (model !== undefined || effort !== undefined) {
-					const agent = turnSettings(host, { model, effort }, await sessionModel(id));
+					const agent = turnSettings(host, { model, effort }, (await sessionAgent(host, id)).ref);
 					if (typeof agent === "string") return failure(agent);
 					// Set before the message goes in, so it's the turn's from its first request. A run going on would take them
 					// at its next request, so they wait for one that has ended.

@@ -64,7 +64,7 @@ test("read-only: an agent lists projects and sessions, reads a transcript and se
 	const sessions = JSON.parse(text(await client.callTool({ name: "list_sessions", arguments: {} })));
 	assert.deepEqual(sessions.map((s: { id: number; state: string }) => [s.id, s.state]), [[session.id, "done"]]);
 	const transcript = text(await client.callTool({ name: "read_session", arguments: { id: session.id } }));
-	assert.match(transcript, /^Session \d+: Fix the build\nProject: site/);
+	assert.match(transcript, /^Session \d+: Fix the build\nProject: site .*\nState: done\nModel: faux-1\nEffort: high\n/);
 	assert.match(transcript, /## User\nFix the build\n\n## Agent\nThe build passes now\./);
 	const missing = await client.callTool({ name: "read_session", arguments: { id: 999 } });
 	assert.equal(missing.isError, true);
@@ -420,4 +420,16 @@ test("start_session and send_message take a model and effort for the turn, and r
 	const unknown = await client.callTool({ name: "send_message", arguments: { id: chosen.id, text: "x", model: "nope" } });
 	assert.match(text(unknown), /unknown model nope/);
 	assert.deepEqual(await settings(chosen.id), { model: "faux-1", thinking: "off" }, "a refused call changes nothing");
+
+	// The read tools say what each session's next turn runs on, in the form the write tools take.
+	await client.callTool({ name: "send_message", arguments: { id: chosen.id, text: "Think", model: "faux/faux-think", effort: "medium" } });
+	await idle(host, chosen.id);
+	const listed = JSON.parse(text(await client.callTool({ name: "list_sessions", arguments: {} })));
+	const of = (id: number) => listed.find((s: { id: number }) => s.id === id);
+	assert.deepEqual([of(chosen.id).model, of(chosen.id).effort], ["faux/faux-think", "medium"]);
+	assert.deepEqual([of(plain.id).model, of(plain.id).effort], ["faux-1", host.thinking], "a pinned model by its ID");
+	assert.match(text(await client.callTool({ name: "read_session", arguments: { id: chosen.id } })), /\nModel: faux\/faux-think\nEffort: medium\n/);
+	const gate = await check(client);
+	const entry = gate.data.find((d) => d.id === chosen.id) as unknown as { model: string; effort: string };
+	assert.deepEqual([entry.model, entry.effort], ["faux/faux-think", "medium"]);
 });
