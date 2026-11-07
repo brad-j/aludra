@@ -434,7 +434,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		if (p.approvals != null && p.sandbox !== true) throw new ProtocolError("bad_request", "approvals is for a sandbox session");
 		if (p.group != null && (typeof p.group !== "string" || p.group.trim() === "" || p.group.length > 200)) throw new ProtocolError("bad_request", "group should be a short string");
 		if (p.group != null && p.sandbox !== true) throw new ProtocolError("bad_request", "group is for sandbox sessions");
-		if (p.size != null && !isSize(p.size)) throw new ProtocolError("bad_request", "size should be small, medium or large");
+		if (p.size != null && !isSize(p.size)) throw new ProtocolError("bad_request", "size should be small, medium, large or xlarge");
 		if (p.size != null && p.sandbox !== true) throw new ProtocolError("bad_request", "size is for sandbox sessions");
 		const sandboxed = p.sandbox === true;
 		if (sandboxed && host.sandboxSettings() === undefined) throw new ProtocolError("unsupported", "This host has no sandbox host in its settings");

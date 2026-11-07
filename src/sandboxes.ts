@@ -37,8 +37,8 @@ export type SandboxHost = {
 /** What a project's template is made from. */
 export type ProjectSource = { name: string; dir: string };
 
-/** How big a sandbox is: small is stedding's default. stedding takes up to 8 CPUs and 32 GB a sandbox. */
-export const SIZES = { small: { cpus: 2, mem: 4096 }, medium: { cpus: 4, mem: 8192 }, large: { cpus: 8, mem: 16384 } } as const;
+/** How big a sandbox is: small is stedding's default. stedding takes up to 8 CPUs and 32 GB a sandbox, so xlarge is large with twice the memory. */
+export const SIZES = { small: { cpus: 2, mem: 4096 }, medium: { cpus: 4, mem: 8192 }, large: { cpus: 8, mem: 16384 }, xlarge: { cpus: 8, mem: 32768 } } as const;
 export type SandboxSize = keyof typeof SIZES;
 export const isSize = (value: unknown): value is SandboxSize => typeof value === "string" && Object.hasOwn(SIZES, value);
 /** stedding's words for a sandbox of `size`. */
@@ -47,7 +47,7 @@ const sizeWords = (size: SandboxSize = "small") => ["--mem", String(SIZES[size].
 type Live = { connection: Connection; inFlight: number; timer?: NodeJS.Timeout };
 
 const TEMPLATE_MAX_AGE_S = 24 * 3600;
-/** Templates are made at the largest size: a saved template keeps only its disk, so the CPUs and memory cost nothing after. */
+/** Templates are made at large: a saved template keeps only its disk, so the CPUs and memory cost nothing after. Not xlarge, so making one never needs 32 GB free. */
 const TEMPLATE_SIZE: SandboxSize = "large";
 /** Longest a project's `.agents/resume` may run after its sandbox wakes. */
 export const RESUME_S = 60;

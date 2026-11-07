@@ -1128,11 +1128,11 @@ test("a sandbox's size is its own, else its project's from .agents/project.json,
 	git(project.dir, "commit", "-q", "-m", "bigger");
 	const theirs = (await mac.request("conversations.create", { requestId: "s3", project: project.dir, sandbox: true })).conversation.id;
 	await host.sandboxes.prepared(theirs);
-	const own = (await mac.request("conversations.create", { requestId: "s4", project: project.dir, sandbox: true, size: "large" })).conversation.id;
+	const own = (await mac.request("conversations.create", { requestId: "s4", project: project.dir, sandbox: true, size: "xlarge" })).conversation.id;
 	await host.sandboxes.prepared(own);
-	assert.deepEqual(fake.sizes, ["small", "medium", "large"]);
+	assert.deepEqual(fake.sizes, ["small", "medium", "xlarge"]);
 	await waitFor(async () => {
 		const all = (await mac.request("conversations.list")).conversations;
-		return JSON.stringify([plain, theirs, own].map((id) => all.find((c: Json) => c.id === id).sandbox.size)) === '["small","medium","large"]';
+		return JSON.stringify([plain, theirs, own].map((id) => all.find((c: Json) => c.id === id).sandbox.size)) === '["small","medium","xlarge"]';
 	}, "the summaries' sizes");
 });
