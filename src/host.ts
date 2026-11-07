@@ -3,6 +3,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
@@ -27,7 +28,8 @@ import { createCheckpoints, restoreNoteText } from "./checkpoints.ts";
 import { pagesExtension } from "./pages.ts";
 import { claudeConfigDir, type Config, expandHome, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
-import { AGENT_DIR, contextExtension, type Place } from "./context.ts";
+import { AGENT_DIR, contextExtension, expandSkill, type Place, projectSkills, type SkillInfo, skillsFor } from "./context.ts";
+import { copySkills } from "./sandbox-skills.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
 import { askSession, createShips, isShipPrompt, type ShipLanded, type Shipping, shipOutcome, type ShipStopped, shipTimeout } from "./ship.ts";
 import { createResults, parseProjectConfig, TurnChecks } from "./results.ts";
@@ -104,7 +106,20 @@ export type SessionRecord = {
 	source?: string;
 	/** Its sandbox was deleted (src/sandbox-cleanup.ts): its tools have nowhere to run. */
 	sandboxRemoved?: boolean;
+	/**
+	 * The skills copied into its sandbox when it was made, at their paths there (src/sandbox-skills.ts); `[]` when the copy
+	 * failed. Sandboxes from before the copies have none, and their prompts name no skills.
+	 */
+	sandboxSkills?: SkillInfo[];
 };
+
+/**
+ * A record as it leaves a commit: a shallow copy, with its skills copied too, since a list read inside a transaction is
+ * a view of it that can't be read once the transaction is done.
+ */
+export function copyRecord(record: SessionRecord): SessionRecord {
+	return { ...record, ...(record.sandboxSkills === undefined ? {} : { sandboxSkills: record.sandboxSkills.map((s) => ({ ...s })) }) };
+}
 
 /** The project name of a session that isn't in a project (T3 Code's "no project" threads). */
 export const NO_PROJECT = "no project";
@@ -323,12 +338,12 @@ export async function openHost(options: HostOptions) {
 		{ path: resolve(claudeConfigDir(config), "projects"), what: "Claude Code's session history (JSONL, a directory per project)" },
 		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
 	];
-	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; branch: string; local?: string; scratch?: true; removed?: true } | { sandbox: undefined; dir: string } | undefined> => {
+	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; branch: string; local?: string; scratch?: true; removed?: true; skills?: SkillInfo[] } | { sandbox: undefined; dir: string } | undefined> => {
 		const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
 		if (record === undefined || !isSandboxSession(record)) return undefined;
 		// Being made: nothing may run anywhere yet, here least of all.
 		if (record.sandbox === undefined) return { sandbox: undefined, dir: record.dir };
-		return { sandbox: record.sandbox, dir: record.dir, branch: sandboxBranch(record), ...(record.source === undefined ? {} : { local: record.source }), ...(record.scratch === true ? { scratch: true as const } : {}), ...(record.sandboxRemoved === true ? { removed: true as const } : {}) };
+		return { sandbox: record.sandbox, dir: record.dir, branch: sandboxBranch(record), ...(record.source === undefined ? {} : { local: record.source }), ...(record.scratch === true ? { scratch: true as const } : {}), ...(record.sandboxRemoved === true ? { removed: true as const } : {}), ...(record.sandboxSkills === undefined ? {} : { skills: record.sandboxSkills }) };
 	};
 	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places }, async (input) => {
 		const found = await sandboxOf(input);
@@ -565,7 +580,7 @@ export async function openHost(options: HostOptions) {
 	async function get(id: number): Promise<SessionRecord | undefined> {
 		const doc = await harness.snapshot(Sessions, context);
 		const found = doc?.sessions[String(id)];
-		return found === undefined ? undefined : { ...found };
+		return found === undefined ? undefined : copyRecord(found);
 	}
 
 	/** The pinned models: the settings' choices their providers have, or the one model given. */
@@ -667,7 +682,7 @@ export async function openHost(options: HostOptions) {
 			const found = (await tx.doc(Sessions)).sessions[String(id)];
 			if (found === undefined) return undefined;
 			change(found);
-			return { ...found };
+			return copyRecord(found);
 		}, context);
 		if (record !== undefined) updated.forEach((listener) => listener(record));
 		return record;
@@ -724,6 +739,22 @@ export async function openHost(options: HostOptions) {
 	}
 
 	/**
+	 * Copies the skills session `id` would get here, from the agent directory and its project's working tree at `local`,
+	 * into sandbox `n`, and returns them at their paths there; `[]`, logged, when the copy fails, so the prompt names none
+	 * rather than files the agent can't read.
+	 */
+	async function sandboxSkills(id: number, n: number, dir: string, local: string | undefined): Promise<SkillInfo[]> {
+		const found = skillsFor(local, agentDir);
+		if (found.length === 0) return [];
+		try {
+			return await copySkills(sandboxes.env(n, dir), found, { userDir: resolve(agentDir, "skills"), ...(local === undefined ? {} : { projectDir: resolve(local, ".pi", "skills") }) }, sandboxes.home(n));
+		} catch (error) {
+			console.error(`[sandbox] session ${id}: couldn't copy its skills, so its prompt names none: ${error instanceof Error ? error.message : String(error)}`);
+			return [];
+		}
+	}
+
+	/**
 	 * Makes session `id`'s sandbox, recording each step, then sends the messages held for it, in order. A failure is
 	 * recorded as the reason, and the held messages stay unsent. Also run at start for sessions a restart caught preparing.
 	 * Resolves with the record once it's ready or failed; never rejects.
@@ -747,9 +778,11 @@ export async function openHost(options: HostOptions) {
 				}).catch(() => undefined), size);
 				// The directory was named when the session was made; a sandbox host that put it elsewhere moves the agent too.
 				if (made.dir !== record.dir) await (await conversation(id)).configure({ cwd: made.dir }, context);
+				const copied = await sandboxSkills(id, made.sandbox, made.dir, record.source);
 				const ready = await changeRecord(id, (r) => {
 					r.sandbox = made.sandbox;
 					r.dir = made.dir;
+					r.sandboxSkills = copied;
 					r.sandboxState = "ready";
 					delete r.sandboxStep;
 					if (made.base !== undefined) r.sandboxBase = made.base;
@@ -869,7 +902,7 @@ export async function openHost(options: HostOptions) {
 				if (found === undefined || found.titled === "user") return undefined;
 				found.title = title;
 				found.titled = "model";
-				return { ...found };
+				return copyRecord(found);
 			}, context);
 			if (record !== undefined) updated.forEach((listener) => listener(record));
 			return record;
@@ -932,7 +965,7 @@ export async function openHost(options: HostOptions) {
 			if (found.titled === "user" && found.title !== before.title) return undefined;
 			found.title = title;
 			found.titled = "model";
-			return { ...found };
+			return copyRecord(found);
 		}, context);
 		if (record !== undefined) updated.forEach((listener) => listener(record));
 		return record;
@@ -950,7 +983,7 @@ export async function openHost(options: HostOptions) {
 			if (found === undefined) throw new Error(`no session ${id}`);
 			found.title = trimmed;
 			found.titled = "user";
-			return { ...found };
+			return copyRecord(found);
 		}, context);
 		updated.forEach((listener) => listener(record));
 		return record;
@@ -971,7 +1004,7 @@ export async function openHost(options: HostOptions) {
 				if (found.archived === true) found.kept = true;
 				delete found.archived;
 			}
-			return { ...found };
+			return copyRecord(found);
 		}, context);
 		updated.forEach((listener) => listener(record));
 		return record;
@@ -983,7 +1016,7 @@ export async function openHost(options: HostOptions) {
 			const found = (await tx.doc(Sessions)).sessions[String(id)];
 			if (found === undefined || found.archived === true || found.kept === true) return undefined;
 			found.archived = true;
-			return { ...found };
+			return copyRecord(found);
 		}, context);
 		if (record !== undefined) updated.forEach((listener) => listener(record));
 		return record !== undefined;
@@ -1014,10 +1047,40 @@ export async function openHost(options: HostOptions) {
 		if (!(await sent(id, options.requestId))) content = await movedLongText(id, content);
 		// A new session's first message names it, in the background.
 		if (untitled.delete(id)) void writeTitle(id, withoutFileNotes(withoutVideoNotes(textOf(content))));
+		// A leading /skill:name becomes the skill's file, as terminal pi expands it, from the skills this session can load.
+		content = await expandedSkill(record, content);
 		// After a restore, the next message tells the agent the files were put back.
 		const note = await checkpoints.takeNote(id);
 		if (note !== undefined) content = [{ type: "text", text: restoreNoteText(note) }, ...(typeof content === "string" ? [{ type: "text" as const, text: content }] : content)];
 		return target.submit({ type: "input", content, whenBusy: options.steer ? "steer" : "followUp", ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }, context);
+	}
+
+	/**
+	 * `content` with a leading `/skill:<name>` in its first text block expanded (src/context.ts, expandSkill): from
+	 * `skillsFor` here, read here; for a sandbox session from the copies in its sandbox, read there.
+	 */
+	async function expandedSkill(record: SessionRecord | undefined, content: UserMessage["content"]): Promise<UserMessage["content"]> {
+		const blocks = typeof content === "string" ? [{ type: "text" as const, text: content }] : content;
+		const first = blocks.findIndex((b) => b.type === "text");
+		if (record === undefined || first === -1 || !(blocks[first] as TextContent).text.startsWith("/skill:")) return content;
+		let list: readonly SkillInfo[];
+		let read: (path: string) => Promise<string | undefined>;
+		if (isSandboxSession(record)) {
+			if (record.sandbox === undefined || record.sandboxRemoved === true) return content;
+			const env = sandboxes.env(record.sandbox, record.dir);
+			list = record.sandboxSkills ?? [];
+			read = async (path) => {
+				const got = await env.readTextFile(path, context);
+				return got.ok ? got.value : undefined;
+			};
+		} else {
+			list = skillsFor(record.dir, agentDir);
+			read = (path) => readFile(path, "utf8");
+		}
+		const text = await expandSkill((blocks[first] as TextContent).text, list, read);
+		if (text === (blocks[first] as TextContent).text) return content;
+		if (typeof content === "string") return text;
+		return blocks.map((b, i) => (i === first ? { ...b, text } : b));
 	}
 
 	/** Whether a message with `requestId` was already sent to session `id`: a retry, whose files mustn't be saved again. */
@@ -1380,7 +1443,7 @@ export async function openHost(options: HostOptions) {
 					const found = (await tx.doc(Sessions)).sessions[String(id)];
 					if (found === undefined) return undefined;
 					found.sandboxRemoved = true;
-					return { ...found };
+					return copyRecord(found);
 				}, context);
 				if (marked !== undefined) updated.forEach((listener) => listener(marked));
 			},
@@ -1433,6 +1496,11 @@ export async function openHost(options: HostOptions) {
 				if (record !== undefined) updated.forEach((listener) => listener(record));
 				return result;
 			},
+		},
+		/** The skills sessions get (src/context.ts): the user's, and project `dir`'s own beside `user`. For host.info. */
+		skills: {
+			user: () => skillsFor(undefined, agentDir),
+			project: (dir: string, user: readonly SkillInfo[]) => projectSkills(dir, user, agentDir),
 		},
 		scratchRoot,
 		uploads,

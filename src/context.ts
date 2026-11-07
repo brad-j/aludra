@@ -5,7 +5,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { formatSkillsForPrompt, loadProjectContextFiles, loadSkills } from "@earendil-works/pi-coding-agent";
+import { formatSkillsForPrompt, loadProjectContextFiles, loadSkills, type Skill, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import { defineExtension, type PromptInput, section } from "@earendil-works/pi-durable";
 
 export const AGENT_DIR = join(homedir(), ".pi", "agent");
@@ -17,9 +17,66 @@ export function projectContext(cwd: string, agentDir = AGENT_DIR): string | unde
 	return `<project_context>\n\nProject-specific instructions and guidelines:\n\n${blocks.join("")}</project_context>`;
 }
 
+/**
+ * A skill a session can load: the agent directory's (`user`) or the project's `.pi/skills` (`project`). `filePath` and
+ * `baseDir` are where the agent reads it, which for a sandbox session are its copies in the VM.
+ */
+export type SkillInfo = { name: string; description: string; filePath: string; baseDir: string; source: "user" | "project" };
+
+const infoOf = (skill: Skill): SkillInfo => ({ name: skill.name, description: skill.description, filePath: skill.filePath, baseDir: skill.baseDir, source: skill.sourceInfo.scope === "project" ? "project" : "user" });
+
+/**
+ * The skills a session in `cwd` is told about, in the prompt's order: the agent directory's, then the project's, with
+ * pi's own loader, so a project skill named like a user skill loses. Without `cwd`, the user's alone. Skills marked
+ * `disable-model-invocation` are left out, as the prompt leaves them out. The one source for the prompt, the copy into a
+ * sandbox, host.info and `/skill:` expansion.
+ */
+export function skillsFor(cwd: string | undefined, agentDir = AGENT_DIR): SkillInfo[] {
+	const loaded = cwd === undefined
+		? loadSkills({ cwd: agentDir, agentDir, skillPaths: [join(agentDir, "skills")], includeDefaults: false }).skills
+		: loadSkills({ cwd, agentDir, skillPaths: [], includeDefaults: true }).skills;
+	return loaded.filter((s) => !s.disableModelInvocation).map(infoOf);
+}
+
+/**
+ * Project `dir`'s own skills as `skillsFor` would list them beside `user`, the user's: its `.pi/skills`, less any named
+ * like a user skill, which wins. For host.info, which lists the user's once and then each project's.
+ */
+export function projectSkills(dir: string, user: readonly SkillInfo[], agentDir = AGENT_DIR): SkillInfo[] {
+	const skillsDir = join(dir, ".pi", "skills");
+	if (!existsSync(skillsDir)) return [];
+	const names = new Set(user.map((s) => s.name));
+	return loadSkills({ cwd: dir, agentDir, skillPaths: [skillsDir], includeDefaults: false }).skills
+		.filter((s) => !s.disableModelInvocation && !names.has(s.name))
+		.map((s) => ({ ...infoOf(s), source: "project" as const }));
+}
+
+/** The skills section for `list`, or undefined when it's empty. */
+export function skillsSection(list: readonly SkillInfo[]): string | undefined {
+	const asSkills = list.map((s): Skill => ({ ...s, disableModelInvocation: false, sourceInfo: { path: s.filePath, source: "local", scope: s.source, origin: "top-level", baseDir: s.baseDir } }));
+	return formatSkillsForPrompt(asSkills, "read").trim() || undefined;
+}
+
 export function skills(cwd: string, agentDir = AGENT_DIR): string | undefined {
-	const loaded = loadSkills({ cwd, agentDir, skillPaths: [], includeDefaults: true }).skills;
-	return formatSkillsForPrompt(loaded, "read").trim() || undefined;
+	return skillsSection(skillsFor(cwd, agentDir));
+}
+
+/**
+ * `text` with a leading `/skill:<name> args` replaced by the skill's file, as terminal pi's AgentSession expands it: a
+ * `<skill name location>` block, then the arguments. `read` gets the file from where the agent would (a sandbox session's
+ * through its sandbox). An unknown name, or a file that can't be read, leaves the text as it was.
+ */
+export async function expandSkill(text: string, list: readonly SkillInfo[], read: (path: string) => Promise<string | undefined>): Promise<string> {
+	if (!text.startsWith("/skill:")) return text;
+	const space = text.search(/\s/);
+	const name = space === -1 ? text.slice(7) : text.slice(7, space);
+	const args = space === -1 ? "" : text.slice(space + 1).trim();
+	const skill = list.find((s) => s.name === name);
+	if (skill === undefined) return text;
+	const content = await read(skill.filePath).catch(() => undefined);
+	if (content === undefined) return text;
+	const block = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${stripFrontmatter(content).trim()}\n</skill>`;
+	return args === "" ? block : `${block}\n\n${args}`;
 }
 
 /** A place a no-project session may want to look, said to it in its system prompt. */
@@ -65,11 +122,11 @@ export const RESULT_INSTRUCTIONS = [
 ];
 
 /**
- * The project's AGENTS.md and skills, the no-project section, a sandbox session's own section, and the result
+ * The project's AGENTS.md and skills (a sandbox session's from its copies), the no-project section, a sandbox session's own section, and the result
  * instructions, which every session gets. `sandboxOf` tells a sandbox
  * session's sandbox and the local checkout its project context is read from (the sandbox's copy is at the same commit).
  */
-export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot: string; places: () => readonly Place[] }, sandboxOf?: (input: PromptInput) => Promise<{ sandbox: number; dir: string; local?: string } | undefined>) {
+export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot: string; places: () => readonly Place[] }, sandboxOf?: (input: PromptInput) => Promise<{ sandbox: number; dir: string; local?: string; skills?: readonly SkillInfo[] } | undefined>) {
 	const inScratch = (cwd: string | undefined) => noProject !== undefined && cwd !== undefined && cwd.startsWith(noProject.scratchRoot + "/");
 	/** Where this session's project context is read: its own directory, or a sandbox session's local checkout. */
 	const contextDir = async (input: PromptInput): Promise<string | undefined> => {
@@ -93,6 +150,10 @@ export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot
 				return dir === undefined ? undefined : projectContext(dir, agentDir);
 			}, { tag: false }),
 			section("skills", async (input) => {
+				// A sandbox session's are the copies made with its sandbox, at their paths there; none when the copy failed, or
+				// for a sandbox from before the copies, whose host paths the agent couldn't read.
+				const sandbox = await sandboxOf?.(input);
+				if (sandbox !== undefined) return skillsSection(sandbox.skills ?? []);
 				const dir = await contextDir(input);
 				return dir === undefined ? undefined : skills(dir, agentDir);
 			}, { tag: false }),

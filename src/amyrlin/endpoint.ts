@@ -89,15 +89,21 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 	const archivedRead = host.projectArchive.list().then((dirs) => {
 		archivedDirs = new Set(dirs);
 	});
-	const projectsOf = (found: Map<string, Checkout>): Json =>
-		host.projects().map((p) => ({
+	/** Skills as host.info gives them: name and description. */
+	const skillsWire = (list: readonly { name: string; description: string }[]): Json => list.map((s) => ({ name: s.name, description: s.description }));
+	const projectsOf = (found: Map<string, Checkout>): Json => {
+		const user = host.skills.user();
+		return host.projects().map((p) => ({
 			workspace: p.workspace,
 			name: p.name,
 			path: p.path,
 			dir: p.dir,
 			...(found.has(p.dir) ? { checkout: found.get(p.dir) } : {}),
 			...(archivedDirs.has(p.dir) ? { archived: true } : {}),
+			// Its own skills, which sessions in it get beside the user's (host.info's skills).
+			skills: skillsWire(host.skills.project(p.dir, user)),
 		}));
+	};
 	const callIds = new Map<string, string>();
 	const dirty = new Set<number>();
 	let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -244,6 +250,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 				...(record.group === undefined ? {} : { group: record.group }),
 				// Known once its sandbox is being made: its own, else its project's.
 				...(record.sandboxSize === undefined ? {} : { size: record.sandboxSize }),
+				// The skills copied in when it was made: what its agent can load, whatever host.info lists now.
+				...(record.sandboxSkills === undefined ? {} : { skills: record.sandboxSkills.map((s) => s.name) }),
 				// How its ships went, so a client that wasn't watching for sandbox.shipped still knows.
 				...(record.shipped === undefined ? {} : { shipped: record.shipped }),
 				...(record.shipStopped === undefined ? {} : { shipStopped: record.shipStopped }),
@@ -648,6 +656,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			// Each with its checkout's state (protocol section 10 item 19); git is read, never fetched.
 			projects: (await archivedRead, projectsOf(await checkouts.current())),
 			projectColors: await host.colors.list(),
+			// The user's skills, which every session gets; each project lists its own (src/context.ts, skillsFor).
+			skills: skillsWire(host.skills.user()),
 			// Messages take videos (src/videos.ts); a host from before them leaves this out, and the app sends it none.
 			videos: { maxVideos: MAX_VIDEOS, maxBytes: MAX_VIDEO_BYTES, maxFrames: MAX_FRAMES, keepDays: UPLOAD_DAYS },
 			// Messages take files, and long text becomes one (src/files.ts); a host from before them leaves this out.

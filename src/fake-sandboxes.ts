@@ -36,6 +36,7 @@ export function fakeSandboxes(root: string) {
 		...real,
 		configured: () => true,
 		dirFor: (project) => join(root, "sandboxes", project.name),
+		home: (n) => join(root, "sandboxes", `${n}`, "home"),
 		async create(project, _onProgress, onStep, size) {
 			sizes.push(size);
 			onStep?.("cloning");

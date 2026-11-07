@@ -200,3 +200,5 @@ The directory is created owner-only (`0700`), and the service runs with a `0077`
 ## Project context and skills
 
 Sessions get the same instructions the pi coding agent would, found with its own loaders: `~/.pi/agent/AGENTS.md`, then `AGENTS.md` or `CLAUDE.md` in each directory from `/` down to the project, and skills from `~/.pi/agent/skills` and the project's `.pi/skills`. They're read again before every request, so an edit reaches the session's next request without a restart.
+
+A sandbox session gets copies of the same skills when its sandbox is made: the user's in the sandbox's `~/.pi/agent/skills` and the project's, from its working tree here, in `~/.aludra/project-skills`, outside the repository. Its prompt names the copies. A skill changed or added afterward reaches new sandboxes only. When the copy fails (over 20 MB, or tar or the transfer fails), the host logs why and the session's prompt names no skills. A message that starts with `/skill:<name>` is sent with that skill's file in its place, as the pi coding agent does it, read from wherever the session's copy is.

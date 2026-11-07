@@ -1136,3 +1136,35 @@ test("a sandbox's size is its own, else its project's from .agents/project.json,
 		return JSON.stringify([plain, theirs, own].map((id) => all.find((c: Json) => c.id === id).sandbox.size)) === '["small","medium","xlarge"]';
 	}, "the summaries' sizes");
 });
+
+test("host.info lists the user's skills and each project's own, and a sandbox's summary names the skills it got", async (t) => {
+	const { url, project, root } = await sandboxApi(t);
+	const write = (dir: string, name: string, description: string) => {
+		mkdirSync(join(dir, name), { recursive: true });
+		writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\n\nSteps.\n`);
+	};
+	const mac = await client(t, url);
+	const listed = (info: Json) => info.projects.find((p: Json) => p.dir === project.dir);
+	const before = await mac.request("host.info");
+	assert.deepEqual(before.skills, []);
+	assert.deepEqual(listed(before).skills, []);
+
+	// testHost's agent directory is the root's agent/; skills are read again on each host.info.
+	write(join(root, "agent", "skills"), "deepen", "Work out what an expert would do.");
+	write(join(project.dir, ".pi", "skills"), "ship-notes", "Write ship notes.");
+	write(join(project.dir, ".pi", "skills"), "deepen", "Loses to the user's.");
+	const info = await mac.request("host.info");
+	assert.deepEqual(info.skills, [{ name: "deepen", description: "Work out what an expert would do." }]);
+	assert.deepEqual(listed(info).skills, [{ name: "ship-notes", description: "Write ship notes." }], "a project skill named like a user skill is left out");
+
+	const list = (await mac.request("host.watch")).subscription;
+	await mac.event(list, type("host.snapshot"), "the host snapshot");
+	const id = (await mac.request("conversations.create", { requestId: "sk-1", project: project.dir, text: "hello", sandbox: true })).conversation.id;
+	const ready = await mac.event(list, updated(id, (c) => c.sandbox.state === "ready"), "the sandbox ready");
+	assert.deepEqual(ready.findLast(updated(id, (c) => c.sandbox.state === "ready")).conversation.sandbox.skills, ["deepen", "ship-notes"]);
+	// A skill added afterwards is in host.info, and not in that sandbox.
+	write(join(root, "agent", "skills"), "recraft", "Make images.");
+	assert.deepEqual((await mac.request("host.info")).skills.map((s: Json) => s.name), ["deepen", "recraft"]);
+	const { conversations } = await mac.request("conversations.list");
+	assert.deepEqual(conversations.find((c: Json) => c.id === id).sandbox.skills, ["deepen", "ship-notes"]);
+});

@@ -459,6 +459,8 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 			});
 			return { sandbox: Number(made.trim()), dir: sandboxDir(project), base: commit };
 		},
+		/** Sandbox `n`'s home directory, where its skills are copied (src/sandbox-skills.ts). */
+		home: (_n: number) => "/home/user",
 		/** Where `project` is in its sandboxes. */
 		dirFor: (project: ProjectSource) => sandboxDir(project),
 		/** The environment for a session on sandbox `n` working in `cwd`; equal ids see the same files. */
