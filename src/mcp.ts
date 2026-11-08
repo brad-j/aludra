@@ -14,7 +14,13 @@
 // mcp.sandboxOnly narrows writing to sandboxes: start_session makes only sandbox sessions, refusing a call that asks for
 // a local one rather than quietly giving it a sandbox, and send_message and stop_session refuse any session that isn't
 // in one, whoever started it. Without a sandbox host every write tool refuses, so nothing falls back to a local
-// session. No tool here syncs, merges, ships or archives; what a run's end does to the checkout is sandboxes.afterRun's.
+// session. No tool here syncs, merges or ships; what a run's end does to the checkout is sandboxes.afterRun's.
+//
+// archive_session and unarchive_session hide a session from the lists and bring it back, through host.sessions.archive
+// as the apps do, so the archive's usual consequences follow: a sandbox session's sandbox is deleted once its commits
+// are fetched to sandbox/N (src/sandbox-cleanup.ts). They act only on sandbox sessions whatever mcp.sandboxOnly says,
+// and archive_session refuses a session that's running, waiting or still having its sandbox made, and one whose branch
+// was discarded, since its sandbox would go without its commits being fetched.
 //
 // check_sessions and mark_sessions_handled are a gate for an agent that wakes on sessions changing without a model
 // running (Lan's): check_sessions answers { wake, data, topic } and moves nothing, mark_sessions_handled moves the
@@ -201,8 +207,8 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 	const writing = refusal !== undefined
 		? `This endpoint is read-only for you: ${refusal}.`
 		: sandboxOnly
-			? "You can also start a session with a task, send one a message, and stop it, in sandboxes only: every session you start runs in a sandbox VM of its own, and you can message or stop only sandbox sessions. Describe the task fully."
-			: "You can also start a session with a task, send one a message, and stop it; sessions run with full permissions in their project, so describe the task fully.";
+			? "You can also start a session with a task, send one a message, and stop it, in sandboxes only: every session you start runs in a sandbox VM of its own, and you can message, stop, archive or unarchive only sandbox sessions. Describe the task fully."
+			: "You can also start a session with a task, send one a message, and stop it; sessions run with full permissions in their project, so describe the task fully. You can archive and unarchive sandbox sessions.";
 	const server = new McpServer({ name: `aludra on ${options.machine}`, version: "1.0.0" }, {
 		instructions: `aludra runs coding-agent sessions on ${options.machine}, each in a project directory there. List projects and sessions, read a session's transcript, and search what was said. ${writing}`,
 	});
@@ -213,6 +219,13 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		const record = await host.sessions.get(id);
 		if (record === undefined) return `No session ${id}`;
 		if (sandboxOnly && !isSandboxSession(record)) return `session ${id} isn't in a sandbox, and this endpoint acts only on sandbox sessions (mcp.sandboxOnly)`;
+		return undefined;
+	};
+	/** As sessionRefusal, but sandbox-only whether or not mcp.sandboxOnly is on: archiving is never for local sessions. */
+	const archiveRefusal = async (id: number, tool: string): Promise<string | undefined> => {
+		const refused = await sessionRefusal(id);
+		if (refused !== undefined) return refused === `No session ${id}` ? `No session ${id}; list_sessions lists them, with includeArchived for archived ones` : refused;
+		if (!isSandboxSession(await host.sessions.get(id))) return `session ${id} isn't in a sandbox, and ${tool} acts only on sandbox sessions`;
 		return undefined;
 	};
 	const readOnly = { readOnlyHint: true, openWorldHint: false };
@@ -346,6 +359,49 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 			if (refused !== undefined) return failure(refused);
 			await host.stop(id);
 			return answer(`stopped session ${id}`);
+		});
+
+		server.registerTool("archive_session", {
+			description: "Archive a session: list_sessions leaves it out unless includeArchived is true, and read_session still reads it. Its transcript stays, and its commits are fetched to its sandbox/N branch before its sandbox is deleted, as archiving from the apps does; a sandbox with uncommitted files is kept. Only a session that has come to rest (done, failed, stopped or idle) can be archived, not one running or waiting for approval. Sandbox-only: a session that isn't in a sandbox is refused. Archiving one already archived changes nothing.",
+			inputSchema: { id: z.number().int() },
+			annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		}, async ({ id }) => {
+			const refused = await archiveRefusal(id, "archive_session");
+			if (refused !== undefined) return failure(refused);
+			const record = (await host.sessions.get(id))!;
+			if (record.archived === true) return answer({ id, title: record.title, archived: true, message: `session ${id} was already archived` });
+			if (record.sandboxState === "preparing") return failure(`session ${id}'s sandbox is still being made; archive it once it's ready`);
+			// Archiving a discarded session deletes its sandbox without fetching, which would lose commits made since.
+			if (record.sandboxDiscarded === true && record.sandboxRemoved !== true) return failure(`session ${id}'s sandbox/N branch was discarded, so archiving would delete its sandbox without fetching its commits; archive it from the apps or the CLI instead`);
+			const summary = await readSummary(host, id);
+			if (summary === undefined) return failure(`No session ${id}; list_sessions lists them, with includeArchived for archived ones`);
+			// The harness too, so a run that's queued but not yet in the transcript counts as running.
+			const live = (await host.sessions.states()).get(id);
+			if (summary.state === "running" || live === "running") return failure(`session ${id} is running, and only a session at rest (done, failed, stopped or idle) can be archived; stop_session stops it, or wait for its run to end`);
+			if (summary.state === "waiting" || live === "waiting") return failure(`session ${id} is waiting for approval, and only a session at rest (done, failed, stopped or idle) can be archived; it can be archived once the approval is answered and its run ends`);
+			try {
+				const done = await host.sessions.archive(id, true);
+				return answer({ id, title: done.title, archived: true, message: `archived session ${id}` });
+			} catch (error) {
+				return failure(error instanceof Error ? error.message : String(error));
+			}
+		});
+
+		server.registerTool("unarchive_session", {
+			description: "Bring an archived session back to list_sessions. It stays listed however long it sits idle, until it's archived again. A sandbox deleted when it was archived doesn't come back. Sandbox-only: a session that isn't in a sandbox is refused. Unarchiving one that isn't archived changes nothing.",
+			inputSchema: { id: z.number().int() },
+			annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		}, async ({ id }) => {
+			const refused = await archiveRefusal(id, "unarchive_session");
+			if (refused !== undefined) return failure(refused);
+			const record = (await host.sessions.get(id))!;
+			if (record.archived !== true) return answer({ id, title: record.title, archived: false, message: `session ${id} wasn't archived` });
+			try {
+				const done = await host.sessions.archive(id, false);
+				return answer({ id, title: done.title, archived: false, message: `unarchived session ${id}` });
+			} catch (error) {
+				return failure(error instanceof Error ? error.message : String(error));
+			}
 		});
 	}
 	return server;

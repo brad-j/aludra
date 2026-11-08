@@ -192,17 +192,21 @@ For a token made with `--write`, while `mcp.write` is on in the settings file, a
 | `start_session` | `project`, `task`, `sandbox?`, `model?`, `effort?` | `{ id, project, dir, sandbox? }`. The task is the first message; its first line is the title until a model writes one. With `sandbox`, its tools run in a sandbox of its own, `dir` is in the sandbox, and `sandbox` is its number. |
 | `send_message` | `id`, `text`, `mode?` (`followUp` or `steer`), `model?`, `effort?` | `{ submission }`. |
 | `stop_session` | `id` | Stops the run. |
+| `archive_session` | `id` | `{ id, title, archived: true, message }`. Archives the session as `POST /api/sessions/:id/archive` does. |
+| `unarchive_session` | `id` | `{ id, title, archived: false, message }`. Brings it back, as `{ archived: false }` does, so the idle archive keeps it. |
 
 `model` is a pinned model's ID or `provider/id` for any model the host has, as the API takes; `effort` is a thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`) that the model takes. Either is checked before anything happens, and an unknown model or a level the model doesn't take is an error that lists the ones it does. They're the session's settings from that turn on, as `POST /api/sessions/:id/agent` sets them, so a later message without them keeps them. Left out, a new session gets the host's defaults and a message changes nothing. `list_sessions`, `read_session` and `check_sessions` give each session's `model` and `effort` in the same form, so a value read can be passed back: a pinned model by its ID, any other as `provider/id`, and the host's defaults for a session that names none. `send_message` with either is an error while the session runs, since the running turn would pick them up partway; send them once it's idle.
 
 With `mcp.sandboxOnly` on as well:
 
 - `start_session` always makes a sandbox session, with or without `sandbox: true`. `sandbox: false` is an error and starts nothing.
-- `send_message` and `stop_session` are an error for a session that isn't in a sandbox, whoever started it.
-- Without a sandbox host in the settings, all three are an error for every call.
+- `send_message`, `stop_session`, `archive_session` and `unarchive_session` are an error for a session that isn't in a sandbox, whoever started it.
+- Without a sandbox host in the settings, every write tool is an error for every call.
 - The tools' descriptions and the server's instructions say sandbox-only. They're fixed per setting, so they don't change from one connection to the next.
 
-No MCP tool syncs, merges, ships or archives. A sandbox session's work comes home as `sandboxes.afterRun` says.
+`archive_session` and `unarchive_session` act only on sandbox sessions, whether or not `mcp.sandboxOnly` is on; any other session is an error, and with `mcp.sandboxOnly` the error is the one `send_message` gives. `archive_session` is an error for a session that's `running` or `waiting`, one whose sandbox is still being made, and one whose `sandbox/N` was discarded (`sandbox.discard`), since archiving that deletes its sandbox without fetching. Archiving is the same flag the apps set: `list_sessions` leaves the session out unless `includeArchived` is true, `read_session` and `search_messages` still find it, and its transcript and `sandbox/N` branch stay. As with any archive, its commits are then fetched to `sandbox/N` and its sandbox deleted, or kept when it holds uncommitted files. Both are idempotent: archiving an archived session or unarchiving one that isn't archived changes nothing, and `message` says it was already so. An unknown `id` is an error.
+
+No MCP tool syncs, merges or ships. A sandbox session's work comes home as `sandboxes.afterRun` says.
 
 A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool with a read token or while `mcp.write` is off, or an unknown model or effort. The server's instructions say which machine it is and, when it can't write, why.
 

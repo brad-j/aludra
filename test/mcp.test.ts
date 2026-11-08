@@ -16,14 +16,14 @@ const USER = "you@example.com";
 
 /** A faux host with its API on a free port and a read token and a write token for /mcp. `write` turns on mcp.write;
  * `connect` uses the write token unless given other headers. */
-async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; sandboxes?: boolean; responses?: FauxResponseStep[] } = {}) {
+async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; sandboxes?: boolean; approvals?: "ask" | "off"; responses?: FauxResponseStep[] } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }, { id: "faux-think", reasoning: true }] });
 	faux.setResponses(options.responses ?? Array.from({ length: 20 }, () => fauxAssistantMessage(fauxText("The build passes now."))));
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const fake = options.sandboxes === true ? fakeSandboxes(tempDir(t)) : undefined;
 	if (fake !== undefined) t.after(() => fake.close());
-	const { host, dir, config } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(fake === undefined ? {} : { sandboxes: fake.sandboxes, settings: SANDBOX_SETTINGS }) });
+	const { host, dir, config } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(fake === undefined ? {} : { sandboxes: fake.sandboxes, settings: { sandboxes: { ...SANDBOX_SETTINGS.sandboxes, ...(options.approvals === undefined ? {} : { approvals: options.approvals }) } } }) });
 	config.mcp.write = write;
 	config.mcp.sandboxOnly = options.sandboxOnly === true;
 	const project = fake === undefined ? makeProject(dir, "site") : gitProject(dir, "site").project;
@@ -44,7 +44,7 @@ async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: bool
 }
 
 const READ_TOOLS = ["check_sessions", "list_projects", "list_sessions", "mark_sessions_handled", "read_session", "search_messages"];
-const WRITE_TOOLS = [...READ_TOOLS, "send_message", "start_session", "stop_session"].sort();
+const WRITE_TOOLS = [...READ_TOOLS, "archive_session", "send_message", "start_session", "stop_session", "unarchive_session"].sort();
 
 const text = (result: unknown) => ((result as { content: { text: string }[] }).content[0]!.text);
 
@@ -110,7 +110,7 @@ test("sandboxOnly: start_session always makes a sandbox session and refuses to m
 	const { host, connect } = await mcp(t, true, { sandboxOnly: true, sandboxes: true });
 	const client = await connect();
 	const tools = (await client.listTools()).tools;
-	assert.deepEqual(tools.map((tool) => tool.name).sort(), WRITE_TOOLS, "no tool syncs, merges, ships or archives");
+	assert.deepEqual(tools.map((tool) => tool.name).sort(), WRITE_TOOLS, "no tool syncs, merges or ships");
 	assert.match(client.getInstructions() ?? "", /in sandboxes only/);
 
 	// No sandbox argument still gets a sandbox.
@@ -432,4 +432,124 @@ test("start_session and send_message take a model and effort for the turn, and r
 	const gate = await check(client);
 	const entry = gate.data.find((d) => d.id === chosen.id) as unknown as { model: string; effort: string };
 	assert.deepEqual([entry.model, entry.effort], ["faux/faux-think", "medium"]);
+});
+
+type Archived = { id: number; title: string; archived: boolean; message: string };
+const call = async (client: Client, name: string, id: number) => client.callTool({ name, arguments: { id } });
+
+test("archive_session and unarchive_session hide a sandbox session from list_sessions and bring it back, idempotently", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { sandboxes: true });
+	const client = await connect();
+	const boxed = await host.sessions.createSandbox(project, "Boxed");
+	await (await host.submit(boxed.id, "Boxed")).wait(context);
+	await idle(host, boxed.id);
+	const listed = async (includeArchived?: boolean) => JSON.parse(text(await client.callTool({ name: "list_sessions", arguments: includeArchived === undefined ? {} : { includeArchived } }))) as { id: number; archived?: boolean }[];
+
+	const archived = JSON.parse(text(await call(client, "archive_session", boxed.id))) as Archived;
+	assert.deepEqual(archived, { id: boxed.id, title: "Boxed", archived: true, message: `archived session ${boxed.id}` });
+	assert.equal((await host.sessions.get(boxed.id))?.archived, true, "the apps' archive flag, not one of its own");
+	assert.deepEqual((await listed()).map((s) => s.id), [], "hidden by default");
+	assert.deepEqual((await listed(true)).map((s) => [s.id, s.archived]), [[boxed.id, true]], "still there with includeArchived");
+	assert.match(text(await call(client, "read_session", boxed.id)), /^Session \d+: Boxed\n[\s\S]*## Agent\nThe build passes now\./, "still readable, transcript and all");
+	const record = await host.sessions.get(boxed.id);
+	assert.equal(record?.sandboxRemoved, undefined, "the archive itself deletes nothing");
+
+	const again = JSON.parse(text(await call(client, "archive_session", boxed.id))) as Archived;
+	assert.deepEqual(again, { id: boxed.id, title: "Boxed", archived: true, message: `session ${boxed.id} was already archived` });
+
+	const back = JSON.parse(text(await call(client, "unarchive_session", boxed.id))) as Archived;
+	assert.deepEqual(back, { id: boxed.id, title: "Boxed", archived: false, message: `unarchived session ${boxed.id}` });
+	assert.deepEqual((await listed()).map((s) => s.id), [boxed.id]);
+	assert.equal((await host.sessions.get(boxed.id))?.kept, true, "kept from the idle archive, as unarchiving in the apps does");
+	const backAgain = JSON.parse(text(await call(client, "unarchive_session", boxed.id))) as Archived;
+	assert.deepEqual(backAgain, { id: boxed.id, title: "Boxed", archived: false, message: `session ${boxed.id} wasn't archived` });
+});
+
+test("archive_session refuses a running or waiting session, and both tools refuse local sessions and unknown ids", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { sandboxes: true, approvals: "ask", responses: SCRIPTED });
+	const client = await connect();
+
+	const sleeping = await host.sessions.createSandbox(project, "Sleep");
+	void host.submit(sleeping.id, "sleep");
+	await until(async () => (await host.sessions.states()).get(sleeping.id) === "running", "the run");
+	const running = await call(client, "archive_session", sleeping.id);
+	assert.equal(running.isError, true);
+	assert.match(text(running), new RegExp(`session ${sleeping.id} is running, and only a session at rest \\(done, failed, stopped or idle\\) can be archived`));
+	assert.equal((await host.sessions.get(sleeping.id))?.archived, undefined);
+	await host.stop(sleeping.id);
+	await idle(host, sleeping.id);
+	assert.equal(JSON.parse(text(await call(client, "archive_session", sleeping.id))).archived, true, "stopped, it can go");
+
+	const pushing = await host.sessions.createSandbox(project, "Push it");
+	void host.submit(pushing.id, "push it");
+	await until(async () => (await host.approvals.pending()).some((r) => r.conversationId === pushing.id), "the approval");
+	const waiting = await call(client, "archive_session", pushing.id);
+	assert.equal(waiting.isError, true);
+	assert.match(text(waiting), new RegExp(`session ${pushing.id} is waiting for approval`));
+	assert.equal((await host.sessions.get(pushing.id))?.archived, undefined);
+	await host.stop(pushing.id);
+
+	// The user's own local session, archived from the apps or not: neither tool touches it, sandboxOnly off as it is here.
+	const mine = await host.sessions.create(project, "Mine");
+	await (await host.submit(mine.id, "Mine")).wait(context);
+	await idle(host, mine.id);
+	for (const name of ["archive_session", "unarchive_session"]) {
+		const refused = await call(client, name, mine.id);
+		assert.equal(refused.isError, true, name);
+		assert.match(text(refused), new RegExp(`session ${mine.id} isn't in a sandbox, and ${name} acts only on sandbox sessions`), name);
+	}
+	await host.sessions.archive(mine.id, true);
+	assert.match(text(await call(client, "unarchive_session", mine.id)), /isn't in a sandbox/);
+	assert.equal((await host.sessions.get(mine.id))?.archived, true, "still archived");
+
+	for (const name of ["archive_session", "unarchive_session"]) {
+		const missing = await call(client, name, 999);
+		assert.equal(missing.isError, true, name);
+		assert.match(text(missing), /^No session 999; list_sessions lists them/, name);
+	}
+});
+
+test("sandboxOnly: archive_session and unarchive_session refuse local sessions with sandboxOnly's error, and are read-only tokens' to lack", async (t) => {
+	const { host, project, connect, reader, bearer } = await mcp(t, true, { sandboxOnly: true, sandboxes: true });
+	const client = await connect();
+	const mine = await host.sessions.create(project, "Mine");
+	await (await host.submit(mine.id, "Mine")).wait(context);
+	for (const name of ["archive_session", "unarchive_session"]) {
+		const refused = await call(client, name, mine.id);
+		assert.equal(refused.isError, true, name);
+		assert.match(text(refused), new RegExp(`session ${mine.id} isn't in a sandbox, and this endpoint acts only on sandbox sessions \\(mcp.sandboxOnly\\)`), name);
+	}
+	assert.equal((await host.sessions.get(mine.id))?.archived, undefined);
+	const tools = (await client.listTools()).tools;
+	for (const name of ["archive_session", "unarchive_session"]) assert.match(tools.find((tool) => tool.name === name)?.description ?? "", /Sandbox-only/, name);
+
+	const readOnly = await connect(bearer(reader.secret));
+	const refused = await readOnly.callTool({ name: "archive_session", arguments: { id: mine.id } });
+	assert.equal(refused.isError, true);
+	assert.match(text(refused), /archive_session not found/);
+});
+
+test("sandboxOnly without a sandbox host: archive_session and unarchive_session fail closed", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { sandboxOnly: true });
+	const client = await connect();
+	const mine = await host.sessions.create(project, "Mine");
+	await (await host.submit(mine.id, "Mine")).wait(context);
+	for (const name of ["archive_session", "unarchive_session"]) {
+		const refused = await call(client, name, mine.id);
+		assert.equal(refused.isError, true, name);
+		assert.match(text(refused), /mcp.sandboxOnly is on but the settings name no sandbox host/, name);
+	}
+});
+
+test("archive_session refuses a sandbox session whose branch was discarded, since its sandbox would go unfetched", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { sandboxes: true });
+	const client = await connect();
+	const boxed = await host.sessions.createSandbox(project, "Boxed");
+	await (await host.submit(boxed.id, "Boxed")).wait(context);
+	await idle(host, boxed.id);
+	await host.sandboxes.discard(boxed.id);
+	const refused = await call(client, "archive_session", boxed.id);
+	assert.equal(refused.isError, true);
+	assert.match(text(refused), /branch was discarded/);
+	assert.equal((await host.sessions.get(boxed.id))?.archived, undefined);
 });
