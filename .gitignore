@@ -5,3 +5,6 @@ dist/
 # Left behind by the removed web app's build and e2e suite.
 .tanstack/
 /e2e/results/
+
+# Claude Code per-user permissions can hold literal credentials
+.claude/settings.local.json
