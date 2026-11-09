@@ -322,6 +322,13 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			for (const listener of hostListeners) listener({ type: "host.projects", projects: listed });
 		});
 	});
+	// A project made here, from this endpoint or approved from /mcp, reaches every host watcher as the whole list.
+	const stopProjectMade = host.newProjects.onMade(() => {
+		void checkouts.current().then((found) => {
+			const listed = projectsOf(found);
+			for (const listener of hostListeners) listener({ type: "host.projects", projects: listed });
+		});
+	});
 	const stopResults = host.results.onChange((id) => {
 		lines.delete(id);
 		markDirty(id);
@@ -682,9 +689,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			if (error instanceof NewProjectRefused || /can't make projects/.test(message)) throw new ProtocolError("bad_request", message);
 			throw new ProtocolError("internal", message);
 		}
-		const found = await checkouts.current();
-		const listed = projectsOf(found) as Json[];
-		for (const listener of hostListeners) listener({ type: "host.projects", projects: listed });
+		// Host watchers heard the new list from host.newProjects.onMade already.
+		const listed = projectsOf(await checkouts.current()) as Json[];
 		return listed.find((p) => p.dir === made.dir);
 	}
 
@@ -1158,6 +1164,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			stopUpdated();
 			stopResults();
 			stopProjectArchive();
+			stopProjectMade();
 		},
 	};
 }

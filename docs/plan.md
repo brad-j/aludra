@@ -6,10 +6,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
-### mcp-new-projects: create_project and promote_session over MCP
-Kind: step
-Let an agent on `/mcp` ask to make a project, empty or from a scratch sandbox session's work, through `host.newProjects`. Waits on an approval design: nothing should be made without the owner's say, and an MCP call can't be held open for hours. Scratch sessions (mcp-scratch-sessions) come first.
-
 ## Questions
 
 ## Later
@@ -80,10 +76,6 @@ From the first plan's "Later, maybe". Slack would be a channel per project and a
 
 ## Done
 
-### mcp-scratch-sessions: start_session without a project
-Kind: step · Done: 2026-11-09
-A write token's `start_session` with no project makes a scratch sandbox session from the empty scratch repository, sandboxOnly or not; with no sandbox host, under `mcp.worktreeOnly`, or with `worktree: true`, it's refused and nothing is made. decisions.md has the reasons ("Lan as captain over MCP").
-
 ### worktree-ship: ship_session for a worktree session
 Kind: request · From: verin/worktree-ship · Done: 2026-11-17
 `mcp.shipWorktrees` (file-only, off by default) lets ship_session ship a worktree session on this machine: rebased in its worktree onto `refs/worktree/aludra/base`, the declared checks run there with a sandbox ship's rule for base failures, pushed from the project's checkout. check_sessions reports it as it does a sandbox ship's. The live check on the Mac is worktree-ship-live-check.
@@ -119,6 +111,14 @@ A project's docs/plan.md from its working copy, for Verin's Plans.
 ### worktree-sessions: Sessions in a git worktree, and mcp.worktreeOnly
 Kind: step · Done: 2026-11-15 fe8b158
 For the Mac, which has no sandbox host. Archiving removes the worktree and keeps the branch (55d4a2c).
+
+### mcp-new-projects: create_project and promote_session over MCP
+Kind: step · Done: 2026-11-09
+Behind the file-only `mcp.allowNewProjects`: a call stores a request in `project-requests.sqlite` and answers pending, and nothing is made until the owner approves it with `aludra approve` or `POST /api/approvals/:id`. Under `mcp.worktreeOnly` only `create_project` is offered. decisions.md has the reasons ("Lan as captain over MCP").
+
+### mcp-scratch-sessions: start_session without a project
+Kind: step · Done: 2026-11-09
+A write token's `start_session` with no project makes a scratch sandbox session from the empty scratch repository, sandboxOnly or not; with no sandbox host, under `mcp.worktreeOnly`, or with `worktree: true`, it's refused and nothing is made. decisions.md has the reasons ("Lan as captain over MCP").
 
 ### mcp-gate: check_sessions and mark_sessions_handled
 Kind: step · Done: 2026-11-07 50fe115

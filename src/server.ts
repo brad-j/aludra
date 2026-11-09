@@ -38,6 +38,7 @@ import type { Config } from "./config.ts";
 import { context, conversationId, type Host, openHost, type SessionRecord } from "./host.ts";
 import { array, boolean, dictionary, integer, type Json, jsonObject, literal, number, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import type { ApprovalRequest } from "./permissions.ts";
+import { describeProjectRequest } from "./project-requests.ts";
 import { findProject } from "./projects.ts";
 
 export const socketPathFor = (config: Config) => resolve(config.dataDir, "aludra.sock");
@@ -427,7 +428,9 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				return finish([`stopped session ${request.session}`]);
 			case "approvals": {
 				const pending = await host.approvals.pending();
-				return finish(pending.length === 0 ? ["nothing waits for approval"] : pending.map((r) => `[${r.conversationId}] ${describeApproval(r)}`));
+				const projects = host.projectRequests.list();
+				if (pending.length === 0 && projects.length === 0) return finish(["nothing waits for approval"]);
+				return finish([...pending.map((r) => `[${r.conversationId}] ${describeApproval(r)}`), ...projects.map((r) => `[mcp] ? ${describeProjectRequest(r)} waits for approval\n  aludra approve ${r.id}   or   aludra deny ${r.id}`)]);
 			}
 			case "archive": {
 				if ("project" in request) {
@@ -518,6 +521,13 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				send(socket, { type: "settings", settings: request.changes === undefined ? host.settings.get() : host.settings.set(request.changes) });
 				return finish([]);
 			case "decide": {
+				if (host.projectRequests.get(request.id) !== undefined) {
+					const answered = await host.projectRequests.decide(request.id, request.allow);
+					if (answered === undefined) return finish([`no pending approval ${request.id}`], "failed");
+					if (answered.status === "done") return finish([`· approval ${request.id} (${describeProjectRequest(answered)}): made ${answered.dir}`]);
+					if (answered.status === "failed") return finish([`· approval ${request.id} (${describeProjectRequest(answered)}): approved, but it couldn't be made: ${answered.error}`], "failed");
+					return finish([`· approval ${request.id} (${describeProjectRequest(answered)}): ${answered.status}`]);
+				}
 				const decided = await host.approvals.decide(request.id, request.allow);
 				return decided === undefined ? finish([`no pending approval ${request.id}`], "failed") : finish([describeApproval(decided)]);
 			}

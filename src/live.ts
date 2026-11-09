@@ -27,6 +27,8 @@ export function createLive(host: Host) {
 		const stopColors = host.colors.onChange((colors) => send({ type: "colors", colors }));
 		void host.colors.list().then((colors) => send({ type: "colors", colors }), (error) => console.error("[live]", error));
 		const stopSettings = host.settings.onChange(() => send({ type: "settings" }));
+		// A new project is in the bootstrap's projects, so it's read again as after a settings change.
+		const stopProjects = host.newProjects.onMade(() => send({ type: "settings" }));
 		let following: Promise<(() => void) | undefined> = Promise.resolve(undefined);
 		let closed = false;
 		return {
@@ -46,6 +48,7 @@ export function createLive(host: Host) {
 				stopIdeas();
 				stopColors();
 				stopSettings();
+				stopProjects();
 				stopFeed();
 				void following.then((stop) => stop?.());
 			},

@@ -147,11 +147,11 @@ Puts the project's files back to how they were at a checkpoint, and prints the f
 
 ### `aludra approvals`
 
-Lists calls waiting for approval, oldest first, with their IDs.
+Lists calls waiting for approval, oldest first, with their IDs, then MCP agents' requests to make a project, marked `[mcp]`.
 
 ### `aludra approve ID` and `aludra deny ID`
 
-Answers one. Exits 1 if nothing with that ID is waiting (it was answered, expired or canceled).
+Answers one. Exits 1 if nothing with that ID is waiting (it was answered, expired or canceled). Approving a request to make a project makes it before answering, and prints its directory, or exits 1 with why it couldn't be made.
 
 ## Other
 

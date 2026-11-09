@@ -12,7 +12,7 @@
 //   POST /api/sessions/:id/withdraw       { submission }
 //   GET  /api/sessions/:id/changes        what the session changed since it started (src/changes.ts)
 //   GET  /api/sessions/:id/changes/diff?path=   one changed file's diff
-//   POST /api/approvals/:id               { allow }
+//   POST /api/approvals/:id               { allow }                                     a call's approval, or an MCP agent's request to make a project
 //   POST /api/ideas                       { project, text }                            → { id }
 //   POST /api/ideas/:id/start                                                          → { id } of the session
 //   POST /api/ideas/:id/delete
@@ -27,8 +27,8 @@
 //
 //   WS   /amyrlin                         the amyrlin Mac app's protocol (src/amyrlin/endpoint.ts)
 //
-// Anything else is a 404. Notifications (src/push.ts) go out when a call waits for approval and when a run ends done or
-// failed, except for a session a client on /api/live says it's showing on screen.
+// Anything else is a 404. Notifications (src/push.ts) go out when a call waits for approval, when an agent on /mcp asks
+// to make a project, and when a run ends done or failed, except for a session a client on /api/live says it's showing on screen.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -42,6 +42,7 @@ import { RestoreRefused } from "./checkpoints.ts";
 import { array, boolean, integer, jsonObject, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
 import type { ApprovalRequest } from "./permissions.ts";
+import { describeProjectRequest } from "./project-requests.ts";
 import type { Push, PushMessage } from "./push.ts";
 import { createLive, type Live } from "./live.ts";
 import { checkFiles } from "./files.ts";
@@ -184,6 +185,16 @@ export function createApi(host: Host, options: ApiOptions) {
 		const timer = setTimeout(() => void pushApproval(request).catch((error) => console.error("[push]", error)).finally(() => timers.delete(timer)), APPROVAL_DELAY_MS);
 		timers.add(timer);
 	});
+	// A request from /mcp to make a project goes out at once: no app shows it, so the notification is how the owner hears.
+	const stopProjectRequests = host.projectRequests.onChange((request) => {
+		if (request.status !== "pending" || push === undefined) return;
+		push.send({
+			title: "Approve a new project?",
+			body: `An agent on /mcp asks to ${describeProjectRequest(request)}.\naludra approve ${request.id}   or   aludra deny ${request.id}`,
+			tag: `approval-${request.id}`,
+			urgency: "high",
+		}).catch((error) => console.error("[push]", error instanceof Error ? error.message : error));
+	});
 	async function pushApproval(request: ApprovalRequest) {
 		if (!(await host.approvals.pending()).some((r) => r.id === request.id)) return;
 		const session = await host.sessions.get(request.conversationId);
@@ -285,7 +296,14 @@ export function createApi(host: Host, options: ApiOptions) {
 		}
 		const approval = /^\/api\/approvals\/([\w-]+)$/.exec(path);
 		if (approval !== null) {
-			const decided = await host.approvals.decide(approval[1]!, parseJson(body, decision, "the decision").allow);
+			const { allow } = parseJson(body, decision, "the decision");
+			// A request from /mcp to make a project shares the approvals' IDs and answer; approving it makes the project.
+			if (host.projectRequests.get(approval[1]!) !== undefined) {
+				const answered = await host.projectRequests.decide(approval[1]!, allow);
+				if (answered === undefined) throw new HttpError(409, "That approval isn't waiting any more");
+				return { status: answered.status, ...(answered.dir === undefined ? {} : { dir: answered.dir }), ...(answered.error === undefined ? {} : { error: answered.error }) };
+			}
+			const decided = await host.approvals.decide(approval[1]!, allow);
 			if (decided === undefined) throw new HttpError(409, "That approval isn't waiting any more");
 			return { status: decided.status };
 		}
@@ -510,6 +528,7 @@ export function createApi(host: Host, options: ApiOptions) {
 			stopShipped();
 			if (options.live === undefined) live.close();
 			stopApprovals();
+			stopProjectRequests();
 			for (const timer of timers) clearTimeout(timer);
 			for (const ws of sockets.clients) ws.terminate();
 			sockets.close();

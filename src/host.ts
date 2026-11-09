@@ -42,6 +42,7 @@ import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
 import { messagesOf, openSearch } from "./search.ts";
 import { openTokens } from "./tokens.ts";
+import { openProjectRequests, type ProjectRequest } from "./project-requests.ts";
 import { openSessionChanges } from "./session-changes.ts";
 import { type Exchange, excerptOf, modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
@@ -536,7 +537,30 @@ export async function openHost(options: HostOptions) {
 		const made = await createNewProjects({ ...info, ...options.newProjects }).create(name, description, from);
 		const found = projects().find((p) => p.dir === made.dir);
 		if (found === undefined) throw new Error(`${made.dir} was made, but no workspace root lists it`);
+		for (const listener of projectListeners) listener(found);
 		return found;
+	}
+	/** Told of each project made here, by any client, so lists that hold the projects can send them again. */
+	const projectListeners = new Set<(project: Project) => void>();
+	function onProjectMade(listener: (project: Project) => void): () => void {
+		projectListeners.add(listener);
+		return () => void projectListeners.delete(listener);
+	}
+
+	/**
+	 * The owner's answer to a request from /mcp to make a project (src/project-requests.ts). Approved, the project is made
+	 * now, and the request keeps its directory or the error; the agent learns either by asking again. Undefined when no
+	 * request with that ID waits. It answers once the project is made or has failed.
+	 */
+	async function decideProjectRequest(id: string, allow: boolean): Promise<ProjectRequest | undefined> {
+		const decided = projectRequests.decide(id, allow);
+		if (decided?.status !== "approved") return decided;
+		try {
+			const made = decided.kind === "create" ? await createProject(decided.name, decided.description) : await promote(decided.session!, decided.name, decided.description);
+			return projectRequests.finish(id, { dir: made.dir });
+		} catch (error) {
+			return projectRequests.finish(id, { error: error instanceof Error ? error.message : String(error) });
+		}
 	}
 	/** Where no-project sessions keep the files they make, one directory per session. */
 	const scratchRoot = resolve(config.dataDir, "scratch");
@@ -557,6 +581,8 @@ export async function openHost(options: HostOptions) {
 	const tokens = openTokens(resolve(config.dataDir, "tokens.sqlite"));
 	// What agents on /mcp were last told of each session, and how far each token has handled (src/session-changes.ts).
 	const sessionChanges = openSessionChanges(resolve(config.dataDir, "session-changes.sqlite"));
+	// Requests from /mcp to make projects, waiting for the owner's approval (src/project-requests.ts).
+	const projectRequests = openProjectRequests(resolve(config.dataDir, "project-requests.sqlite"), () => config.approvals.waitHours * 3_600_000);
 	const stopIndexing = harness.subscribeCommits((publication) => {
 		const found = publication.changes.flatMap((change) => (change.type === "entry" ? messagesOf({ ...change.value, id: Number(change.value.id), conversationId: Number(change.value.conversationId) }) : []));
 		if (found.length === 0) return;
@@ -1567,6 +1593,8 @@ export async function openHost(options: HostOptions) {
 		mcpShip: () => config.mcp.write && config.mcp.ship,
 		/** Whether a write token on the MCP endpoint may ship a worktree session's work (the settings file's mcp.shipWorktrees). */
 		mcpShipWorktrees: () => config.mcp.write && config.mcp.shipWorktrees,
+		/** Whether write tokens on /mcp may ask to make projects, each waiting for approval (the settings file's mcp.allowNewProjects). */
+		mcpAllowNewProjects: () => config.mcp.allowNewProjects,
 		/** The tokens agents send to /mcp. */
 		tokens,
 		/** Session changes agents on /mcp wake on, with a cursor per token (src/session-changes.ts). */
@@ -1669,7 +1697,9 @@ export async function openHost(options: HostOptions) {
 		scratchRoot,
 		uploads,
 		/** New projects (src/new-projects.ts): where they go when this host can make them, and making one. */
-		newProjects: { info: newProjectsInfo, create: createProject, promote },
+		newProjects: { info: newProjectsInfo, create: createProject, promote, onMade: onProjectMade },
+		/** Requests from /mcp to make projects, and the owner's answer to one, which makes it (src/project-requests.ts). */
+		projectRequests: { list: () => projectRequests.pending(), get: projectRequests.get, find: projectRequests.find, open: projectRequests.open, spent: projectRequests.spent, report: projectRequests.report, decide: decideProjectRequest, onChange: projectRequests.onChange },
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },
 		/** Projects hidden from the lists (aludra.archivedProjects), by directory. */
@@ -1706,6 +1736,7 @@ export async function openHost(options: HostOptions) {
 			searchIndex.close();
 			tokens.close();
 			sessionChanges.close();
+			projectRequests.close();
 			sandboxes.close();
 		},
 	};

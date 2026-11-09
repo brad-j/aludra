@@ -34,6 +34,16 @@
 // it needs nothing beyond mcp.write and a sandbox host. A local scratch session, as the apps can make, isn't offered,
 // and neither is one in a worktree: under mcp.worktreeOnly, or with worktree: true, a call without a project is refused.
 //
+// create_project and promote_session, with mcp.allowNewProjects as well, ask to make a project, empty or from a scratch
+// sandbox session's work (host.newProjects). They're registered only with it on, as the write tools are only with
+// mcp.write, so a client with it off isn't offered tools that always refuse; the instructions say it's off. Nothing is
+// made when they're called: an MCP call can't wait for a person, so each stores a request (src/project-requests.ts) and
+// answers that it's pending, and the owner approves or denies it with the other approvals (aludra approve, POST
+// /api/approvals/:id), told by a push notification. Approving makes it on the host; the agent calls again with the
+// same arguments for the outcome. They refuse before storing anything when newProjects isn't set or gh can't make
+// repositories, and promote_session a session that isn't a scratch sandbox or isn't at rest. Under mcp.worktreeOnly
+// promote_session isn't registered, since that mode has no scratch sandbox sessions to act on; create_project is.
+//
 // check_sessions and mark_sessions_handled are a gate for an agent that wakes on sessions changing without a model
 // running (Lan's): check_sessions answers { wake, data, topic } and moves nothing, mark_sessions_handled moves the
 // calling token's cursor (src/session-changes.ts). Both are reading tools, since a cursor is only that token's.
@@ -48,6 +58,8 @@ import type { Scope, Token } from "./tokens.ts";
 import { prose, parseSaid } from "./results.ts";
 import { readSummary } from "./live.ts";
 import { findProject } from "./projects.ts";
+import { checkName } from "./new-projects.ts";
+import { describeProjectRequest, type ProjectRequest } from "./project-requests.ts";
 import { context, isSandboxSession, isWorktreeSession, worktreeBranch } from "./host.ts";
 import { itemsOf } from "./transcript.ts";
 import { shipLine, ShipRefused } from "./ship.ts";
@@ -257,8 +269,17 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		: sandboxOnly
 			? "You can also start a session with a task, send one a message, and stop it, in sandboxes only: every session you start runs in a sandbox VM of its own, and you can message, stop, archive or unarchive only sandbox sessions. Describe the task fully."
 			: "You can also start a session with a task, send one a message, and stop it; sessions run with full permissions in their project, so describe the task fully. You can archive and unarchive sandbox sessions.";
+	// Worktree-only has no scratch sessions, since a worktree needs a project, so nothing there can be promoted.
+	const projectsText = refusal !== undefined ? ""
+		: worktreeOnly
+			? host.mcpAllowNewProjects()
+				? " Every session here needs a project. create_project asks to make an empty project; it waits for the owner's approval, so call again with the same arguments for the answer."
+				: " Every session here needs a project. Making projects is off here (mcp.allowNewProjects)."
+		: host.mcpAllowNewProjects()
+			? " A session with no project is a scratch session in a sandbox, for a new idea. create_project asks to make an empty project and promote_session asks to make a scratch session's work one; both wait for the owner's approval, so call again with the same arguments for the answer."
+			: " A session with no project is a scratch session in a sandbox, for a new idea. Making projects is off here (mcp.allowNewProjects); the owner can make one from a scratch session's work.";
 	const server = new McpServer({ name: `aludra on ${options.machine}`, version: "1.0.0" }, {
-		instructions: `aludra runs coding-agent sessions on ${options.machine}, each in a project directory there. List projects and sessions, read a session's transcript, and search what was said. ${writing}`,
+		instructions: `aludra runs coding-agent sessions on ${options.machine}, each in a project directory there. List projects and sessions, read a session's transcript, and search what was said. ${writing}${projectsText}`,
 	});
 	/** Why a write tool can't act on session `id`, or undefined when it can; under sandboxOnly, only sandbox sessions. */
 	const sessionRefusal = async (id: number): Promise<string | undefined> => {
@@ -521,6 +542,94 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 				return failure(error instanceof Error ? error.message : String(error));
 			}
 		});
+
+		if (host.mcpAllowNewProjects()) {
+			/** Why no project can be asked for now, or undefined: newProjects missing, or gh not signed in. */
+			const newProjectsRefusal = async (): Promise<string | undefined> => {
+				const info = await host.newProjects.info();
+				if (!("reason" in info)) return undefined;
+				return info.reason === "newProjects isn't set"
+					? "this host can't make projects: newProjects isn't set in the settings file (newProjects.root and newProjects.owner)"
+					: `this host can't make projects: ${info.reason}`;
+			};
+			/** What a stored request answers: pending, the project made, or why there's none (an error, told once). */
+			const requestAnswer = (request: ProjectRequest): Answer => {
+				const base = { request: request.id, status: request.status, name: request.name, ...(request.session === undefined ? {} : { session: request.session }) };
+				switch (request.status) {
+					case "pending":
+					case "approved":
+						return answer({ ...base, status: "pending", message: `waiting for the owner's approval (aludra approve ${request.id}), until ${new Date(request.expiresAt).toISOString()}; nothing is made until then. Call this tool again with the same arguments to learn the answer` });
+					case "done": {
+						const project = host.projects().find((p) => p.dir === request.dir);
+						return answer({ ...base, project: { name: project?.name ?? request.name, workspace: project?.workspace, dir: request.dir }, message: request.kind === "create" ? `made project ${request.name}; start_session can use it now` : `session ${request.session}'s work is project ${request.name} now, and the session that project's sandbox session` });
+					}
+					default: {
+						host.projectRequests.report(request);
+						const why = request.status === "denied" ? "the owner denied it, and nothing was made"
+							: request.status === "expired" ? "the owner didn't answer in time, and nothing was made"
+							: `the owner approved it, but it couldn't be made: ${request.error}`;
+						return failure(`request ${request.id} to ${describeProjectRequest(request)}: ${why}. Calling again asks again`);
+					}
+				}
+			};
+			/** Token's latest request for these, unless it ended and the agent was told: then asking again is a new one. */
+			const standing = (kind: "create" | "promote", name: string, session?: number) => {
+				const found = host.projectRequests.find(options.token.id, kind, name, session);
+				return found === undefined || host.projectRequests.spent(found) ? undefined : found;
+			};
+			const approvalText = "Nothing is made until the owner approves it: the call stores a request and answers { request, status: \"pending\" } at once. Call again with the same arguments to learn the answer: the project once it's made, or an error when the owner denied it, didn't answer within the approval wait, or it couldn't be made.";
+			const nameField = z.string().describe("The project's folder and GitHub repository name: lowercase letters, digits and -, starting with a letter or digit");
+			const descriptionField = z.string().optional().describe("A line about the project, for its README and GitHub repository");
+
+			server.registerTool("create_project", {
+				description: `Ask to make a new, empty project on ${options.machine}: a folder in the host's new-projects root with a README and a first commit, and a private GitHub repository it's pushed to. ${approvalText} For an idea with work to keep, start_session without a project and promote_session it instead.`,
+				inputSchema: { name: nameField, description: descriptionField },
+				annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+			}, async ({ name, description }) => {
+				const asked = standing("create", name);
+				if (asked !== undefined) return requestAnswer(asked);
+				try {
+					checkName(name);
+				} catch (error) {
+					return failure(error instanceof Error ? error.message : String(error));
+				}
+				const unready = await newProjectsRefusal();
+				if (unready !== undefined) return failure(unready);
+				if (host.projects().some((p) => p.name === name)) return failure(`there's a project named ${name} already; list_projects lists them`);
+				return requestAnswer(host.projectRequests.open(options.token.id, "create", name, description));
+			});
+
+			// Not under worktreeOnly: it takes only a scratch sandbox session, which that mode neither makes nor acts on.
+			if (!worktreeOnly) {
+				server.registerTool("promote_session", {
+					description: `Ask to make a scratch session's work a new project on ${options.machine}: its sandbox's commits become the project's main, pushed to a new private GitHub repository, and the session becomes that project's sandbox session. Only a scratch session (start_session without a project) that has come to rest (done, failed, stopped or idle) with its work committed. ${approvalText}${sandboxOnly ? " Sandbox-only: a session that isn't in a sandbox is refused." : ""}`,
+					inputSchema: { id: z.number().int().describe("A scratch session's id"), name: nameField, description: descriptionField },
+					annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+				}, async ({ id, name, description }) => {
+					const asked = standing("promote", name, id);
+					if (asked !== undefined) return requestAnswer(asked);
+					const refused = await sessionRefusal(id);
+					if (refused !== undefined) return failure(refused === `No session ${id}` ? `No session ${id}; list_sessions lists them` : refused);
+					const record = (await host.sessions.get(id))!;
+					if (record.scratch !== true || !isSandboxSession(record)) return failure(`session ${id} isn't a scratch sandbox session, and only one is made a project; start_session without a project makes one`);
+					if (record.sandboxState === "preparing") return failure(`session ${id}'s sandbox is still being made; ask once its run has ended`);
+					if (record.sandbox === undefined || record.sandboxRemoved === true) return failure(`session ${id}'s sandbox isn't there to take the work from`);
+					const summary = await readSummary(host, id);
+					const live = (await host.sessions.states()).get(id);
+					if (summary?.state === "running" || live === "running") return failure(`session ${id} is running, and only a session at rest (done, failed, stopped or idle) is made a project; wait for its run to end`);
+					if (summary?.state === "waiting" || live === "waiting") return failure(`session ${id} is waiting for approval, and only a session at rest (done, failed, stopped or idle) is made a project`);
+					try {
+						checkName(name);
+					} catch (error) {
+						return failure(error instanceof Error ? error.message : String(error));
+					}
+					const unready = await newProjectsRefusal();
+					if (unready !== undefined) return failure(unready);
+					if (host.projects().some((p) => p.name === name)) return failure(`there's a project named ${name} already; list_projects lists them`);
+					return requestAnswer(host.projectRequests.open(options.token.id, "promote", name, description, id));
+				});
+			}
+		}
 	}
 	return server;
 }

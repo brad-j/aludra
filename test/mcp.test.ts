@@ -9,28 +9,37 @@ import { fauxAssistantMessage, fauxProvider, type FauxResponseStep, fauxText, fa
 import { createApi } from "../src/api.ts";
 import { configFor } from "../src/config.ts";
 import { context } from "../src/host.ts";
+import { readSummary } from "../src/live.ts";
 import { transcriptText } from "../src/mcp.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fakeSandboxes, git, gitProject, makeProject, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
+import { fakeGh, fakeSandboxes, git, gitProject, makeProject, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
 
 /** A faux host with its API on a free port and a read token and a write token for /mcp. `write` turns on mcp.write;
  * `connect` uses the write token unless given other headers. */
-async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; worktreeOnly?: boolean; ship?: boolean; shipWorktrees?: boolean; git?: boolean; remote?: boolean; sandboxes?: boolean; approvals?: "ask" | "off"; responses?: FauxResponseStep[] } = {}) {
+async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; worktreeOnly?: boolean; ship?: boolean; shipWorktrees?: boolean; git?: boolean; remote?: boolean; sandboxes?: boolean; approvals?: "ask" | "off"; responses?: FauxResponseStep[]; allowNewProjects?: boolean; newProjects?: boolean } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }, { id: "faux-think", reasoning: true }] });
 	faux.setResponses(options.responses ?? Array.from({ length: 20 }, () => fauxAssistantMessage(fauxText("The build passes now."))));
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const fake = options.sandboxes === true ? fakeSandboxes(tempDir(t)) : undefined;
 	if (fake !== undefined) t.after(() => fake.close());
-	const { host, dir, config } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(fake === undefined ? {} : { sandboxes: fake.sandboxes, settings: { sandboxes: { ...SANDBOX_SETTINGS.sandboxes, ...(options.approvals === undefined ? {} : { approvals: options.approvals }) } } }) });
+	// New projects go beside "site", with a gh that makes local bare repositories.
+	const dir = tempDir(t);
+	const gh = options.newProjects === true ? fakeGh(join(dir, "github")) : undefined;
+	const settings = {
+		...(fake === undefined ? {} : { sandboxes: { ...SANDBOX_SETTINGS.sandboxes, ...(options.approvals === undefined ? {} : { approvals: options.approvals }) } }),
+		...(gh === undefined ? {} : { newProjects: { root: join(dir, "Projects", "Software"), owner: "t" } }),
+	};
+	const { host, config } = await testHost(t, { dir, models, model: { provider: "faux", modelId: "faux-1" }, settings, ...(fake === undefined ? {} : { sandboxes: fake.sandboxes }), ...(gh === undefined ? {} : { newProjects: gh }) });
 	config.mcp.write = write;
 	config.mcp.sandboxOnly = options.sandboxOnly === true;
 	config.mcp.worktreeOnly = options.worktreeOnly === true;
 	config.mcp.ship = options.ship === true;
 	config.mcp.shipWorktrees = options.shipWorktrees === true;
+	config.mcp.allowNewProjects = options.allowNewProjects === true;
 	const made = fake === undefined && options.git !== true ? { project: makeProject(dir, "site"), remote: undefined } : gitProject(dir, "site", undefined, { remote: options.remote === true });
 	const { project } = made;
 	const server = createApi(host, { users: [USER], name: "egwene" });
@@ -46,7 +55,7 @@ async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: bool
 		t.after(() => client.close());
 		return client;
 	};
-	return { host, project, remote: made.remote, url, connect, reader, writer, bearer, fake };
+	return { host, project, remote: made.remote, url, connect, reader, writer, bearer, fake, dir, gh, config };
 }
 
 const READ_TOOLS = ["check_sessions", "list_projects", "list_sessions", "mark_sessions_handled", "read_plan", "read_session", "search_messages"];
@@ -309,11 +318,13 @@ test("the API still wants a listed Tailscale login, and a token isn't one", asyn
 
 test("mcp.write, mcp.sandboxOnly, mcp.worktreeOnly, mcp.ship and mcp.shipWorktrees come from the settings file, are off by default, and sandboxOnly and worktreeOnly can't both be on", () => {
 	const workspaces = [{ name: "a", roots: [] }];
-	assert.deepEqual(configFor(JSON.stringify({ workspaces }), {}).config.mcp, { write: false, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: false, shipWorktrees: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, worktreeOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: true, ship: false, shipWorktrees: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true, ship: true, shipWorktrees: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: true, shipWorktrees: true });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces }), {}).config.mcp, { write: false, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, worktreeOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: true, ship: false, shipWorktrees: false, allowNewProjects: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true, ship: true, shipWorktrees: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: true, shipWorktrees: true, allowNewProjects: false });
+	assert.equal(configFor(JSON.stringify({ workspaces, mcp: { write: true, allowNewProjects: true } }), {}).config.mcp.allowNewProjects, true);
+	assert.match(configFor(JSON.stringify({ workspaces, mcp: { allowNewProjects: "yes" } }), {}).errors.join("\n"), /allowNewProjects/);
 	assert.match(configFor(JSON.stringify({ workspaces, mcp: { sandboxOnly: "yes" } }), {}).errors.join("\n"), /sandboxOnly/);
 	assert.match(configFor(JSON.stringify({ workspaces, mcp: { sandboxOnly: true, worktreeOnly: true } }), {}).errors.join("\n"), /both on/);
 });
@@ -895,4 +906,188 @@ test("mcp.ship and mcp.shipWorktrees each ship only their own kind of session", 
 	assert.ok(!(await (await neither.connect()).listTools()).tools.some((tool) => tool.name === "ship_session"));
 	const noWrite = await mcp(t, false, { shipWorktrees: true, git: true });
 	assert.ok(!(await (await noWrite.connect()).listTools()).tools.some((tool) => tool.name === "ship_session"), "mcp.shipWorktrees without mcp.write");
+});
+
+/** Replies that commit NAME.txt for "commit NAME", so a scratch sandbox has work to make a project of. */
+const COMMITTING: FauxResponseStep[] = Array.from({ length: 40 }, () => (ctx: TranscriptContext) => {
+	const last = ctx.messages.at(-1);
+	if (last?.role === "toolResult") return fauxAssistantMessage(fauxText("Committed."));
+	const name = /commit (\w+)/.exec(JSON.stringify(last?.content ?? ""))?.[1];
+	if (name !== undefined) return fauxAssistantMessage(fauxToolCall("bash", { command: `echo ${name} > ${name}.txt && git add ${name}.txt && git -c user.name=t -c user.email=t@example.com commit -q -m ${name}` }), { stopReason: "toolUse" });
+	if (/sleep/.test(JSON.stringify(last?.content ?? ""))) return fauxAssistantMessage(fauxToolCall("bash", { command: "sleep 30" }), { stopReason: "toolUse" });
+	return fauxAssistantMessage(fauxText("Done that."));
+});
+
+const json = (result: unknown) => JSON.parse(text(result));
+
+test("mcp.allowNewProjects off: create_project and promote_session aren't offered, and the instructions say so", async (t) => {
+	const { host, connect, gh } = await mcp(t, true, { sandboxes: true, newProjects: true });
+	const client = await connect();
+	assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), WRITE_TOOLS);
+	assert.match(client.getInstructions() ?? "", /Making projects is off here \(mcp.allowNewProjects\)/);
+	const refused = await client.callTool({ name: "create_project", arguments: { name: "waygate" } });
+	assert.equal(refused.isError, true);
+	assert.match(text(refused), /create_project not found/);
+	assert.deepEqual(host.projectRequests.list(), []);
+	assert.ok(!gh!.calls.some((c) => c[1] === "create"), "no repository was made");
+});
+
+test("mcp.allowNewProjects on: a read token still has neither tool, and a write token has both", async (t) => {
+	const { connect, reader, bearer } = await mcp(t, true, { sandboxes: true, newProjects: true, allowNewProjects: true });
+	const names = async (client: Client) => (await client.listTools()).tools.map((tool) => tool.name);
+	assert.ok(!(await names(await connect(bearer(reader.secret)))).includes("create_project"));
+	const writer = await connect();
+	assert.ok((await names(writer)).includes("create_project") && (await names(writer)).includes("promote_session"));
+	assert.match(writer.getInstructions() ?? "", /wait for the owner's approval/);
+});
+
+test("create_project makes nothing until it's approved, then makes the project and lists it at once", async (t) => {
+	const { host, connect, dir, gh } = await mcp(t, true, { newProjects: true, allowNewProjects: true });
+	const client = await connect();
+	const asked = json(await client.callTool({ name: "create_project", arguments: { name: "waygate", description: "Gates." } }));
+	assert.equal(asked.status, "pending");
+	assert.match(asked.message, new RegExp(`aludra approve ${asked.request}`));
+	const folder = join(dir, "Projects", "Software", "waygate");
+	assert.ok(!existsSync(folder), "no folder before the approval");
+	assert.ok(!gh!.calls.some((c) => c[1] === "create"), "no repository before the approval");
+	assert.deepEqual(host.projectRequests.list().map((r) => [r.id, r.kind, r.name]), [[asked.request, "create", "waygate"]]);
+	// Asking again while it waits is the same request, not a second one.
+	assert.equal(json(await client.callTool({ name: "create_project", arguments: { name: "waygate" } })).request, asked.request);
+	assert.equal(host.projectRequests.list().length, 1);
+
+	const made = await host.projectRequests.decide(asked.request, true);
+	assert.equal(made?.status, "done");
+	assert.equal(made?.dir, folder);
+	assert.equal(git(folder, "log", "-1", "--format=%s"), "Start waygate: Gates.");
+	assert.ok(gh!.calls.some((c) => c[1] === "create" && c[2] === "t/waygate"), "the repository was made");
+	const done = json(await client.callTool({ name: "create_project", arguments: { name: "waygate" } }));
+	assert.equal(done.status, "done");
+	assert.equal(done.project.dir, folder);
+	assert.ok(json(await client.callTool({ name: "list_projects", arguments: {} })).some((p: { name: string }) => p.name === "waygate"), "list_projects has it at once");
+	const started = json(await client.callTool({ name: "start_session", arguments: { project: "waygate", task: "Add a test" } }));
+	assert.equal(started.project, "waygate");
+	assert.deepEqual(host.projectRequests.list(), []);
+	// The name is taken now.
+	assert.match(text(await client.callTool({ name: "create_project", arguments: { name: "site" } })), /a project named site already/);
+});
+
+test("create_project denied or expired makes nothing, says so once, and asking again is a new request", async (t) => {
+	const { host, connect, dir, gh, config } = await mcp(t, true, { newProjects: true, allowNewProjects: true });
+	const client = await connect();
+	const asked = json(await client.callTool({ name: "create_project", arguments: { name: "waygate" } }));
+	assert.equal((await host.projectRequests.decide(asked.request, false))?.status, "denied");
+	const denied = await client.callTool({ name: "create_project", arguments: { name: "waygate" } });
+	assert.equal(denied.isError, true);
+	assert.match(text(denied), new RegExp(`request ${asked.request} to make project waygate: the owner denied it, and nothing was made`));
+	assert.ok(!existsSync(join(dir, "Projects", "Software", "waygate")));
+	assert.ok(!gh!.calls.some((c) => c[1] === "create"));
+	assert.equal(await host.projectRequests.decide(asked.request, true), undefined, "a denied request can't be approved after");
+
+	const again = json(await client.callTool({ name: "create_project", arguments: { name: "waygate" } }));
+	assert.equal(again.status, "pending");
+	assert.notEqual(again.request, asked.request);
+
+	// An expired one: the wait is read as each request is made.
+	config.approvals.waitHours = 0.000001;
+	const late = json(await client.callTool({ name: "create_project", arguments: { name: "late" } }));
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	assert.equal(await host.projectRequests.decide(late.request, true), undefined, "too late to approve");
+	assert.match(text(await client.callTool({ name: "create_project", arguments: { name: "late" } })), /didn't answer in time, and nothing was made/);
+	assert.ok(!existsSync(join(dir, "Projects", "Software", "late")));
+});
+
+test("create_project refuses a bad name, and without newProjects set says which settings it needs", async (t) => {
+	const { host, connect } = await mcp(t, true, { allowNewProjects: true });
+	const client = await connect();
+	const missing = await client.callTool({ name: "create_project", arguments: { name: "waygate" } });
+	assert.equal(missing.isError, true);
+	assert.match(text(missing), /newProjects isn't set in the settings file \(newProjects.root and newProjects.owner\)/);
+	assert.match(text(await client.callTool({ name: "create_project", arguments: { name: "Way Gate" } })), /isn't a project name/);
+	assert.deepEqual(host.projectRequests.list(), [], "nothing waits for approval");
+});
+
+test("promote_session waits for approval, then makes a scratch session's work a project and the session its task", async (t) => {
+	const { host, connect, gh } = await mcp(t, true, { sandboxes: true, newProjects: true, allowNewProjects: true, responses: COMMITTING });
+	const client = await connect();
+	const { id } = json(await client.callTool({ name: "start_session", arguments: { task: "commit idea" } }));
+	await host.sandboxes.prepared(id);
+	await until(async () => (await host.sessions.states()).get(id) === "idle" && (await readSummary(host, id))?.state === "done", "the commit");
+
+	const asked = json(await client.callTool({ name: "promote_session", arguments: { id, name: "idea", description: "An idea." } }));
+	assert.equal(asked.status, "pending");
+	assert.equal(asked.session, id);
+	assert.equal((await host.sessions.get(id))!.scratch, true, "still scratch before the approval");
+	assert.ok(!gh!.calls.some((c) => c[1] === "create"));
+
+	const made = await host.projectRequests.decide(asked.request, true);
+	assert.equal(made?.status, "done", made?.error ?? "");
+	assert.deepEqual(git(made!.dir!, "log", "--format=%s", "main").split("\n"), ["idea", "Scratch"]);
+	const record = (await host.sessions.get(id))!;
+	assert.equal(record.project, "idea");
+	assert.equal(record.scratch, undefined);
+	const done = json(await client.callTool({ name: "promote_session", arguments: { id, name: "idea" } }));
+	assert.equal(done.status, "done");
+	assert.equal(done.project.dir, made!.dir);
+	// It's a project's session now, so a second promote is refused.
+	assert.match(text(await client.callTool({ name: "promote_session", arguments: { id, name: "other" } })), /isn't a scratch sandbox session/);
+});
+
+test("promote_session refuses a running session, one that isn't a scratch sandbox, an unknown one, and without newProjects", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { sandboxes: true, newProjects: true, allowNewProjects: true, responses: COMMITTING });
+	const client = await connect();
+	const promote = (id: number) => client.callTool({ name: "promote_session", arguments: { id, name: "idea" } });
+
+	const running = json(await client.callTool({ name: "start_session", arguments: { task: "sleep" } })).id;
+	await host.sandboxes.prepared(running);
+	await until(async () => (await host.sessions.states()).get(running) === "running", "the run");
+	assert.match(text(await promote(running)), new RegExp(`session ${running} is running`));
+	await host.stop(running);
+
+	const local = await host.sessions.create(project, "Local");
+	assert.match(text(await promote(local.id)), new RegExp(`session ${local.id} isn't a scratch sandbox session`));
+	const boxed = json(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Boxed", sandbox: true } })).id;
+	assert.match(text(await promote(boxed)), new RegExp(`session ${boxed} isn't a scratch sandbox session`));
+	assert.match(text(await promote(999)), /No session 999/);
+	assert.deepEqual(host.projectRequests.list(), [], "nothing waits for approval");
+});
+
+test("promote_session without newProjects names the missing settings, and waiting sessions are refused", async (t) => {
+	const { host, connect } = await mcp(t, true, { sandboxes: true, approvals: "ask", allowNewProjects: true, responses: SCRIPTED });
+	const client = await connect();
+	const done = json(await client.callTool({ name: "start_session", arguments: { task: "Sketch" } })).id;
+	await host.sandboxes.prepared(done);
+	await until(async () => (await readSummary(host, done))?.state === "done" && (await host.sessions.states()).get(done) === "idle", "the run");
+	assert.match(text(await client.callTool({ name: "promote_session", arguments: { id: done, name: "idea" } })), /newProjects isn't set in the settings file/);
+
+	const waiting = json(await client.callTool({ name: "start_session", arguments: { task: "push it" } })).id;
+	await host.sandboxes.prepared(waiting);
+	await until(async () => (await host.sessions.states()).get(waiting) === "waiting", "the approval");
+	assert.match(text(await client.callTool({ name: "promote_session", arguments: { id: waiting, name: "idea" } })), new RegExp(`session ${waiting} is waiting for approval`));
+	assert.deepEqual(host.projectRequests.list(), []);
+});
+
+test("aludra approvals lists a project request, and POST /api/approvals/:id answers it", async (t) => {
+	const { host, url, connect, dir } = await mcp(t, true, { newProjects: true, allowNewProjects: true });
+	const client = await connect();
+	const asked = json(await client.callTool({ name: "create_project", arguments: { name: "waygate" } }));
+	const answer = await fetch(`${url}/api/approvals/${asked.request}`, { method: "POST", headers: { "tailscale-user-login": USER, "content-type": "application/json" }, body: JSON.stringify({ allow: true }) });
+	assert.equal(answer.status, 200);
+	assert.deepEqual(await answer.json(), { status: "done", dir: join(dir, "Projects", "Software", "waygate") });
+	const again = await fetch(`${url}/api/approvals/${asked.request}`, { method: "POST", headers: { "tailscale-user-login": USER, "content-type": "application/json" }, body: JSON.stringify({ allow: true }) });
+	assert.equal(again.status, 409);
+	assert.equal(host.projectRequests.list().length, 0);
+});
+
+test("worktreeOnly with mcp.allowNewProjects offers create_project but not promote_session, which has no scratch session to act on", async (t) => {
+	const { host, connect, gh } = await mcp(t, true, { worktreeOnly: true, git: true, newProjects: true, allowNewProjects: true });
+	const client = await connect();
+	const names = (await client.listTools()).tools.map((tool) => tool.name);
+	assert.ok(names.includes("create_project"));
+	assert.ok(!names.includes("promote_session"));
+	assert.match(client.getInstructions() ?? "", /Every session here needs a project/);
+	assert.doesNotMatch(client.getInstructions() ?? "", /promote_session|scratch/);
+	const asked = json(await client.callTool({ name: "create_project", arguments: { name: "waygate" } }));
+	assert.equal(asked.status, "pending");
+	assert.ok(!gh!.calls.some((c) => c[1] === "create"), "nothing is made before approval");
+	assert.equal(host.projectRequests.list().length, 1);
 });

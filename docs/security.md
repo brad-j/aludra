@@ -34,6 +34,8 @@ A token made with `--write`, while `mcp.write` is on, adds tools that start, mes
 
 `mcp.shipWorktrees`, with `mcp.write`, adds `ship_session` for worktree sessions. Their ship runs on this machine, not in a sandbox: the session rebases in its worktree, the project's declared checks run there as you, and the push is made from the project's checkout with your git login. The session's own pushes stay refused while it ships, checks included; only the ship pushes. Off by default and file-only; turn it on only for an agent that asks you before each ship.
 
+`mcp.allowNewProjects` adds `create_project` and `promote_session` for write tokens. Each makes a folder in `newProjects.root` and a private GitHub repository under `newProjects.owner`, pushed with this machine's git, so nothing is made until you approve it: the call stores a request in `project-requests.sqlite` and returns, and the project is made on the host when you approve it with `aludra approve` or `POST /api/approvals/:id`. A denied or expired request makes nothing. A push notification says one waits. It's off by default and file-only. A scratch session (`start_session` without a project) needs no approval: it runs only in a sandbox and touches no project or GitHub.
+
 `mcp.sandboxOnly` narrows that to sandboxes: every session an agent starts runs in a sandbox VM, which reaches the internet and nothing else and holds no keys, and the write tools refuse any session that isn't in one, yours included. Without a sandbox host they refuse everything. What an agent's work does to your checkout is then `sandboxes.afterRun`'s: `fetch` puts it on `sandbox/N` only, while `merge` fast-forwards the checked-out branch when a run ends, so keep it on `fetch` or `off` when agents you don't watch start sessions. Like `mcp.write`, it's file-only.
 
 `mcp.worktreeOnly` is the choice for a machine without a sandbox host. Every session an agent starts works in a git worktree of its own on `worktree/N`, so it never changes your checked-out branch or your uncommitted files, and it can't push: `git push` is refused without asking, and its shell's git rewrites every push URL to one that can't be reached, which also stops a push the hook doesn't read. It isn't a sandbox. The session runs as you, reads anything you can read, reaches the network and can run any program, so a program that pushes over its own connection, or reads a key and sends it somewhere, isn't stopped. Whatever starts these sessions should ask you before each one. File-only.
@@ -95,6 +97,7 @@ Every message to a session, from any client, the CLI and MCP included, has its z
 - The settings file `aludra init` writes is `0600`.
 - Backups are `0600` whatever directory they're in, since `backup.dir` may be a shared disk.
 - The push key (`push-keys.json`) and the sign-ins (`credentials.json`) are `0600`.
+- `project-requests.sqlite` holds MCP agents' requests to make projects, with the token that asked, for 30 days after each is answered.
 
 The database holds every session's full transcript, including anything a tool printed. Treat it and its backups like the code they came from.
 
