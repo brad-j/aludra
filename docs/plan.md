@@ -6,6 +6,10 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
+### mcp-new-projects: create_project and promote_session over MCP
+Kind: step
+Let an agent on `/mcp` ask to make a project, empty or from a scratch sandbox session's work, through `host.newProjects`. Waits on an approval design: nothing should be made without the owner's say, and an MCP call can't be held open for hours. Scratch sessions (mcp-scratch-sessions) come first.
+
 ## Questions
 
 ## Later
@@ -75,6 +79,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Verin now covers voice and the apps, so these may not be needed.
 
 ## Done
+
+### mcp-scratch-sessions: start_session without a project
+Kind: step · Done: 2026-11-09
+A write token's `start_session` with no project makes a scratch sandbox session from the empty scratch repository, sandboxOnly or not; with no sandbox host, under `mcp.worktreeOnly`, or with `worktree: true`, it's refused and nothing is made. decisions.md has the reasons ("Lan as captain over MCP").
 
 ### worktree-ship: ship_session for a worktree session
 Kind: request · From: verin/worktree-ship · Done: 2026-11-17

@@ -190,7 +190,7 @@ For a token made with `--write`, while `mcp.write` is on in the settings file, a
 
 | Tool | Arguments | Answer |
 | --- | --- | --- |
-| `start_session` | `project`, `task`, `sandbox?`, `model?`, `effort?` | `{ id, project, dir, sandbox? }`. The task is the first message; its first line is the title until a model writes one. With `sandbox`, its tools run in a sandbox of its own, `dir` is in the sandbox, and `sandbox` is its number. |
+| `start_session` | `project?`, `task`, `sandbox?`, `model?`, `effort?` | `{ id, project, dir, sandbox?, scratch? }`. The task is the first message; its first line is the title until a model writes one. With `sandbox`, its tools run in a sandbox of its own, `dir` is in the sandbox, and `sandbox` is its number. Without `project` it's a scratch session, always in a sandbox (`scratch: true`, `project` is `no project`), as `conversations.create` with `sandbox: true` and no project makes one: its sandbox starts from an empty repository and its commits come back to a repository of its own in the data directory. `sandbox: false` without a project is an error, and so is leaving `project` out on a host with no sandbox host. |
 | `send_message` | `id`, `text`, `mode?` (`followUp` or `steer`), `model?`, `effort?` | `{ submission }`. |
 | `stop_session` | `id` | Stops the run. |
 | `archive_session` | `id` | `{ id, title, archived: true, message }`. Archives the session as `POST /api/sessions/:id/archive` does. |
@@ -202,7 +202,7 @@ For a token made with `--write`, while `mcp.write` is on in the settings file, a
 
 With `mcp.sandboxOnly` on as well:
 
-- `start_session` always makes a sandbox session, with or without `sandbox: true`. `sandbox: false` is an error and starts nothing.
+- `start_session` always makes a sandbox session, with or without `sandbox: true` and with or without `project`. `sandbox: false` is an error and starts nothing.
 - `send_message`, `stop_session`, `archive_session` and `unarchive_session` are an error for a session that isn't in a sandbox, whoever started it.
 - Without a sandbox host in the settings, every write tool is an error for every call.
 - The tools' descriptions and the server's instructions say sandbox-only. They're fixed per setting, so they don't change from one connection to the next.

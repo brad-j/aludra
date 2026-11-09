@@ -220,6 +220,64 @@ test("without sandboxOnly, write tools still act on local sessions", async (t) =
 	await idle(host, started.id);
 });
 
+test("start_session without a project makes a scratch sandbox session, with or without sandboxOnly, and never a local one", async (t) => {
+	for (const sandboxOnly of [false, true]) {
+		const { host, connect } = await mcp(t, true, { sandboxOnly, sandboxes: true });
+		const client = await connect();
+		const tool = (await client.listTools()).tools.find((x) => x.name === "start_session")!;
+		assert.ok(!(tool.inputSchema.required ?? []).includes("project"), "project is optional");
+		assert.match(tool.description ?? "", /scratch session/);
+
+		const started = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { task: "Sketch an idea" } })));
+		assert.equal(started.scratch, true);
+		assert.equal(typeof started.sandbox, "number");
+		const record = (await host.sessions.get(started.id))!;
+		assert.equal(record.scratch, true);
+		assert.ok(record.sandboxNumber !== undefined, "it's a sandbox session");
+		assert.equal(record.source, join(host.scratchRoot, String(started.id)), "its work comes home to a repository of its own");
+		assert.equal(JSON.parse(text(await client.callTool({ name: "start_session", arguments: { task: "Again", sandbox: true } }))).scratch, true);
+
+		// A local scratch session isn't offered, sandboxOnly or not.
+		const before = (await host.sessions.list()).length;
+		const local = await client.callTool({ name: "start_session", arguments: { task: "Here", sandbox: false } });
+		assert.equal(local.isError, true);
+		assert.match(text(local), sandboxOnly ? /mcp.sandboxOnly/ : /no project runs only in a sandbox/);
+		assert.equal((await host.sessions.list()).length, before, "no session was started");
+	}
+});
+
+test("start_session without a project needs a sandbox host, and makes nothing without one", async (t) => {
+	const { host, connect } = await mcp(t, true);
+	const client = await connect();
+	const refused = await client.callTool({ name: "start_session", arguments: { task: "Sketch an idea" } });
+	assert.equal(refused.isError, true);
+	assert.match(text(refused), /no project runs in a sandbox, and the settings name no sandbox host/);
+	assert.deepEqual(await host.sessions.list(), []);
+});
+
+test("worktreeOnly refuses start_session without a project, since a worktree needs one and a scratch session is a sandbox", async (t) => {
+	// A sandbox host is set, so the refusal can't be the missing host's.
+	const { host, connect } = await mcp(t, true, { worktreeOnly: true, sandboxes: true });
+	const client = await connect();
+	const tool = (await client.listTools()).tools.find((x) => x.name === "start_session")!;
+	assert.doesNotMatch(tool.description ?? "", /scratch session/);
+	for (const args of [{}, { worktree: true }]) {
+		const refused = await client.callTool({ name: "start_session", arguments: { task: "Sketch an idea", ...args } });
+		assert.equal(refused.isError, true);
+		assert.match(text(refused), /only worktree sessions \(mcp.worktreeOnly\), and a worktree needs a project/);
+	}
+	assert.deepEqual(await host.sessions.list(), [], "nothing was made");
+});
+
+test("without worktreeOnly, worktree: true without a project is refused rather than made a scratch sandbox", async (t) => {
+	const { host, connect } = await mcp(t, true, { sandboxes: true });
+	const client = await connect();
+	const refused = await client.callTool({ name: "start_session", arguments: { task: "Sketch an idea", worktree: true } });
+	assert.equal(refused.isError, true);
+	assert.match(text(refused), /a worktree needs a project/);
+	assert.deepEqual(await host.sessions.list(), []);
+});
+
 test("only live tokens, not Tailscale logins, no browsers, and only POST", async (t) => {
 	const { host, url, connect, reader, bearer } = await mcp(t, false);
 	const post = (headers: Record<string, string>) => fetch(`${url}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) });

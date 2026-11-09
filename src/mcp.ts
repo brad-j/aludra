@@ -28,6 +28,12 @@
 // and archive_session refuses a session that's running, waiting or still having its sandbox made, and one whose branch
 // was discarded, since its sandbox would go without its commits being fetched.
 //
+// start_session without a project makes a scratch session, always in a sandbox whatever mcp.sandboxOnly says: its
+// sandbox starts from the empty repository every scratch session shares, and its commits come back to a repository of
+// its own in the data directory (host.sessions.startSandbox with no project). It touches no project and no GitHub, so
+// it needs nothing beyond mcp.write and a sandbox host. A local scratch session, as the apps can make, isn't offered,
+// and neither is one in a worktree: under mcp.worktreeOnly, or with worktree: true, a call without a project is refused.
+//
 // check_sessions and mark_sessions_handled are a gate for an agent that wakes on sessions changing without a model
 // running (Lan's): check_sessions answers { wake, data, topic } and moves nothing, mark_sessions_handled moves the
 // calling token's cursor (src/session-changes.ts). Both are reading tools, since a cursor is only that token's.
@@ -350,14 +356,17 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		};
 		const sandboxText = "a sandbox VM of its own: a copy of the project's last commit that reaches the internet and nothing else, holding no keys. Its commits come back to the project's sandbox/N branch";
 		const worktreeText = "a git worktree of its own on a worktree/N branch, made from the project's last commit, where git push is refused; the project's checkout and its uncommitted files are never touched, and its commits stay on the branch until the user merges them";
+		const scratchText = "Without a project it's a scratch session: it runs in a sandbox VM of its own, starting from an empty repository, and its commits come back to a repository of its own on this machine, not to any project.";
 		server.registerTool("start_session", {
 			description: worktreeOnly
 				? `Start a session in a project on ${options.machine} with a task, worktree-only: it always works in ${worktreeText}. read_session shows how it goes. Returns its id and branch.`
 				: sandboxOnly
-				? `Start a session in a project on ${options.machine} with a task, sandbox-only: it always runs in ${sandboxText}. A local session is refused. read_session shows how it goes. Returns its id.`
-				: `Start a session in a project on ${options.machine} with a task. It runs on its own with full permissions in the project; read_session shows how it goes. Returns its id.`,
+				? `Start a session in a project on ${options.machine} with a task, sandbox-only: it always runs in ${sandboxText}. A local session is refused. ${scratchText} read_session shows how it goes. Returns its id.`
+				: `Start a session in a project on ${options.machine} with a task. It runs on its own with full permissions in the project; read_session shows how it goes. ${scratchText} Returns its id.`,
 			inputSchema: {
-				project: z.string().describe("A name from list_projects"),
+				project: z.string().optional().describe(worktreeOnly
+					? "A name from list_projects. Worktree-only here: a project is required, since a worktree needs one and a session with no project is a sandbox"
+					: "A name from list_projects. Leave it out for a scratch session in no project, which always runs in a sandbox: for a new idea that has no project yet"),
 				task: z.string().min(1).describe("Everything the agent needs to know; it can't see your conversation"),
 				sandbox: z.boolean().optional().describe(sandboxOnly
 					? "Sandbox-only here: leave it out or pass true; false is refused."
@@ -374,28 +383,34 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 			if (sandboxOnly && sandbox === false) return failure("this endpoint starts only sandbox sessions (mcp.sandboxOnly); leave sandbox out or pass true");
 			if (worktreeOnly && worktree === false) return failure("this endpoint starts only worktree sessions (mcp.worktreeOnly); leave worktree out or pass true");
 			if (worktreeOnly && sandbox === true) return failure("this endpoint starts only worktree sessions (mcp.worktreeOnly), not sandbox sessions");
+			// A scratch session is always a sandbox one and a worktree needs a project, so worktree-only has no scratch session.
+			if (worktreeOnly && project === undefined) return failure("this endpoint starts only worktree sessions (mcp.worktreeOnly), and a worktree needs a project; name one from list_projects");
 			const inWorktree = worktreeOnly || worktree === true;
 			if (inWorktree && sandbox === true) return failure("a session is in a sandbox or a worktree, not both");
+			// A scratch session is a sandbox one, so it never makes a local scratch directory session as the apps can.
+			if (project === undefined && worktree === true) return failure("a session with no project runs only in a sandbox, and a worktree needs a project; leave worktree out, or name a project from list_projects");
+			if (project === undefined && sandbox === false) return failure("a session with no project runs only in a sandbox; leave sandbox out or pass true, or name a project from list_projects for a local session");
+			if (project === undefined && host.sandboxSettings() === undefined) return failure("a session with no project runs in a sandbox, and the settings name no sandbox host (sandboxes); name a project from list_projects");
 			const agent = turnSettings(host, { model, effort }, host.model);
 			if (typeof agent === "string") return failure(agent);
-			const inSandbox = sandboxOnly || sandbox === true;
+			const inSandbox = sandboxOnly || sandbox === true || project === undefined;
 			let found;
 			try {
-				found = findProject(host.projects(), project);
+				found = project === undefined ? undefined : findProject(host.projects(), project);
 			} catch (error) {
 				return failure(error instanceof Error ? error.message : String(error));
 			}
 			const title = task.split("\n")[0]!.slice(0, 80);
 			let session;
 			try {
-				session = inWorktree ? await host.sessions.createWorktree(found, title, agent)
+				session = inWorktree ? await host.sessions.createWorktree(found!, title, agent)
 					: inSandbox ? await host.sessions.createSandbox(found, title, agent)
-					: await host.sessions.create(found, title, agent);
+					: await host.sessions.create(found!, title, agent);
 			} catch (error) {
 				return failure(error instanceof Error ? error.message : String(error));
 			}
 			await host.submit(session.id, task);
-			return answer({ id: session.id, project: session.project, dir: session.dir, ...(session.sandbox === undefined ? {} : { sandbox: session.sandbox }), ...(session.worktree === undefined ? {} : { worktree: session.worktree, branch: worktreeBranch(session) }) });
+			return answer({ id: session.id, project: session.project, dir: session.dir, ...(session.sandbox === undefined ? {} : { sandbox: session.sandbox }), ...(session.worktree === undefined ? {} : { worktree: session.worktree, branch: worktreeBranch(session) }), ...(session.scratch === true ? { scratch: true } : {}) });
 		});
 
 		server.registerTool("send_message", {
