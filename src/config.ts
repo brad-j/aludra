@@ -122,7 +122,7 @@ export function defaultDataDir(env: NodeJS.ProcessEnv = process.env, platform: N
 }
 
 const DEFAULTS = {
-	model: { provider: "claude-bridge", id: "claude-opus-5-5", thinking: "high", choices: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"].map((id) => ({ provider: "claude-bridge" as const, id })) },
+	model: { provider: "claude-bridge", id: "claude-opus-5-5", thinking: "high", choices: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1", "claude-fable-5-2"].map((id) => ({ provider: "claude-bridge" as const, id })) },
 	claude: { path: "claude" },
 	api: { port: 8724, users: [] },
 	approvals: { hosts: [], waitHours: 24 },

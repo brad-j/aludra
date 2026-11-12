@@ -34,7 +34,7 @@ type Spec = {
 };
 
 const model = (config: Config) => `${config.model.provider}/${config.model.id}`;
-const DEFAULT_CHOICES = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"].map((id) => `claude-bridge/${id}`);
+const DEFAULT_CHOICES = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1", "claude-fable-5-2"].map((id) => `claude-bridge/${id}`);
 
 const SPECS: readonly Spec[] = [
 	{ key: "workspaces", label: "Workspaces", kind: "workspaces", editable: true, get: (c) => c.workspaces.map(({ name, roots }) => ({ name, roots: [...roots] })),

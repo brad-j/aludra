@@ -12,7 +12,7 @@ test("without a file, the settings are the defaults, and say a workspace is need
 	assert.equal(errors.length, 1);
 	assert.match(errors[0]!, /no workspaces/);
 	assert.deepEqual(config.workspaces, []);
-	assert.deepEqual(config.model, { provider: "claude-bridge", id: "claude-opus-5-5", thinking: "high", choices: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"].map((id) => ({ provider: "claude-bridge", id })) });
+	assert.deepEqual(config.model, { provider: "claude-bridge", id: "claude-opus-5-5", thinking: "high", choices: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1", "claude-fable-5-2"].map((id) => ({ provider: "claude-bridge", id })) });
 	assert.deepEqual(config.claude, { path: "claude" });
 	assert.deepEqual(config.api, { port: 8724, users: [] });
 	assert.deepEqual(config.approvals, { hosts: [], waitHours: 24 });
