@@ -244,12 +244,17 @@ test("a long transcript keeps its latest items", () => {
 });
 
 type Gate = { wake: boolean; topic: string; through?: number; data: { change: number; id: number; from: string | null; to: string; transition: string; title: string; project: string; updated: string; agent: string; question?: { text: string; options: string[] } }[] };
-const check = async (client: Client): Promise<Gate> => JSON.parse(text(await client.callTool({ name: "check_sessions", arguments: {} })));
+// data comes as JSON text, as a gate's must; read back into entries here.
+const check = async (client: Client): Promise<Gate> => {
+	const answer = JSON.parse(text(await client.callTool({ name: "check_sessions", arguments: {} })));
+	if (answer.data !== undefined) assert.equal(typeof answer.data, "string", "a gate's data is text");
+	return { ...answer, data: answer.data === undefined ? [] : JSON.parse(answer.data) };
+};
 
 test("check_sessions wakes on a new session and on each run's end, and moves no cursor", async (t) => {
 	const { host, project, connect, reader, bearer } = await mcp(t, false);
 	const client = await connect(bearer(reader.secret));
-	assert.deepEqual(await check(client), { wake: false, data: [], topic: "" }, "nothing yet");
+	assert.deepEqual(JSON.parse(text(await client.callTool({ name: "check_sessions", arguments: {} }))), { wake: false, topic: "" }, "nothing yet, and no data");
 
 	const session = await host.sessions.create(project, "Fix the build");
 	await (await host.submit(session.id, "Fix the build")).wait(context);

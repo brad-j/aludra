@@ -174,7 +174,8 @@ export async function checkSessions(host: Host, token: Pick<Token, "id" | "creat
 	data.sort((a, b) => a.change - b.change);
 	const newest = data.at(-1);
 	const topic = newest === undefined ? "" : `${newest.project} #${newest.id} ${newest.title}: ${newest.transition}${data.length > 1 ? ` (+${data.length - 1} more)` : ""}`;
-	return { wake: data.length > 0, data, topic, ...(newest === undefined ? {} : { through: newest.change }) };
+	// A gate's data is text (Lan reads { wake: boolean, data?: string, topic?: string }), so the entries go as JSON text.
+	return { wake: data.length > 0, ...(data.length === 0 ? {} : { data: JSON.stringify(data, null, 2) }), topic, ...(newest === undefined ? {} : { through: newest.change }) };
 }
 
 /**
