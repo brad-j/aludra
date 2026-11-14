@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aludra docs</title>
+<meta name="description" content="aludra: a coding agent host for your own machines. Setup, sessions, sandboxes, settings, CLI and API.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Hallmark · macrostructure: Long Document (docs variant) · genre: modern-minimal · theme: project DESIGN (tar-valon tool defaults) · enrichment: none · nav: N3 side-rail (as table of contents) · footer: Ft2 inline single line
+ * pre-emit critique: P4 H4 E4 S5 R5 V4 */
+:root {
+  --color-window: #0E0E10;
+  --color-chrome: #0A0A0A;
+  --color-surface: #161618;
+  --color-surface-raised: #1C1C1E;
+  --color-control: #2C2C2E;
+  --color-control-hover: #3A3A3C;
+  --color-separator: #2C2C2E;
+  --color-text: #F2F2F7;
+  --color-text-secondary: #98989D;
+  --color-text-tertiary: #7C7C82;
+  --color-accent: oklch(78% 0.10 200);
+  --color-on-accent: oklch(18% 0 0);
+  --color-focus: oklch(62% 0.09 200);
+  --color-warning: oklch(80% 0.13 85);
+  --color-success: oklch(76% 0.12 155);
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --text-sm: 13px;
+  --text-body: 15px;
+  --text-h3: 15px;
+  --text-h2: 17px;
+  --text-h1: 22px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 40px;
+  --space-3xl: 64px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --measure: 70ch;
+  --toolbar-h: 44px;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { overflow-x: clip; }
+html { scroll-padding-top: calc(var(--toolbar-h) + var(--space-lg)); color-scheme: dark; }
+body {
+  margin: 0; background: var(--color-window); color: var(--color-text);
+  font-family: var(--font-sans); font-size: var(--text-body); line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--color-accent); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 2px; }
+code, pre, kbd { font-family: var(--font-mono); font-size: var(--text-sm); }
+:not(pre) > code { background: var(--color-surface-raised); border: 1px solid var(--color-separator); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
+
+.toolbar {
+  position: sticky; top: 0; z-index: 10; height: var(--toolbar-h);
+  display: flex; align-items: center; gap: var(--space-md);
+  padding: 0 var(--space-lg); background: var(--color-chrome);
+  border-bottom: 1px solid var(--color-separator);
+}
+.toolbar .name { font-weight: 600; color: var(--color-text); text-decoration: none; white-space: nowrap; }
+.toolbar .ver { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-text-tertiary); }
+.toolbar nav { margin-left: auto; display: flex; gap: var(--space-lg); font-size: var(--text-sm); }
+.toolbar nav a { color: var(--color-text-secondary); text-decoration: none; white-space: nowrap; }
+.toolbar nav a:hover { color: var(--color-text); }
+
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-2xl); max-width: 1080px; margin: 0 auto; padding: 0 var(--space-xl); }
+.toc { position: sticky; top: var(--toolbar-h); align-self: start; max-height: calc(100vh - var(--toolbar-h)); overflow-y: auto; padding: var(--space-xl) 0; font-size: var(--text-sm); }
+.toc details > summary { display: none; }
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc li a {
+  display: block; padding: 5px var(--space-sm); border-radius: var(--radius-sm);
+  color: var(--color-text-secondary); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.toc li a:hover { background: var(--color-surface); color: var(--color-text); }
+.toc li a[aria-current="true"] { background: var(--color-surface-raised); color: var(--color-text); }
+.toc li a[aria-current="true"]::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); margin-right: var(--space-sm); vertical-align: 1px; }
+
+main { min-width: 0; padding: var(--space-xl) 0 var(--space-3xl); max-width: 760px; }
+main > section { padding-top: var(--space-lg); }
+main > section + section { margin-top: var(--space-2xl); border-top: 1px solid var(--color-separator); padding-top: var(--space-xl); }
+h1, h2, h3 { font-style: normal; letter-spacing: -0.01em; overflow-wrap: anywhere; min-width: 0; }
+h1 { font-size: var(--text-h1); line-height: 1.25; margin: 0 0 var(--space-md); font-weight: 600; }
+h2 { font-size: var(--text-h2); line-height: 1.3; margin: 0 0 var(--space-md); font-weight: 600; }
+h3 { font-size: var(--text-h3); line-height: 1.3; margin: var(--space-xl) 0 var(--space-sm); font-weight: 600; }
+h2 a.anchor, h3 a.anchor { color: inherit; text-decoration: none; }
+h2 a.anchor:hover::after, h3 a.anchor:hover::after { content: " #"; color: var(--color-text-tertiary); }
+p, ul, ol, dl { max-width: var(--measure); margin: 0 0 var(--space-md); }
+ul, ol { padding-left: 20px; }
+li { margin-bottom: var(--space-xs); }
+li::marker { color: var(--color-text-tertiary); }
+.lede { color: var(--color-text-secondary); font-size: 16px; }
+.muted { color: var(--color-text-secondary); }
+.more { font-size: var(--text-sm); color: var(--color-text-secondary); }
+
+.code { position: relative; margin: 0 0 var(--space-lg); }
+.code pre {
+  margin: 0; padding: var(--space-md) var(--space-lg); padding-right: 64px;
+  background: var(--color-surface); border: 1px solid var(--color-separator); border-radius: var(--radius-md);
+  overflow-x: auto; line-height: 1.55; color: var(--color-text);
+}
+.code .c { color: var(--color-text-tertiary); }
+.copy {
+  position: absolute; top: var(--space-sm); right: var(--space-sm);
+  font: 500 12px/1 var(--font-sans); color: var(--color-text-secondary);
+  background: var(--color-control); border: 0; border-radius: var(--radius-sm); padding: 6px 8px; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.copy:hover { background: var(--color-control-hover); color: var(--color-text); }
+.copy:active { transform: translateY(1px); }
+.copy[data-state="success"] { color: var(--color-success); }
+.copy[data-state="error"] { color: var(--color-warning); }
+
+.table { overflow-x: auto; margin: 0 0 var(--space-lg); border: 1px solid var(--color-separator); border-radius: var(--radius-md); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--color-separator); }
+tr:last-child td { border-bottom: 0; }
+th { font-weight: 600; font-size: var(--text-sm); color: var(--color-text-secondary); background: var(--color-surface); }
+td:first-child { white-space: nowrap; }
+td:first-child code { overflow-wrap: normal; }
+
+dl.faq dt { font-weight: 600; margin-top: var(--space-md); }
+dl.faq dd { margin: var(--space-xs) 0 0; color: var(--color-text-secondary); }
+
+.note { border: 1px solid var(--color-separator); background: var(--color-surface); border-radius: var(--radius-md); padding: var(--space-md) var(--space-lg); max-width: var(--measure); margin: 0 0 var(--space-lg); color: var(--color-text-secondary); }
+.note strong { color: var(--color-text); font-weight: 600; }
+
+footer.foot { border-top: 1px solid var(--color-separator); padding: var(--space-lg) var(--space-xl); font-size: var(--text-sm); color: var(--color-text-tertiary); text-align: left; max-width: 1080px; margin: 0 auto; }
+footer.foot a { color: var(--color-text-secondary); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 var(--space-lg); }
+  .toc { position: sticky; top: var(--toolbar-h); z-index: 5; max-height: none; overflow: visible; padding: 0; margin: 0 calc(-1 * var(--space-lg)); background: var(--color-window); border-bottom: 1px solid var(--color-separator); }
+  .toc details > summary { display: block; cursor: pointer; padding: var(--space-sm) var(--space-lg); color: var(--color-text-secondary); list-style: none; white-space: nowrap; }
+  .toc details > summary::-webkit-details-marker { display: none; }
+  .toc details > summary::after { content: " ▾"; color: var(--color-text-tertiary); }
+  .toc details:not([open]) > ol { display: none; }
+  .toc details[open] > ol { max-height: 60vh; overflow-y: auto; padding: 0 var(--space-sm) var(--space-sm); }
+  html { scroll-padding-top: calc(var(--toolbar-h) + 52px); }
+}
+@media (max-width: 480px) {
+  .toolbar nav a.opt { display: none; }
+  td:first-child { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition-duration: 0ms !important; } }
+</style>
+</head>
+<body>
+<header class="toolbar">
+  <a class="name" href="#overview">aludra</a><span class="ver">0.1.0</span>
+  <nav aria-label="Links">
+    <a class="opt" href="#cli">CLI</a>
+    <a class="opt" href="#api">API</a>
+    <a href="https://github.com/brad-j/aludra">GitHub</a>
+  </nav>
+</header>
+<div class="layout">
+<aside class="toc" aria-label="Contents">
+<details open>
+<summary>Contents: <span>Overview</span></summary>
+<ol>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#requirements">Requirements</a></li>
+<li><a href="#setup">Setting up a machine</a></li>
+<li><a href="#clients">Connecting a client</a></li>
+<li><a href="#sessions">Sessions</a></li>
+<li><a href="#approvals">Approvals and permissions</a></li>
+<li><a href="#changes">Changes, checkpoints and search</a></li>
+<li><a href="#sandboxes">Sandboxes</a></li>
+<li><a href="#settings">Settings</a></li>
+<li><a href="#cli">CLI reference</a></li>
+<li><a href="#api">API</a></li>
+<li><a href="#security">Security</a></li>
+<li><a href="#operations">Running aludra</a></li>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#development">Development</a></li>
+</ol>
+</details>
+</aside>
+<main>
+<section id="overview" aria-labelledby="overview-h">
+
+<h1 id="overview-h">aludra</h1>
+<p class="lede">A coding agent host for your own machines. Install it on each macOS or Linux computer whose projects you want to reach, then use those projects over Tailscale from the amyrlin macOS app, from the command line on the machine, or through its HTTP API.</p>
+<p>Sessions run on the machine that has the code, keep going when every client is closed, and survive restarts. aludra runs the Claude Code you installed and logged in to on that machine; it never asks for or stores Claude credentials. It can also run OpenAI models on a ChatGPT plan, and OpenRouter models billed per request. There's no web app.</p>
+<div class="code"><pre><code>git clone git@github.com:brad-j/aludra.git &amp;&amp; cd aludra
+sh scripts/install.sh
+aludra init                <span class="c"># asks for your project folders and Tailscale login</span>
+aludra doctor              <span class="c"># checks everything, prints the fix for anything missing</span>
+aludra service install     <span class="c"># runs the host now and at login</span>
+tailscale serve --bg 8724  <span class="c"># puts it on your tailnet over HTTPS</span></code></pre><button class="copy" type="button">Copy</button></div>
+
+</section>
+
+<section id="requirements" aria-labelledby="requirements-h">
+<h2 id="requirements-h"><a class="anchor" href="#requirements">Requirements</a></h2>
+
+<ul>
+<li>macOS or Linux. The service commands use launchd on macOS and systemd on Linux; elsewhere <code>aludra serve</code> runs in the foreground.</li>
+<li>Node 22.18 or later, and npm, which comes with it.</li>
+<li>pnpm, to build. <code>corepack enable pnpm</code> is enough.</li>
+<li>git, for a session's changes. Projects outside git still work, with no changes view.</li>
+<li><a href="https://claude.com/product/claude-code">Claude Code</a>, installed and logged in with a subscription (<code>claude auth login</code>), for Claude models.</li>
+<li><a href="https://tailscale.com">Tailscale</a>, on this machine and on every device you'll use aludra from.</li>
+</ul>
+
+</section>
+
+<section id="setup" aria-labelledby="setup-h">
+<h2 id="setup-h"><a class="anchor" href="#setup">Setting up a machine</a></h2>
+
+<h3 id="install"><a class="anchor" href="#install">Install</a></h3>
+<div class="code"><pre><code>git clone git@github.com:brad-j/aludra.git &amp;&amp; cd aludra
+sh scripts/install.sh</code></pre><button class="copy" type="button">Copy</button></div>
+<p><code>scripts/install.sh</code> checks Node, npm and pnpm, installs from the lockfile, builds the host into <code>dist/host</code>, packs it and installs the tarball globally. If a service is already installed, it reinstalls it so the new version runs. The checkout stays where it is; the host runs the installed package, so you can keep developing in the checkout.</p>
+
+<h3 id="init"><a class="anchor" href="#init">Write the settings</a></h3>
+<p><code>aludra init</code> writes <code>~/.config/aludra/config.json</code>. It asks three things, each with a guess you can accept with Enter: the project folders (patterns such as <code>~/code/*</code>, guessed from where your git repositories are), the Tailscale logins let in (guessed from this machine's login), and this machine's name.</p>
+<div class="code"><pre><code>aludra init --root '~/code/*' --root '~/work/*/*' --user you@example.com --name devbox --yes</code></pre><button class="copy" type="button">Copy</button></div>
+
+<h3 id="models"><a class="anchor" href="#models">Sign in to a model</a></h3>
+<p>Sessions need at least one of these, and can switch between them mid-session.</p>
+<div class="table"><table><thead><tr><th>Provider</th><th>Sign in</th><th>Billing</th></tr></thead><tbody><tr><td>Claude</td><td><code>claude auth login</code></td><td>Your Claude subscription, through the Claude Code binary</td></tr><tr><td>OpenAI</td><td><code>aludra login openai</code></td><td>Your ChatGPT plan</td></tr><tr><td>OpenRouter</td><td><code>aludra login openrouter</code></td><td>Per request; each session shows its cost</td></tr></tbody></table></div>
+<p>The login commands print an address to open in a browser. Over SSH, the browser ends on a <code>127.0.0.1:1455</code> page that doesn't load; paste that page's address back at the prompt.</p>
+
+<h3 id="doctor"><a class="anchor" href="#doctor">Check it</a></h3>
+<p><code>aludra doctor</code> checks the settings, Node, the data directory, each workspace pattern, the pinned versions, Claude Code's login, the model, sign-ins, Tailscale and <code>tailscale serve</code>, the push services, the service and backups. Each line is <code>ok</code>, <code>warn</code>, <code>fail</code> or <code>skip</code>, and anything that isn't ok says what to run. It never starts a model request, so it costs nothing.</p>
+
+<h3 id="service"><a class="anchor" href="#service">Run it as a service</a></h3>
+<p><code>aludra service install</code> writes a launchd agent on macOS or a systemd user unit on Linux and starts it. The unit carries the PATH of the shell you ran it from, and sessions run their commands with that PATH, so install from a shell that finds git, pnpm and the rest of your toolchain. On Linux, keep it running while nobody is logged in:</p>
+<div class="code"><pre><code>loginctl enable-linger "$USER"</code></pre><button class="copy" type="button">Copy</button></div>
+
+<h3 id="tailnet"><a class="anchor" href="#tailnet">Put it on your tailnet</a></h3>
+<p>The host listens on <code>127.0.0.1:8724</code> only. <code>tailscale serve --bg 8724</code> gives it an HTTPS address, <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net/</code>, and tells aludra which Tailscale login is asking. You run it once; it persists in Tailscale's state.</p>
+
+<h3 id="update"><a class="anchor" href="#update">Update and uninstall</a></h3>
+<div class="code"><pre><code>cd aludra &amp;&amp; git pull &amp;&amp; sh scripts/install.sh   <span class="c"># restarts the host on the new version</span>
+aludra service uninstall                           <span class="c"># stops the host, removes the unit</span>
+npm uninstall -g aludra                            <span class="c"># removes the command</span></code></pre><button class="copy" type="button">Copy</button></div>
+<p>Settings and data stay until you delete them. Sessions that were running pick up where they left off after an update.</p>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/setup.md">setup.md</a></p>
+
+</section>
+
+<section id="clients" aria-labelledby="clients-h">
+<h2 id="clients-h"><a class="anchor" href="#clients">Connecting a client</a></h2>
+
+<h3 id="amyrlin"><a class="anchor" href="#amyrlin">amyrlin</a></h3>
+<p><a href="https://github.com/brad-j/amyrlin">amyrlin</a> is an optional native macOS client that connects to every machine you add and shows all their sessions together. Add a machine as <code>wss://&lt;machine&gt;.&lt;tailnet&gt;.ts.net/amyrlin</code>, or just its tailnet name. A 403 means your login isn't in <code>api.users</code>; a 502 means nothing is behind <code>tailscale serve</code>.</p>
+<h3 id="terminal"><a class="anchor" href="#terminal">The terminal</a></h3>
+<div class="code"><pre><code>aludra                                  <span class="c"># every session and its transcript, live, read-only</span>
+aludra sessions                         <span class="c"># every session by project, with its state</span>
+aludra watch                            <span class="c"># what every session does, live, until Ctrl+C</span>
+aludra ask --session 12 "Now add tests" <span class="c"># a follow-up (or --steer while it runs)</span>
+aludra approvals                        <span class="c"># what waits for you</span></code></pre><button class="copy" type="button">Copy</button></div>
+<h3 id="mcp-client"><a class="anchor" href="#mcp-client">Another agent, over MCP</a></h3>
+<p>Claude Code, pi or any MCP client on your tailnet can list, read and search this machine's sessions. With a write token and <code>mcp.write</code> on, it can start and message them too. Make each agent its own token:</p>
+<div class="code"><pre><code>aludra token add claude-code-laptop     <span class="c"># read-only; --write to let it start sessions</span>
+claude mcp add --transport http aludra-devbox https://devbox.example.ts.net/mcp \
+  --header "Authorization: Bearer &lt;TOKEN&gt;"</code></pre><button class="copy" type="button">Copy</button></div>
+<p>Anything else, such as a script or a client of your own, uses the <a href="#api">HTTP and WebSocket API</a>.</p>
+
+</section>
+
+<section id="sessions" aria-labelledby="sessions-h">
+<h2 id="sessions-h"><a class="anchor" href="#sessions">Sessions</a></h2>
+
+<p>A session is one conversation with the agent, working in one project directory. It runs with aludra's tools (read, write, edit and bash), the project's <code>AGENTS.md</code> or <code>CLAUDE.md</code>, and your skills. Inside the project it works without asking; <code>git push</code> and remote commands to listed hosts wait for you. amyrlin, the CLI and the API are all windows onto the same sessions, so one started from amyrlin can be steered and stopped from a terminal.</p>
+<div class="table"><table><thead><tr><th>State</th><th>Meaning</th><th>CLI mark</th></tr></thead><tbody><tr><td>waiting</td><td>A call waits for your approval.</td><td><code>◆</code></td></tr><tr><td>running</td><td>A request or tool call is in progress.</td><td><code>◐</code></td></tr><tr><td>failed</td><td>The last run ended in an error or a refusal.</td><td><code>⊘</code></td></tr><tr><td>stopped</td><td>You stopped the last run.</td><td><code>□</code></td></tr><tr><td>done</td><td>The last run finished with an answer.</td><td><code>✓</code></td></tr><tr><td>idle</td><td>Nothing has run yet, or nothing is happening.</td><td><code>·</code></td></tr></tbody></table></div>
+<h3 id="starting"><a class="anchor" href="#starting">Starting one</a></h3>
+<div class="code"><pre><code>aludra ask --project site "Why does the build fail on main?"</code></pre><button class="copy" type="button">Copy</button></div>
+<p>Or from amyrlin, or <code>POST /api/sessions</code>. A session without a project works in a scratch directory of its own and reads anything else by absolute path. Sessions are titled from the first message, then a second or two later by a short title the smallest available model writes. <code>aludra retitle --session ID</code> writes it again from the whole conversation.</p>
+<h3 id="steering"><a class="anchor" href="#steering">Steering, queueing and stopping</a></h3>
+<ul>
+<li><strong>Steer</strong> goes in at the next tool boundary, so the run changes course without stopping (<code>--steer</code>).</li>
+<li><strong>Queue</strong> waits until the run answers, then goes in as a follow-up. A queued message can be withdrawn before the run reaches it.</li>
+<li><strong>Stop</strong> ends the run and drops queued messages (<code>aludra stop --session ID</code>).</li>
+</ul>
+<p>Sending a message while a call waits for approval refuses that call, so the run can take your message instead.</p>
+<h3 id="model"><a class="anchor" href="#model">Model and thinking</a></h3>
+<p>Each session has its own model and thinking level, changeable at any time from the next request. Pinned models (<code>model.choices</code>) come first, and any model of any signed-in provider can be picked. New sessions start with <code>model.id</code> and <code>model.thinking</code>.</p>
+<h3 id="attachments"><a class="anchor" href="#attachments">Images, videos and files</a></h3>
+<ul>
+<li><strong>Images:</strong> up to 8 per message, PNG, JPEG, GIF or WebP, 5 MB each.</li>
+<li><strong>Videos</strong> (from amyrlin): a 720p MP4 of at most 40 MB with a few frames. The model sees the frames; the video is saved on the host for 14 days so the agent can pull more frames with ffmpeg.</li>
+<li><strong>Files:</strong> any kind, at most 20 and 25 MB together, saved on the host for the agent to open. Text over 32 KB, such as a pasted log, is saved the same way.</li>
+</ul>
+<h3 id="pages"><a class="anchor" href="#pages">Pages</a></h3>
+<p>Ask for a chart, table, diagram or mockup and the agent can publish a page: a self-contained HTML document that amyrlin shows above the answer. Pages can run scripts but can't load anything from the network. <code>aludra page --session ID N</code> writes one to a file.</p>
+<h3 id="archiving"><a class="anchor" href="#archiving">Archiving and ideas</a></h3>
+<p>Archiving hides a session from the lists without deleting anything; a running session keeps running. The host archives sessions idle for <code>archive.afterDays</code> (default 3) on its own, and one you bring back stays. Projects can be archived too. Ideas are first messages saved for later under a project, started through the API when you're ready.</p>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/using.md">using.md</a></p>
+
+</section>
+
+<section id="approvals" aria-labelledby="approvals-h">
+<h2 id="approvals-h"><a class="anchor" href="#approvals">Approvals and permissions</a></h2>
+
+<p>Two kinds of shell command wait for you: <code>git push</code> in any form git parses as a push, and <code>ssh</code>, <code>scp</code>, <code>rsync</code>, <code>sftp</code>, <code>mosh</code> or <code>sshfs</code> to a host in <code>approvals.hosts</code>. Answer from amyrlin or the terminal:</p>
+<div class="code"><pre><code>aludra approvals          <span class="c"># what waits, oldest first, with IDs</span>
+aludra approve 3f9a1c
+aludra deny 3f9a1c</code></pre><button class="copy" type="button">Copy</button></div>
+<p>amyrlin can also allow one always, for that session only; other sessions still ask, and the rule can be taken back. A request expires after <code>approvals.waitHours</code> (default 24). A restart doesn't cancel it.</p>
+<h3 id="gate"><a class="anchor" href="#gate">The protected-path gate</a></h3>
+<p>Credentials, keys and agent logins are off limits to <code>read</code>, <code>write</code>, <code>edit</code> and shell commands naming them: <code>auth.json</code>, <code>.env*</code>, <code>.netrc</code>, <code>.npmrc</code>, credentials and secrets files, anything under <code>.ssh</code> or <code>.gnupg</code>, private keys and <code>.pem</code>/<code>.key</code>/<code>.p12</code> files. Paths are checked as written and through symlinks. The first block in a run tells the agent not to try another way; a second ends the run.</p>
+<div class="note"><strong>Limits.</strong> Both checks read shell commands as text. A script that pushes, a variable holding a host name or a program that reads a key file itself gets past them. They stop mistakes; they don't contain a determined agent. Sessions run as you.</div>
+
+</section>
+
+<section id="changes" aria-labelledby="changes-h">
+<h2 id="changes-h"><a class="anchor" href="#changes">Changes, checkpoints and search</a></h2>
+
+<p>A session's changes are the project's files now against a snapshot taken when it started, including its commits and leaving out whatever was already uncommitted. <code>GET /api/sessions/:id/changes</code> gives the file list; <code>/changes/diff?path=</code> one file's diff.</p>
+<p>Each turn in a git project takes a checkpoint as it starts, so you can see what one turn did and put the files back:</p>
+<div class="code"><pre><code>aludra checkpoints --session 12
+aludra restore --session 12 3     <span class="c"># prints the command that undoes it</span></code></pre><button class="copy" type="button">Copy</button></div>
+<p>Restoring writes back changed and deleted files and removes files made since. Commits, branches, the index and ignored files stay. It's refused while the session runs or waits, and it takes a checkpoint first, so a restore can be undone.</p>
+<div class="code"><pre><code>aludra search login test          <span class="c"># every message and answer with all the words</span></code></pre><button class="copy" type="button">Copy</button></div>
+<p>Search covers what you and the agent said, archived sessions included, but not tool calls or their output.</p>
+
+</section>
+
+<section id="sandboxes" aria-labelledby="sandboxes-h">
+<h2 id="sandboxes-h"><a class="anchor" href="#sandboxes">Sandboxes</a></h2>
+
+<p>With a sandbox host in the settings, a session's tools can run in a Firecracker VM of its own: a copy of the project's last commit with its dependencies installed. The model and transcript stay on this machine. The sandbox reaches the internet and nothing else, holds no keys and can't push. The first sandbox session at a new commit waits while the project's template is made; later ones start in about a second.</p>
+<div class="code"><pre><code>aludra ask --project site --sandbox "Add tests for the parser"</code></pre><button class="copy" type="button">Copy</button></div>
+<p>A sandbox session works on the branch <code>sandbox/N</code>. When its run ends, its commits come home as <code>sandboxes.afterRun</code> says:</p>
+<div class="table"><table><thead><tr><th>afterRun</th><th>What happens</th></tr></thead><tbody><tr><td><code>fetch</code> (default)</td><td>Fetched into <code>sandbox/N</code> in the local checkout. The checked-out branch and working tree aren't touched.</td></tr><tr><td><code>merge</code></td><td>The same, then the checked-out branch is fast-forwarded when that's safe. Never a merge commit.</td></tr><tr><td><code>off</code></td><td>Nothing until <code>aludra sync</code>.</td></tr></tbody></table></div>
+<h3 id="ship"><a class="anchor" href="#ship">Sync and ship</a></h3>
+<div class="code"><pre><code>aludra sync --session 14 [--into BRANCH] [--merge]
+aludra ship --session 14 [--to main|branch]</code></pre><button class="copy" type="button">Copy</button></div>
+<p><code>ship</code> lands the work with the push made on this machine, so the sandbox never holds a key. aludra puts the upstream in the sandbox; the session commits, rebases and resolves conflicts, then aludra checks the result, runs the project's checks and pushes without force, to the upstream branch or to a branch of its own with a pull request through <code>gh</code>. Running <code>ship</code> counts as your approval of the push.</p>
+<h3 id="project-json"><a class="anchor" href="#project-json">Per-project settings</a></h3>
+<p><code>.agents/project.json</code> in a repository can set the sandbox size, declare checks to run after each run and before a ship, and name a dev server and pages to screenshot before and after the work. An executable <code>.agents/setup</code> replaces the default install when a template is made.</p>
+<div class="code"><pre><code>{
+  "size": "medium",
+  "checks": ["pnpm test", { "name": "types", "command": "pnpm exec tsc --noEmit" }],
+  "devServer": { "command": "pnpm dev", "port": 4380 },
+  "pages": ["/", { "path": "/settings", "label": "Settings" }]
+}</code></pre><button class="copy" type="button">Copy</button></div>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/cli.md#sandboxes">cli.md § Sandboxes</a></p>
+
+</section>
+
+<section id="settings" aria-labelledby="settings-h">
+<h2 id="settings-h"><a class="anchor" href="#settings">Settings</a></h2>
+
+<p>One JSON file: <code>--config FILE</code>, else <code>$ALUDRA_CONFIG</code>, else <code>~/.config/aludra/config.json</code>. Only <code>workspaces</code> is required.</p>
+<div class="code"><pre><code>{
+  "workspaces": [{ "name": "devbox", "roots": ["~/code/*", "~/work/*/*"] }],
+  "api": { "users": ["you@example.com"], "port": 8724 },
+  "model": { "id": "claude-opus-5-5", "thinking": "high" },
+  "claude": { "path": "claude" },
+  "approvals": { "hosts": ["prod-db"], "waitHours": 24 },
+  "backup": { "dir": "/mnt/backup/aludra", "everyHours": 24, "keep": 7 }
+}</code></pre><button class="copy" type="button">Copy</button></div>
+<div class="table"><table><thead><tr><th>Setting</th><th>What it does</th><th>Live?</th></tr></thead><tbody><tr><td><code>workspaces</code></td><td>Machine name and path patterns; every matched directory is a project.</td><td>Yes</td></tr><tr><td><code>api.users</code>, <code>api.port</code></td><td>Tailscale logins let in (none means the API stays off), and the loopback port.</td><td>File only</td></tr><tr><td><code>model.id</code>, <code>.thinking</code>, <code>.choices</code></td><td>Default model and thinking level for new sessions, and models pinned in pickers.</td><td>Yes</td></tr><tr><td><code>claude.path</code>, <code>.configDir</code></td><td>The Claude Code binary, and which login it uses.</td><td>File only</td></tr><tr><td><code>approvals.hosts</code>, <code>.waitHours</code></td><td>Hosts whose remote commands wait for you, and how long a request waits.</td><td>Yes</td></tr><tr><td><code>backup.dir</code>, <code>.everyHours</code>, <code>.keep</code></td><td>Where database copies go, how often, how many.</td><td>Yes</td></tr><tr><td><code>archive.afterDays</code></td><td>Idle days before a session is archived. <code>0</code> turns it off.</td><td>Yes</td></tr><tr><td><code>mcp.write</code>, <code>.sandboxOnly</code></td><td>Whether write tokens may start sessions, and whether those must run in sandboxes.</td><td>File only</td></tr><tr><td><code>sandboxes</code></td><td>The sandbox host and its keys, <code>afterRun</code>, <code>approvals</code>, <code>shipTo</code>.</td><td>File only</td></tr><tr><td><code>newProjects</code></td><td>Where the apps' New project creates repositories, and the GitHub owner.</td><td>File only</td></tr><tr><td><code>dataDir</code></td><td>Database, keys, scratch directories and uploads.</td><td>File only</td></tr></tbody></table></div>
+<p>Live settings change through <code>aludra config set</code>, amyrlin or <code>POST /api/settings</code> and take effect at once. File-only ones need a restart (<code>aludra service install</code>).</p>
+<div class="code"><pre><code>aludra config                                   <span class="c"># every setting and where it came from</span>
+aludra config set approvals.hosts db router
+aludra config set model.thinking medium
+aludra config unset backup.dir</code></pre><button class="copy" type="button">Copy</button></div>
+<h3 id="env"><a class="anchor" href="#env">Environment variables</a></h3>
+<div class="table"><table><thead><tr><th>Variable</th><th>Effect</th></tr></thead><tbody><tr><td><code>ALUDRA_CONFIG</code></td><td>The settings file, when <code>--config</code> isn't given.</td></tr><tr><td><code>ALUDRA_DATA_DIR</code></td><td>Replaces the data directory.</td></tr><tr><td><code>ALUDRA_MODEL=faux</code></td><td>A scripted model with no network, for tests and trying the host.</td></tr><tr><td><code>ALUDRA_SANDBOXES=fake</code></td><td>Sandboxes as local git clones, for development. Only with the faux model.</td></tr><tr><td><code>CLAUDE_CONFIG_DIR</code></td><td>Claude Code's config directory when <code>claude.configDir</code> isn't set.</td></tr><tr><td><code>PI_CLAUDE_CODE_ALLOW_USAGE_CREDITS=1</code></td><td>Lets a turn finish when Claude Code charged it to usage credits instead of the plan.</td></tr></tbody></table></div>
+<p>The data directory defaults to <code>~/Library/Application Support/aludra</code> on macOS and <code>~/.local/share/aludra</code> on Linux. It holds <code>aludra.sqlite</code> (every session), the search index, the CLI socket, provider sign-ins, scratch directories, uploads and backups, all owner-only.</p>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/configuration.md">configuration.md</a></p>
+
+</section>
+
+<section id="cli" aria-labelledby="cli-h">
+<h2 id="cli-h"><a class="anchor" href="#cli">CLI reference</a></h2>
+
+<p><code>aludra [--config FILE] COMMAND</code>. Setup commands work on their own; the rest talk to the running host over its Unix socket.</p>
+<div class="table"><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody><tr><td><code>init</code></td><td>Writes the settings file, asking for project folders, logins and machine name.</td></tr><tr><td><code>service install | uninstall | status</code></td><td>Runs the host in the background and at login (launchd or systemd).</td></tr><tr><td><code>serve</code></td><td>Runs the host in the foreground.</td></tr><tr><td><code>login | logout openai | openrouter</code></td><td>Signs this machine in to ChatGPT or OpenRouter.</td></tr><tr><td><code>doctor</code></td><td>Checks everything the host needs. Exits 1 on any failure.</td></tr><tr><td><code>ask --project NAME [--sandbox] MSG</code></td><td>Starts a session and prints the run.</td></tr><tr><td><code>ask --session ID [--steer] MSG</code></td><td>Sends a follow-up, or a steer while it runs.</td></tr><tr><td><code>sessions</code></td><td>Sessions grouped by project, the one that needs you most first.</td></tr><tr><td><code>watch [--session ID]</code></td><td>Follows every session, or one, live.</td></tr><tr><td><code>stop --session ID</code></td><td>Stops a session's run.</td></tr><tr><td><code>approvals</code>, <code>approve ID</code>, <code>deny ID</code></td><td>Lists and answers pending approvals.</td></tr><tr><td><code>checkpoints --session ID</code></td><td>Lists a session's checkpoints.</td></tr><tr><td><code>restore --session ID N</code></td><td>Puts the project's files back to checkpoint N.</td></tr><tr><td><code>search [--session ID] WORDS</code></td><td>Finds messages and answers with every word.</td></tr><tr><td><code>sync --session ID</code></td><td>Fetches a sandbox session's commits to <code>sandbox/N</code>.</td></tr><tr><td><code>ship --session ID</code></td><td>Rebases, checks and pushes a sandbox session's work.</td></tr><tr><td><code>retitle [--session ID]</code></td><td>Has a model write session titles.</td></tr><tr><td><code>archive | unarchive --session ID | --project NAME</code></td><td>Hides or restores a session or project in the lists.</td></tr><tr><td><code>page --session ID N</code></td><td>Writes a published page to a file.</td></tr><tr><td><code>projects [--archived]</code></td><td>Lists what the workspace roots match.</td></tr><tr><td><code>config [set KEY VALUE | unset KEY]</code></td><td>Lists or changes settings.</td></tr><tr><td><code>token add NAME [--write]</code>, <code>token list</code>, <code>token revoke ID</code></td><td>Manages MCP tokens.</td></tr><tr><td><code>backup</code></td><td>Copies the database now.</td></tr></tbody></table></div>
+<p><code>ask</code> output prefixes: <code>·</code> a tool call or retry, <code>?</code> a call waiting for approval, <code>!</code> a failure, none the answer. Ctrl+C leaves without stopping the run; rerun with the same <code>--id REQUEST</code> to reattach.</p>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/cli.md">cli.md</a></p>
+
+</section>
+
+<section id="api" aria-labelledby="api-h">
+<h2 id="api-h"><a class="anchor" href="#api">API</a></h2>
+
+<p>Four ways in, all reaching the same sessions: the HTTP and WebSocket API, amyrlin's protocol at <code>/amyrlin</code>, MCP at <code>/mcp</code>, and the CLI's Unix socket. TypeScript types are in <code>src/api-types.ts</code>.</p>
+<h3 id="http"><a class="anchor" href="#http">HTTP</a></h3>
+<p>Every request needs a <code>Tailscale-User-Login</code> header naming a login in <code>api.users</code>, which <code>tailscale serve</code> adds. POSTs send <code>Content-Type: application/json</code>. Errors are plain text: 400 bad value, 403 identity or origin, 404 missing, 409 approval not waiting, 413 too large.</p>
+<div class="table"><table><thead><tr><th>Endpoint</th><th>Does</th></tr></thead><tbody><tr><td><code>GET /api/bootstrap</code></td><td>Login, machine, projects, models, thinking levels, defaults.</td></tr><tr><td><code>POST /api/sessions</code></td><td>Starts a session: <code>{ project, text, images?, files?, model?, thinking?, sandbox? }</code>.</td></tr><tr><td><code>POST /api/sessions/:id/messages</code></td><td>Sends <code>{ text, mode: "steer" | "followUp" }</code>.</td></tr><tr><td><code>POST /api/sessions/:id/stop</code></td><td>Stops the run.</td></tr><tr><td><code>POST /api/sessions/:id/agent</code></td><td>Changes model or thinking.</td></tr><tr><td><code>POST /api/sessions/:id/title</code>, <code>/retitle</code>, <code>/archive</code></td><td>Renames, retitles, archives.</td></tr><tr><td><code>GET /api/sessions/:id/changes</code></td><td>Files changed, with <code>/changes/diff?path=</code>.</td></tr><tr><td><code>GET /api/sessions/:id/checkpoints</code></td><td>Checkpoints, their changes, and <code>/:n/restore</code>.</td></tr><tr><td><code>GET /api/search?q=</code></td><td>Message search.</td></tr><tr><td><code>POST /api/approvals/:id</code></td><td>Answers <code>{ allow }</code>.</td></tr><tr><td><code>POST /api/ideas</code></td><td>Saves an idea; <code>/:id/start</code>, <code>/:id/delete</code>.</td></tr><tr><td><code>GET | POST /api/settings</code></td><td>Self-describing settings, and changes to them.</td></tr><tr><td><code>/api/push/*</code></td><td>Web Push sign-up and a test notification.</td></tr></tbody></table></div>
+<h3 id="live"><a class="anchor" href="#live">Live socket</a></h3>
+<p><code>WS /api/live</code> sends <code>sessions</code>, <code>ideas</code> and <code>colors</code> on connect and keeps them current. Send <code>{ type: "follow", session }</code> to stream one session's transcript and meta.</p>
+<h3 id="mcp"><a class="anchor" href="#mcp">MCP</a></h3>
+<p><code>POST /mcp</code> takes a bearer token from <code>aludra token add</code>.</p>
+<div class="table"><table><thead><tr><th>Tool</th><th>Token</th></tr></thead><tbody><tr><td><code>list_projects</code>, <code>list_sessions</code>, <code>read_session</code>, <code>search_messages</code></td><td>Read</td></tr><tr><td><code>check_sessions</code>, <code>mark_sessions_handled</code></td><td>Read. A per-token cursor of sessions that finished, failed, stopped or started waiting.</td></tr><tr><td><code>start_session</code>, <code>send_message</code>, <code>stop_session</code></td><td>Write, with <code>mcp.write</code> on</td></tr><tr><td><code>archive_session</code>, <code>unarchive_session</code></td><td>Write; sandbox sessions only</td></tr></tbody></table></div>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/api.md">api.md</a></p>
+
+</section>
+
+<section id="security" aria-labelledby="security-h">
+<h2 id="security-h"><a class="anchor" href="#security">Security</a></h2>
+
+<p>aludra gives whoever reaches it an agent that runs commands as you. The protections are about who can reach it, and about the agent's mistakes.</p>
+<ul>
+<li><strong>Loopback only.</strong> The host listens on <code>127.0.0.1</code>; <code>tailscale serve</code> is the way in.</li>
+<li><strong>Tailscale identity.</strong> Only logins in <code>api.users</code> get through. There are no passwords. Everyone listed is equal and sees every session on the machine.</li>
+<li><strong>No browser access.</strong> POSTs need a JSON content type and a matching origin, <code>/amyrlin</code> and <code>/mcp</code> refuse any request with an <code>Origin</code>, and every response forbids scripts and framing.</li>
+<li><strong>File-only settings.</strong> Clients can't change who gets in, the Claude binary, MCP write access or the data directory.</li>
+<li><strong>No Claude credentials.</strong> aludra runs your Claude Code binary and refuses to start it when the environment would move runs off your subscription.</li>
+<li><strong>Owner-only data.</strong> The data directory is <code>0700</code>, the service runs with a <code>0077</code> umask, and backups are <code>0600</code>. The database holds every transcript; treat it like the code.</li>
+</ul>
+<div class="note"><strong>Shared machines.</strong> Any process that can reach <code>127.0.0.1:8724</code> and set a header can pretend to be a listed login.</div>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/security.md">security.md</a></p>
+
+</section>
+
+<section id="operations" aria-labelledby="operations-h">
+<h2 id="operations-h"><a class="anchor" href="#operations">Running aludra</a></h2>
+
+<div class="table"><table><thead><tr><th></th><th>macOS</th><th>Linux</th></tr></thead><tbody><tr><td>Unit</td><td><code>~/Library/LaunchAgents/io.bradjohnson.aludra.plist</code></td><td><code>~/.config/systemd/user/aludra.service</code></td></tr><tr><td>Log</td><td><code>~/Library/Logs/aludra/aludra.log</code></td><td><code>journalctl --user -u aludra</code></td></tr><tr><td>Restart</td><td><code>launchctl kickstart -k gui/$(id -u)/io.bradjohnson.aludra</code></td><td><code>systemctl --user restart aludra</code></td></tr></tbody></table></div>
+<p>Restarting is safe while sessions run: a run killed mid tool call sees the interrupted call and carries on.</p>
+<h3 id="backups"><a class="anchor" href="#backups">Backups</a></h3>
+<p>The host copies the database when the newest copy is older than <code>backup.everyHours</code>, using SQLite's online backup, and keeps the newest <code>backup.keep</code>. <code>aludra backup</code> makes one now. To restore: stop the host, copy a backup over <code>aludra.sqlite</code>, delete its <code>-wal</code> and <code>-shm</code> files and <code>search.sqlite</code>, and start the host.</p>
+<h3 id="troubleshooting"><a class="anchor" href="#troubleshooting">Troubleshooting</a></h3>
+<dl class="faq">
+<dt>amyrlin says 403, or a request gets "Forbidden".</dt><dd>Your login isn't in <code>api.users</code>, or the request didn't come through <code>tailscale serve</code>. Use the <code>ts.net</code> address, not <code>127.0.0.1</code>.</dd>
+<dt>amyrlin says 502.</dt><dd>Nothing is behind <code>tailscale serve</code>: the host isn't running or it's on another port. <code>aludra doctor</code> says which.</dd>
+<dt>A browser gets 404 at the machine's address.</dt><dd>There's no web app; only <code>/api/</code>, <code>/amyrlin</code> and <code>/mcp</code> answer.</dd>
+<dt>A session can't find pnpm, cargo or similar.</dt><dd>The service's PATH doesn't have it. Run <code>aludra service install</code> again from a shell that finds the tool.</dd>
+<dt>The host stopped after logging out (Linux).</dt><dd><code>loginctl enable-linger "$USER"</code>.</dd>
+<dt>Sessions run on the wrong Claude account.</dt><dd>Set <code>claude.configDir</code> to the config directory with the right login, then <code>aludra service install</code>.</dd>
+<dt>A turn fails with "Claude Code billing".</dt><dd>The turn would have been charged to usage credits. Wait for the plan's limit to reset, or set <code>PI_CLAUDE_CODE_ALLOW_USAGE_CREDITS=1</code>.</dd>
+<dt>"Refused by the model's safeguards".</dt><dd>Sometimes a false positive. Send a reworded follow-up.</dd>
+</dl>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/operations.md">operations.md</a></p>
+
+</section>
+
+<section id="architecture" aria-labelledby="architecture-h">
+<h2 id="architecture-h"><a class="anchor" href="#architecture">Architecture</a></h2>
+
+<p>One long-lived Node process, <code>aludra serve</code>, owns the SQLite file and runs every session. Clients hold no state that matters.</p>
+<div class="code"><pre><code>an API client                 amyrlin (macOS)             terminal
+        │ HTTPS + WS /api/live        │ WSS /amyrlin             │
+        └──────────────┬──────────────┘                          │
+               tailscale serve  (adds Tailscale-User-Login)      │
+                       │                                         │
+               127.0.0.1:8724                          aludra.sock (Unix socket)
+                       │                                         │
+ ┌─────────────────────┴─────────────── aludra serve ────────────┴──────┐
+ │  src/api.ts  ── the HTTP API and the /amyrlin endpoint                │
+ │  src/server.ts ── the CLI's socket                                    │
+ │  src/live.ts ── the live feed both sockets share                      │
+ │  src/host.ts ── Pi Durable Harness over aludra.sqlite                 │
+ │     extensions: CodingTools · context · claude-code · permissions     │
+ │  src/claude-code.ts ── pi-claude-code as a pi-ai provider             │
+ └───────────────────────────────┬───────────────────────────────────────┘
+                                 │ claude -p, stream-json
+                       Claude Code (claude.path), the user's own login</code></pre><button class="copy" type="button">Copy</button></div>
+<p>A session is a Pi Durable conversation with its agent's working directory set to the project. Extensions run in order: Pi Durable's coding tools, project context (instructions and skills, reread before every request), the Claude provider, checkpoints, and permissions last so it wraps every tool.</p>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/architecture.md">architecture.md</a></p>
+
+</section>
+
+<section id="development" aria-labelledby="development-h">
+<h2 id="development-h"><a class="anchor" href="#development">Development</a></h2>
+
+<div class="code"><pre><code>pnpm install
+pnpm check          <span class="c"># tsc, oxlint, then the tests</span>
+pnpm test           <span class="c"># node --test test/*.test.ts</span>
+pnpm build          <span class="c"># the host into dist/host</span>
+pnpm aludra doctor  <span class="c"># the CLI from source</span>
+ALUDRA_MODEL=faux ALUDRA_DATA_DIR=/tmp/aludra-dev pnpm serve   <span class="c"># try it without spending anything</span></code></pre><button class="copy" type="button">Copy</button></div>
+<p>Tests run against a faux model and real temporary git repositories, and never reach the network. <code>scripts/live-check.ts</code> runs against the real Claude Code after upgrading Pi Durable or pi-claude-code; it spends a little of the subscription. Pi's packages are pinned together, pi-claude-code to a GitHub commit, and pnpm resolves only versions at least three days old.</p>
+<p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/development.md">development.md</a></p>
+
+</section>
+</main>
+</div>
+<footer class="foot">aludra 0.1.0 · Source and Markdown docs at <a href="https://github.com/brad-j/aludra">github.com/brad-j/aludra</a></footer>
+<script>
+document.querySelectorAll(".copy").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const text = btn.previousElementSibling.innerText;
+    try { await navigator.clipboard.writeText(text); btn.dataset.state = "success"; btn.textContent = "Copied"; }
+    catch { btn.dataset.state = "error"; btn.textContent = "Select and copy"; }
+    clearTimeout(btn._t); btn._t = setTimeout(() => { delete btn.dataset.state; btn.textContent = "Copy"; }, 1500);
+  });
+});
+const links = new Map([...document.querySelectorAll(".toc a")].map(a => [a.hash.slice(1), a]));
+const label = document.querySelector(".toc summary span");
+const set = id => { links.forEach((a, k) => a.setAttribute("aria-current", k === id ? "true" : "false")); if (links.get(id)) label.textContent = links.get(id).textContent; };
+const io = new IntersectionObserver(entries => {
+  const vis = entries.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+  if (vis[0]) set(vis[0].target.id);
+}, { rootMargin: "-50px 0px -70% 0px" });
+document.querySelectorAll("main > section").forEach(s => io.observe(s));
+const det = document.querySelector(".toc details");
+document.querySelectorAll(".toc a").forEach(a => a.addEventListener("click", () => { if (matchMedia("(max-width: 900px)").matches) det.open = false; }));
+const sync = () => { det.open = !matchMedia("(max-width: 900px)").matches; };
+sync(); matchMedia("(max-width: 900px)").addEventListener("change", sync);
+</script>
+</body>
+</html>
