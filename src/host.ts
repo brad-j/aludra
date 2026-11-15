@@ -3,9 +3,9 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { Message, TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { createModels, getSupportedThinkingLevels, type Models, type Provider } from "@earendil-works/pi-ai/models";
@@ -108,6 +108,12 @@ export type SessionRecord = {
 	/** Its sandbox was deleted (src/sandbox-cleanup.ts): its tools have nowhere to run. */
 	sandboxRemoved?: boolean;
 	/**
+	 * A worktree session's number: it works in a git worktree of its own, `dir`, on branch `worktree/<number>`, made
+	 * from the project's last commit, and `source` is the project's checkout, which it never touches. `git push` is
+	 * refused in it, so its work stays on the branch until the user merges it.
+	 */
+	worktree?: number;
+	/**
 	 * The skills copied into its sandbox when it was made, at their paths there (src/sandbox-skills.ts); `[]` when the copy
 	 * failed. Sandboxes from before the copies have none, and their prompts name no skills.
 	 */
@@ -170,6 +176,26 @@ const SandboxNumbers = defineDoc<{ next: number }>({
 	scope: "session",
 	initial: () => ({ next: 0 }),
 });
+
+/** The next worktree session number (SessionRecord.worktree). */
+const WorktreeNumbers = defineDoc<{ next: number }>({
+	kind: "aludra.worktree-numbers",
+	version: 1,
+	scope: "session",
+	initial: () => ({ next: 0 }),
+});
+
+/** A worktree session's branch in its project's checkout. */
+export const worktreeBranch = (record: Pick<SessionRecord, "worktree">) => `worktree/${record.worktree}`;
+
+/** Whether `record` is a worktree session. */
+export const isWorktreeSession = (record: SessionRecord | undefined) => record?.worktree !== undefined;
+
+/**
+ * What a worktree session's shell gets on top of the host's environment: git told to rewrite every push URL to one that
+ * can't be reached, so a push fails even spelled in a way the approvals hook doesn't read. Fetching is unchanged.
+ */
+export const WORKTREE_ENV = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "url.aludra-push-refused:.pushInsteadOf", GIT_CONFIG_VALUE_0: "" };
 
 /** The name a scratch sandbox's repository goes by: its template's and its directory's in the sandbox. */
 export const SCRATCH_NAME = "scratch";
@@ -426,6 +452,7 @@ export async function openHost(options: HostOptions) {
 			const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
 			return isSandboxSession(record) && sandboxApprovals(record!) === "off";
 		},
+		pushRefused: async (id, read, ctx) => isWorktreeSession((await read.snapshot(Sessions, ctx))?.sessions[String(id)]),
 	}));
 
 	const harness = await Harness.open(
@@ -441,6 +468,8 @@ export async function openHost(options: HostOptions) {
 				if (sandbox !== undefined && sandbox.sandbox === undefined) throw new Error("This session's sandbox isn't ready yet, so its tools have nowhere to run.");
 				if (sandbox?.removed === true) throw new Error(`This session's sandbox was deleted when the session was archived, so its tools have nowhere to run. Its commits were fetched to ${sandbox.branch} in the project first. Start a new sandbox session to keep going.`);
 				if (sandbox !== undefined) return sandboxes.env(sandbox.sandbox, cwd ?? sandbox.dir);
+				const record = (await target.read.snapshot(Sessions, ctx))?.sessions[String(target.conversationId)];
+				if (isWorktreeSession(record)) return new NodeExecutionEnv({ cwd: cwd ?? record!.dir, shellEnv: WORKTREE_ENV });
 				return new NodeExecutionEnv({ cwd: cwd ?? homedir() });
 			},
 			onReport: (error) => console.error("[report]", error),
@@ -641,6 +670,57 @@ export async function openHost(options: HostOptions) {
 					dir: project.dir,
 					title: prompt.split("\n")[0]!.slice(0, 80),
 					createdAt: Date.now(),
+					...("error" in base ? { baseError: base.error } : { base }),
+				};
+				(await tx.doc(Sessions)).sessions[String(id)] = record;
+			},
+		}, context);
+		untitled.add(record!.id);
+		for (const listener of created) listener(record!);
+		return record!;
+	}
+
+	/**
+	 * A session in a git worktree of its own: `git worktree add` makes `worktree/<n>` from `project`'s HEAD in
+	 * worktrees/<project>-<n> in the data directory, and the session works there. The project's checkout, its branch and
+	 * its uncommitted files are never touched. Its changes view compares against the worktree as it was made.
+	 */
+	async function createWorktree(project: Project, prompt: string, agent: { model?: string; thinking?: Thinking } = {}): Promise<SessionRecord> {
+		const git = (...args: string[]) => run("git", ["-C", project.dir, ...args]);
+		const top = (await git("rev-parse", "--show-toplevel").catch(() => "")).trim();
+		if (top === "") throw new Error(`${project.name} isn't in git, so it can't have a worktree session`);
+		const head = (await git("rev-parse", "--verify", "--quiet", "HEAD").catch(() => "")).trim();
+		if (head === "") throw new Error(`${project.name} has no commits yet, so a worktree session has nothing to start from`);
+		// Past any worktree branch already in the checkout, such as one another data directory made.
+		const branches = await git("for-each-ref", "--format=%(refname:lstrip=3)", "refs/heads/worktree/").catch(() => "");
+		const inCheckout = Math.max(-1, ...branches.split("\n").filter((b) => /^\d+$/.test(b)).map(Number)) + 1;
+		const number = await root.commit(async (tx) => {
+			const numbers = await tx.doc(WorktreeNumbers);
+			const next = Math.max(numbers.next, inCheckout);
+			numbers.next = next + 1;
+			return next;
+		}, context);
+		const worktreesDir = resolve(config.dataDir, "worktrees");
+		mkdirSync(worktreesDir, { recursive: true, mode: 0o700 });
+		const dir = resolve(worktreesDir, `${project.name}-${number}`);
+		await git("worktree", "add", "-q", "-b", worktreeBranch({ worktree: number }), dir, head);
+		// The project's directory may be below the repository's top; the session works in the same place in the worktree.
+		const inside = resolve(dir, relative(await realpath(top), await realpath(project.dir)));
+		const base = await snapshot(inside);
+		let record: SessionRecord | undefined;
+		await harness.createConversation({
+			ownership: { kind: "ownerless" },
+			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? config.model.thinking, cwd: inside },
+			init: async (tx, id) => {
+				record = {
+					id,
+					workspace: project.workspace,
+					project: project.name,
+					dir: inside,
+					title: prompt.split("\n")[0]!.slice(0, 80),
+					createdAt: Date.now(),
+					source: project.dir,
+					worktree: number,
 					...("error" in base ? { baseError: base.error } : { base }),
 				};
 				(await tx.doc(Sessions)).sessions[String(id)] = record;
@@ -1421,6 +1501,8 @@ export async function openHost(options: HostOptions) {
 		mcpWrite: () => config.mcp.write,
 		/** Whether the MCP endpoint's write tools start and act on sandbox sessions only (the settings file's mcp.sandboxOnly). */
 		mcpSandboxOnly: () => config.mcp.sandboxOnly,
+		/** Whether the MCP endpoint's write tools start and act on worktree sessions only (the settings file's mcp.worktreeOnly). */
+		mcpWorktreeOnly: () => config.mcp.worktreeOnly,
 		/** The tokens agents send to /mcp. */
 		tokens,
 		/** Session changes agents on /mcp wake on, with a cursor per token (src/session-changes.ts). */
@@ -1483,7 +1565,7 @@ export async function openHost(options: HostOptions) {
 			/** Resolves once session `id`'s sandbox is ready or failed. */
 			prepared: (id: number) => prepareSandbox(id),
 		},
-		sessions: { list, get, create, createScratch, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
+		sessions: { list, get, create, createScratch, createWorktree, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		/** Sandbox sessions' results (src/results.ts). */
 		results: {
 			result: results.result,

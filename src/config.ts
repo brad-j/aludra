@@ -7,7 +7,7 @@
 //     "approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
 //     "backup": { "dir": "/mnt/nas/aludra", "everyHours": 24, "keep": 7 },
 //     "archive": { "afterDays": 3 },
-//     "mcp": { "write": false, "sandboxOnly": false },
+//     "mcp": { "write": false, "sandboxOnly": false, "worktreeOnly": false },
 //     "api": { "port": 8724, "users": ["you@example.com"] },
 //     "dataDir": "~/.local/share/aludra"
 //   }
@@ -82,9 +82,10 @@ export type Config = {
 	archive: { afterDays: number };
 	/**
 	 * The MCP endpoint (src/mcp.ts): read-only unless `write`, which lets agents start, message and stop sessions. With
-	 * `sandboxOnly`, the sessions it starts and the ones its tools act on are only sandbox sessions.
+	 * `sandboxOnly`, the sessions it starts and the ones its tools act on are only sandbox sessions; with `worktreeOnly`,
+	 * only worktree sessions. Both on is an error.
 	 */
-	mcp: { write: boolean; sandboxOnly: boolean };
+	mcp: { write: boolean; sandboxOnly: boolean; worktreeOnly: boolean };
 	/** The sandbox host (spike, src/sandboxes.ts), if sessions may run in sandboxes. */
 	sandboxes?: SandboxSetting;
 	/** ALUDRA_SANDBOXES=fake: sandboxes are local clones (src/fake-sandboxes.ts) in place of `sandboxes`' host, for development. */
@@ -128,7 +129,7 @@ const DEFAULTS = {
 	approvals: { hosts: [], waitHours: 24 },
 	backup: { everyHours: 24, keep: 7 },
 	archive: { afterDays: 3 },
-	mcp: { write: false, sandboxOnly: false },
+	mcp: { write: false, sandboxOnly: false, worktreeOnly: false },
 } satisfies Omit<Config, "workspaces" | "dataDir" | "backup" | "sandboxes"> & { backup: Omit<Config["backup"], "dir"> };
 
 const EXAMPLE_WORKSPACE = '"workspaces": [{ "name": "code", "roots": ["~/code/*"] }]';
@@ -141,7 +142,7 @@ const settingsFile = object({
 	approvals: optional(object({ hosts: optional(array(string)), waitHours: optional(number) })),
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	archive: optional(object({ afterDays: optional(number) })),
-	mcp: optional(object({ write: optional(boolean), sandboxOnly: optional(boolean) })),
+	mcp: optional(object({ write: optional(boolean), sandboxOnly: optional(boolean), worktreeOnly: optional(boolean) })),
 	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")), approvals: optional(literal("ask", "off")) })),
 	newProjects: optional(object({ root: string, owner: string })),
 	dataDir: optional(string),
@@ -230,6 +231,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 			config.sandboxes = { ssh: "fake", gateKey: "/dev/null", knownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA", afterRun: named?.afterRun ?? "fetch", shipTo: named?.shipTo ?? "main", approvals: named?.approvals ?? "off" };
 		}
 	}
+	if (config.mcp.sandboxOnly && config.mcp.worktreeOnly) errors.push("mcp.sandboxOnly and mcp.worktreeOnly are both on; an MCP session can be one or the other, so turn one off");
 	const { provider, id } = config.model;
 	if (!config.model.choices.some((c) => c.provider === provider && c.id === id)) config.model.choices = [{ provider, id }, ...config.model.choices];
 	// The apps pick a model by its ID.

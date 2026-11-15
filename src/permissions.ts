@@ -13,6 +13,9 @@
 //   still applies there: it keeps secrets out of the transcript, which lives here and goes to the model's provider
 //   wherever the tools run, and a sandbox holds the project's committed files, which can include one.
 //
+// - A worktree session never pushes: `git push` is refused without asking, and its shell's git rewrites every push URL
+//   to one that can't be reached (host.ts, WORKTREE_ENV), so a push the hook doesn't read fails too.
+//
 // Both read shell commands as text, so they're best effort: a command can always be spelled so neither sees it.
 import { randomBytes } from "node:crypto";
 import type { Context } from "@earendil-works/chord";
@@ -331,6 +334,8 @@ export type PermissionOptions = {
 	hosts: () => readonly string[];
 	/** Whether conversation `id` runs its calls without approvals (a sandbox session with approvals off); read at each call. */
 	approvalsOff?: (id: ConversationId, read: DocumentReader, context: Context) => Promise<boolean>;
+	/** Whether conversation `id` may never push (a worktree session), which refuses a push rather than asking; read at each call. */
+	pushRefused?: (id: ConversationId, read: DocumentReader, context: Context) => Promise<boolean>;
 };
 
 export function permissionsExtension(options: PermissionOptions) {
@@ -363,6 +368,10 @@ export function permissionsExtension(options: PermissionOptions) {
 		if (call.name !== "bash" || typeof command !== "string") return undefined;
 		const summary = approvalFor(command, options.hosts());
 		if (summary === undefined) return undefined;
+		// Not asked: a worktree session's work stays on its branch until the user merges it and pushes themselves.
+		if (summary === "git push" && (await options.pushRefused?.(api.conversationId, api, context)) === true) {
+			return { block: "This session works in a git worktree, and git push is refused in it: commit your work to its branch, and the user merges and pushes it. Don't try another way to push." };
+		}
 		if ((await options.approvalsOff?.(api.conversationId, api, context)) === true) return undefined;
 		const approvals = options.approvals();
 		if ((await approvals.allowed(api.conversationId)).includes(summary)) return undefined;

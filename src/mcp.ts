@@ -16,6 +16,11 @@
 // in one, whoever started it. Without a sandbox host every write tool refuses, so nothing falls back to a local
 // session. No tool here syncs, merges or ships; what a run's end does to the checkout is sandboxes.afterRun's.
 //
+// mcp.worktreeOnly narrows writing to worktree sessions in the same way: start_session makes each session in a git
+// worktree of its own on worktree/N, from the project's last commit, where git push is refused (src/permissions.ts), so
+// nothing it does reaches the checked-out branch or a remote. A call with worktree: false is refused, and send_message
+// and stop_session refuse any session that isn't in a worktree. Without worktreeOnly, worktree: true asks for one.
+//
 // archive_session and unarchive_session hide a session from the lists and bring it back, through host.sessions.archive
 // as the apps do, so the archive's usual consequences follow: a sandbox session's sandbox is deleted once its commits
 // are fetched to sandbox/N (src/sandbox-cleanup.ts). They act only on sandbox sessions whatever mcp.sandboxOnly says,
@@ -36,7 +41,7 @@ import type { Scope, Token } from "./tokens.ts";
 import { prose, parseSaid } from "./results.ts";
 import { readSummary } from "./live.ts";
 import { findProject } from "./projects.ts";
-import { context, isSandboxSession } from "./host.ts";
+import { context, isSandboxSession, isWorktreeSession, worktreeBranch } from "./host.ts";
 import { itemsOf } from "./transcript.ts";
 
 const THINKING_LIST = "off, minimal, low, medium, high, xhigh";
@@ -205,8 +210,11 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 	const refusal = writeRefusal(host, options.token.scope);
 	// Fixed for the server's life, so the instructions and descriptions an agent sees don't change between calls.
 	const sandboxOnly = host.mcpSandboxOnly();
+	const worktreeOnly = host.mcpWorktreeOnly();
 	const writing = refusal !== undefined
 		? `This endpoint is read-only for you: ${refusal}.`
+		: worktreeOnly
+			? "You can also start a session with a task, send one a message, and stop it, in worktrees only: every session you start works in a git worktree of its own on a worktree/N branch made from the project's last commit, where git push is refused, and you can message or stop only worktree sessions. Its commits stay on that branch until the user merges them. Describe the task fully."
 		: sandboxOnly
 			? "You can also start a session with a task, send one a message, and stop it, in sandboxes only: every session you start runs in a sandbox VM of its own, and you can message, stop, archive or unarchive only sandbox sessions. Describe the task fully."
 			: "You can also start a session with a task, send one a message, and stop it; sessions run with full permissions in their project, so describe the task fully. You can archive and unarchive sandbox sessions.";
@@ -220,6 +228,7 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		const record = await host.sessions.get(id);
 		if (record === undefined) return `No session ${id}`;
 		if (sandboxOnly && !isSandboxSession(record)) return `session ${id} isn't in a sandbox, and this endpoint acts only on sandbox sessions (mcp.sandboxOnly)`;
+		if (worktreeOnly && !isWorktreeSession(record)) return `session ${id} isn't in a worktree, and this endpoint acts only on worktree sessions (mcp.worktreeOnly)`;
 		return undefined;
 	};
 	/** As sessionRefusal, but sandbox-only whether or not mcp.sandboxOnly is on: archiving is never for local sessions. */
@@ -291,8 +300,11 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 			effort: z.string().min(1).optional().describe(`Thinking effort for this turn and after it: one of ${THINKING_LIST} that the model takes. Default: the session's, or the host's default for a new session.`),
 		};
 		const sandboxText = "a sandbox VM of its own: a copy of the project's last commit that reaches the internet and nothing else, holding no keys. Its commits come back to the project's sandbox/N branch";
+		const worktreeText = "a git worktree of its own on a worktree/N branch, made from the project's last commit, where git push is refused; the project's checkout and its uncommitted files are never touched, and its commits stay on the branch until the user merges them";
 		server.registerTool("start_session", {
-			description: sandboxOnly
+			description: worktreeOnly
+				? `Start a session in a project on ${options.machine} with a task, worktree-only: it always works in ${worktreeText}. read_session shows how it goes. Returns its id and branch.`
+				: sandboxOnly
 				? `Start a session in a project on ${options.machine} with a task, sandbox-only: it always runs in ${sandboxText}. A local session is refused. read_session shows how it goes. Returns its id.`
 				: `Start a session in a project on ${options.machine} with a task. It runs on its own with full permissions in the project; read_session shows how it goes. Returns its id.`,
 			inputSchema: {
@@ -301,13 +313,20 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 				sandbox: z.boolean().optional().describe(sandboxOnly
 					? "Sandbox-only here: leave it out or pass true; false is refused."
 					: "Run its tools in a sandbox VM of its own: a copy of the project's last commit that reaches the internet and nothing else, holding no keys. Its commits come back with `aludra sync`."),
+				worktree: z.boolean().optional().describe(worktreeOnly
+					? "Worktree-only here: leave it out or pass true; false is refused."
+					: `Work in ${worktreeText}.`),
 				...turnFields,
 			},
 			annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-		}, async ({ project, task, sandbox, model, effort }) => {
+		}, async ({ project, task, sandbox, worktree, model, effort }) => {
 			const blocked = sandboxOnlyRefusal(host);
 			if (blocked !== undefined) return failure(blocked);
 			if (sandboxOnly && sandbox === false) return failure("this endpoint starts only sandbox sessions (mcp.sandboxOnly); leave sandbox out or pass true");
+			if (worktreeOnly && worktree === false) return failure("this endpoint starts only worktree sessions (mcp.worktreeOnly); leave worktree out or pass true");
+			if (worktreeOnly && sandbox === true) return failure("this endpoint starts only worktree sessions (mcp.worktreeOnly), not sandbox sessions");
+			const inWorktree = worktreeOnly || worktree === true;
+			if (inWorktree && sandbox === true) return failure("a session is in a sandbox or a worktree, not both");
 			const agent = turnSettings(host, { model, effort }, host.model);
 			if (typeof agent === "string") return failure(agent);
 			const inSandbox = sandboxOnly || sandbox === true;
@@ -320,16 +339,18 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 			const title = task.split("\n")[0]!.slice(0, 80);
 			let session;
 			try {
-				session = inSandbox ? await host.sessions.createSandbox(found, title, agent) : await host.sessions.create(found, title, agent);
+				session = inWorktree ? await host.sessions.createWorktree(found, title, agent)
+					: inSandbox ? await host.sessions.createSandbox(found, title, agent)
+					: await host.sessions.create(found, title, agent);
 			} catch (error) {
 				return failure(error instanceof Error ? error.message : String(error));
 			}
 			await host.submit(session.id, task);
-			return answer({ id: session.id, project: session.project, dir: session.dir, ...(session.sandbox === undefined ? {} : { sandbox: session.sandbox }) });
+			return answer({ id: session.id, project: session.project, dir: session.dir, ...(session.sandbox === undefined ? {} : { sandbox: session.sandbox }), ...(session.worktree === undefined ? {} : { worktree: session.worktree, branch: worktreeBranch(session) }) });
 		});
 
 		server.registerTool("send_message", {
-			description: `Send a session a message. While it runs, it goes in at the next tool boundary (steer) or waits until the run answers (followUp, the default).${sandboxOnly ? " Sandbox-only: a session that isn't in a sandbox is refused." : ""}`,
+			description: `Send a session a message. While it runs, it goes in at the next tool boundary (steer) or waits until the run answers (followUp, the default).${sandboxOnly ? " Sandbox-only: a session that isn't in a sandbox is refused." : ""}${worktreeOnly ? " Worktree-only: a session that isn't in a worktree is refused." : ""}`,
 			inputSchema: { id: z.number().int(), text: z.string().min(1), mode: z.enum(["followUp", "steer"]).optional(), ...turnFields },
 			annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
 		}, async ({ id, text, mode, model, effort }) => {
@@ -352,7 +373,7 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		});
 
 		server.registerTool("stop_session", {
-			description: `Stop a session's run. Queued messages are dropped.${sandboxOnly ? " Sandbox-only: a session that isn't in a sandbox is refused." : ""}`,
+			description: `Stop a session's run. Queued messages are dropped.${sandboxOnly ? " Sandbox-only: a session that isn't in a sandbox is refused." : ""}${worktreeOnly ? " Worktree-only: a session that isn't in a worktree is refused." : ""}`,
 			inputSchema: { id: z.number().int() },
 			annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		}, async ({ id }) => {

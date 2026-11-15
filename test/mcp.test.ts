@@ -10,13 +10,15 @@ import { createApi } from "../src/api.ts";
 import { configFor } from "../src/config.ts";
 import { context } from "../src/host.ts";
 import { transcriptText } from "../src/mcp.ts";
-import { fakeSandboxes, gitProject, makeProject, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { fakeSandboxes, git, gitProject, makeProject, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
 
 /** A faux host with its API on a free port and a read token and a write token for /mcp. `write` turns on mcp.write;
  * `connect` uses the write token unless given other headers. */
-async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; sandboxes?: boolean; approvals?: "ask" | "off"; responses?: FauxResponseStep[] } = {}) {
+async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; worktreeOnly?: boolean; git?: boolean; remote?: boolean; sandboxes?: boolean; approvals?: "ask" | "off"; responses?: FauxResponseStep[] } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }, { id: "faux-think", reasoning: true }] });
 	faux.setResponses(options.responses ?? Array.from({ length: 20 }, () => fauxAssistantMessage(fauxText("The build passes now."))));
 	const models = createModels();
@@ -26,7 +28,9 @@ async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: bool
 	const { host, dir, config } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(fake === undefined ? {} : { sandboxes: fake.sandboxes, settings: { sandboxes: { ...SANDBOX_SETTINGS.sandboxes, ...(options.approvals === undefined ? {} : { approvals: options.approvals }) } } }) });
 	config.mcp.write = write;
 	config.mcp.sandboxOnly = options.sandboxOnly === true;
-	const project = fake === undefined ? makeProject(dir, "site") : gitProject(dir, "site").project;
+	config.mcp.worktreeOnly = options.worktreeOnly === true;
+	const made = fake === undefined && options.git !== true ? { project: makeProject(dir, "site"), remote: undefined } : gitProject(dir, "site", undefined, { remote: options.remote === true });
+	const { project } = made;
 	const server = createApi(host, { users: [USER], name: "egwene" });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
@@ -40,7 +44,7 @@ async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: bool
 		t.after(() => client.close());
 		return client;
 	};
-	return { host, project, url, connect, reader, writer, bearer };
+	return { host, project, remote: made.remote, url, connect, reader, writer, bearer };
 }
 
 const READ_TOOLS = ["check_sessions", "list_projects", "list_sessions", "mark_sessions_handled", "read_session", "search_messages"];
@@ -227,12 +231,14 @@ test("the API still wants a listed Tailscale login, and a token isn't one", asyn
 	assert.equal((await fetch(`${url}/api/bootstrap`, { headers: { "tailscale-user-login": USER } })).status, 200);
 });
 
-test("mcp.write and mcp.sandboxOnly come from the settings file and are off by default", () => {
+test("mcp.write, mcp.sandboxOnly and mcp.worktreeOnly come from the settings file, are off by default, and the last two can't both be on", () => {
 	const workspaces = [{ name: "a", roots: [] }];
-	assert.deepEqual(configFor(JSON.stringify({ workspaces }), {}).config.mcp, { write: false, sandboxOnly: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true } }), {}).config.mcp, { write: true, sandboxOnly: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: true });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces }), {}).config.mcp, { write: false, sandboxOnly: false, worktreeOnly: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, worktreeOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: true });
 	assert.match(configFor(JSON.stringify({ workspaces, mcp: { sandboxOnly: "yes" } }), {}).errors.join("\n"), /sandboxOnly/);
+	assert.match(configFor(JSON.stringify({ workspaces, mcp: { sandboxOnly: true, worktreeOnly: true } }), {}).errors.join("\n"), /both on/);
 });
 
 test("a long transcript keeps its latest items", () => {
@@ -557,4 +563,118 @@ test("archive_session refuses a sandbox session whose branch was discarded, sinc
 	assert.equal(refused.isError, true);
 	assert.match(text(refused), /branch was discarded/);
 	assert.equal((await host.sessions.get(boxed.id))?.archived, undefined);
+});
+
+
+/** Answers each message by running `command` with bash, then reporting what came back. */
+function running(command: string): FauxResponseStep[] {
+	return Array.from({ length: 20 }, () => (ctx: TranscriptContext) => {
+		const last = ctx.messages.at(-1);
+		if (last?.role === "toolResult") return fauxAssistantMessage(fauxText(`result: ${JSON.stringify(last.content)}`));
+		return fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" });
+	});
+}
+
+test("worktreeOnly: start_session works in a worktree of the last commit on worktree/N, and the checkout is never touched", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { worktreeOnly: true, git: true, responses: running("echo two > a.txt && git commit -qam 'from the session' && git log --oneline -1") });
+	// Uncommitted work in the checkout, which the session must neither see nor change.
+	writeFileSync(join(project.dir, "a.txt"), "mine, uncommitted\n");
+	const before = git(project.dir, "rev-parse", "HEAD");
+	const client = await connect();
+	assert.match(client.getInstructions() ?? "", /in worktrees only/);
+	const started = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Change a.txt" } })));
+	assert.equal(started.branch, "worktree/0");
+	assert.notEqual(started.dir, project.dir);
+	await idle(host, started.id);
+	const record = await host.sessions.get(started.id);
+	assert.equal(record?.worktree, 0);
+	assert.equal(record?.source, project.dir);
+	assert.equal(readFileSync(join(started.dir, "a.txt"), "utf8"), "two\n");
+	assert.equal(git(project.dir, "log", "-1", "--format=%s", "worktree/0"), "from the session");
+	// The checkout: same branch, same commit, same uncommitted file.
+	assert.equal(git(project.dir, "rev-parse", "--abbrev-ref", "HEAD"), "main");
+	assert.equal(git(project.dir, "rev-parse", "HEAD"), before);
+	assert.equal(readFileSync(join(project.dir, "a.txt"), "utf8"), "mine, uncommitted\n");
+	// A second session gets the next branch.
+	const second = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Again" } })));
+	assert.equal(second.branch, "worktree/1");
+	await idle(host, second.id);
+
+	for (const args of [{ worktree: false }, { sandbox: true }]) {
+		const refused = await client.callTool({ name: "start_session", arguments: { project: "site", task: "Elsewhere", ...args } });
+		assert.equal(refused.isError, true, JSON.stringify(args));
+		assert.match(text(refused), /only worktree sessions \(mcp.worktreeOnly\)/);
+	}
+	// A session started from the apps, in the checkout, can't be messaged or stopped here.
+	const local = await host.sessions.create(project, "Mine");
+	for (const name of ["send_message", "stop_session"]) {
+		const refused = await client.callTool({ name, arguments: { id: local.id, ...(name === "send_message" ? { text: "x" } : {}) } });
+		assert.equal(refused.isError, true, name);
+		assert.match(text(refused), /isn't in a worktree/, name);
+	}
+});
+
+test("a worktree session's git push is refused without asking", async (t) => {
+	const { host, connect } = await mcp(t, true, { worktreeOnly: true, git: true, responses: running("git push origin HEAD") });
+	const client = await connect();
+	const started = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Push it" } })));
+	await idle(host, started.id);
+	const answer = JSON.stringify((await (await host.conversation(started.id)).context(context)).messages.at(-1));
+	assert.match(answer, /git push is refused in it/);
+	assert.deepEqual((await host.approvals.pending()).filter((r) => r.conversationId === started.id), [], "nothing was asked");
+});
+
+test("a worktree session's push spelled so the hook can't read it still fails, and the remote doesn't move", async (t) => {
+	const { host, remote, connect } = await mcp(t, true, { worktreeOnly: true, git: true, remote: true, responses: running("git commit -q --allow-empty -m more && g=git; $g push origin HEAD:main; echo exit=$?") });
+	const at = git(remote!, "rev-parse", "main");
+	const client = await connect();
+	const started = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Push it" } })));
+	await idle(host, started.id);
+	const answer = JSON.stringify((await (await host.conversation(started.id)).context(context)).messages.at(-1));
+	assert.match(answer, /exit=[1-9]/, "the push failed");
+	assert.equal(git(remote!, "rev-parse", "main"), at, "the remote didn't move");
+	assert.deepEqual((await host.approvals.pending()).filter((r) => r.conversationId === started.id), [], "nothing was asked");
+});
+
+test("a worktree session's shell rewrites push URLs to one that can't be reached, and fetch still works", async (t) => {
+	const dir = tempDir(t);
+	const { project, remote } = gitProject(dir, "site", { "a.txt": "one\n" }, { remote: true });
+	// A push spelled so the approvals hook doesn't read it as one, run with the session's environment.
+	const { WORKTREE_ENV } = await import("../src/host.ts");
+	const { execFileSync } = await import("node:child_process");
+	const env = { ...process.env, ...WORKTREE_ENV };
+	execFileSync("git", ["-C", project.dir, "commit", "-q", "--allow-empty", "-m", "more"]);
+	const pushed = (() => {
+		try {
+			execFileSync("sh", ["-c", "g=git; $g -C \"$0\" push -q origin main", project.dir], { env, stdio: "pipe" });
+			return true;
+		} catch {
+			return false;
+		}
+	})();
+	assert.equal(pushed, false, "the push failed");
+	assert.notEqual(git(remote!, "rev-parse", "main"), git(project.dir, "rev-parse", "main"), "the remote didn't move");
+	execFileSync("git", ["-C", project.dir, "fetch", "-q", "origin"], { env });
+	assert.ok(existsSync(remote!));
+});
+
+test("without worktreeOnly, worktree: true asks for a worktree session, and a sandbox and a worktree together are refused", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { git: true });
+	const client = await connect();
+	const started = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Here", worktree: true } })));
+	assert.equal(started.branch, "worktree/0");
+	await idle(host, started.id);
+	const both = await client.callTool({ name: "start_session", arguments: { project: "site", task: "Both", worktree: true, sandbox: true } });
+	assert.equal(both.isError, true);
+	assert.match(text(both), /not both/);
+	assert.equal(git(project.dir, "rev-parse", "--abbrev-ref", "HEAD"), "main");
+});
+
+test("a project that isn't in git can't have a worktree session", async (t) => {
+	const { host, connect } = await mcp(t, true, { worktreeOnly: true });
+	const client = await connect();
+	const refused = await client.callTool({ name: "start_session", arguments: { project: "site", task: "x" } });
+	assert.equal(refused.isError, true);
+	assert.match(text(refused), /isn't in git/);
+	assert.equal((await host.sessions.list()).length, 0);
 });
