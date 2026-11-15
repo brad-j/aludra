@@ -56,6 +56,15 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces.
 
+## To look into, from hosted agents (2026-11-15)
+
+Ideas from how Amp, Codex cloud and Claude Code on the web run sessions in cloud sandboxes. None is decided.
+
+- **Secrets for setup only**, after Codex: setup scripts get credentials (a private registry token, say) and they're removed before the agent's turns start. A smaller step than stedding's placeholder-secrets proxy for the case where only `.agents/setup` needs a key.
+- **A credential proxy for git**, after Claude Code's GitHub proxy: the sandbox's git traffic goes through a proxy outside the VM that adds the credential, so a sandbox could push a branch without holding a token. Today ship avoids the question by pushing from egwene; this would matter if sandboxes ever need to push on their own.
+- **Web traffic through a home connection**, after Amp's Orb Network Routing: sites that block cloud IPs see the user's own connection. Sandboxes on matrim already use the home connection, so this only matters if they move to a cloud host.
+- **Pausing on agent idle and human idle**, after Amp: pause 5 minutes after the agent stops or 20 minutes after the user last interacted, whichever is later. Today a sandbox's connection closes after 60 s with nothing in flight and matrim's reaper pauses it 60 s after that, so reading a diff and replying often meets a wake. Worth measuring how often that happens and what a wake costs before changing it.
+
 ## Lan as captain over MCP (2026-11-07)
 
 Lan wakes on session changes without a model running: its server calls a connector tool as a gate that answers `{ wake, data, topic }`, as the mail connector's `check_new_mail` and `mark_handled(throughUid)` do. Built:
