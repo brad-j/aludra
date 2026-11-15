@@ -178,6 +178,7 @@ Tools, always:
 | `list_sessions` | `project?`, `includeArchived?`, `limit?` (default 30) | Sessions newest first: id, project, title, state, latest activity, when, and `model` and `effort`. |
 | `read_session` | `id` | The session's title, project, state, model and effort, then its transcript as text: messages, answers and a line per tool call, the latest 60,000 characters. |
 | `search_messages` | `query`, `session?`, `limit?` (default 20) | As `GET /api/search`. |
+| `read_plan` | `project` | `{ project, path, exists, text?, size?, modified? }`: the project's `docs/plan.md` as the working copy has it, uncommitted edits included, with its size in bytes and when it last changed. `exists: false` when there's none. A plan over 512 KB, one that isn't a file, and a `docs` or `docs/plan.md` that's a symbolic link are errors, so it never reads anything outside the project. |
 | `check_sessions` | | `{ wake, data, topic, through? }`, a gate for an agent that wakes on session changes without a model running. Moves nothing. |
 | `mark_sessions_handled` | `through` | `{ through }`: this token's changes up to and including change `through` are handled. |
 

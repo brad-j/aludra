@@ -10,7 +10,7 @@ import { createApi } from "../src/api.ts";
 import { configFor } from "../src/config.ts";
 import { context } from "../src/host.ts";
 import { transcriptText } from "../src/mcp.ts";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeSandboxes, git, gitProject, makeProject, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
 
@@ -47,7 +47,7 @@ async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: bool
 	return { host, project, remote: made.remote, url, connect, reader, writer, bearer };
 }
 
-const READ_TOOLS = ["check_sessions", "list_projects", "list_sessions", "mark_sessions_handled", "read_session", "search_messages"];
+const READ_TOOLS = ["check_sessions", "list_projects", "list_sessions", "mark_sessions_handled", "read_plan", "read_session", "search_messages"];
 const WRITE_TOOLS = [...READ_TOOLS, "archive_session", "send_message", "start_session", "stop_session", "unarchive_session"].sort();
 
 const text = (result: unknown) => ((result as { content: { text: string }[] }).content[0]!.text);
@@ -79,6 +79,22 @@ test("read-only: an agent lists projects and sessions, reads a transcript and se
 	assert.match(text(refused), /start_session not found/);
 	assert.equal((await host.sessions.list()).length, 1, "no session was started");
 	assert.ok(host.tokens.list().find((tok) => tok.id === writer.token.id)?.lastSeenAt, "the token's use is noted");
+});
+
+test("read_plan gives a read token a project's plan, says when there's none, and fails for an unknown project", async (t) => {
+	const { project, connect, reader, bearer } = await mcp(t, false);
+	const client = await connect(bearer(reader.secret));
+	const none = await client.callTool({ name: "read_plan", arguments: { project: "site" } });
+	assert.equal(none.isError, undefined);
+	assert.deepEqual(JSON.parse(text(none)), { project: "site", path: "docs/plan.md", exists: false });
+	mkdirSync(join(project.dir, "docs"), { recursive: true });
+	writeFileSync(join(project.dir, "docs/plan.md"), "# Plan\n\n## Now\n");
+	const plan = JSON.parse(text(await client.callTool({ name: "read_plan", arguments: { project: "site" } })));
+	assert.equal(plan.exists, true);
+	assert.equal(plan.text, "# Plan\n\n## Now\n");
+	const unknown = await client.callTool({ name: "read_plan", arguments: { project: "nope" } });
+	assert.equal(unknown.isError, true);
+	assert.match(text(unknown), /no project nope/);
 });
 
 test("a read token can't write even with mcp.write on", async (t) => {

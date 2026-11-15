@@ -43,6 +43,7 @@ import { readSummary } from "./live.ts";
 import { findProject } from "./projects.ts";
 import { context, isSandboxSession, isWorktreeSession, worktreeBranch } from "./host.ts";
 import { itemsOf } from "./transcript.ts";
+import { readPlan } from "./plans.ts";
 
 const THINKING_LIST = "off, minimal, low, medium, high, xhigh";
 
@@ -244,6 +245,18 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 	server.registerTool("list_projects", { description: `The projects sessions can work in on ${options.machine}: name, workspace and directory.`, annotations: readOnly }, async () =>
 		answer(host.projects().map((p) => ({ name: p.name, workspace: p.workspace, dir: p.dir }))),
 	);
+
+	server.registerTool("read_plan", {
+		description: `A project's plan on ${options.machine}: the text of its docs/plan.md as the working copy has it now, uncommitted edits included, and when it was last changed. A project with no plan answers exists: false.`,
+		inputSchema: { project: z.string().describe("A name from list_projects") },
+		annotations: readOnly,
+	}, async ({ project }) => {
+		try {
+			return answer(await readPlan(findProject(host.projects(), project)));
+		} catch (error) {
+			return failure(error instanceof Error ? error.message : String(error));
+		}
+	});
 
 	server.registerTool("list_sessions", {
 		description: "Sessions, newest first: id, project, title, state (running, waiting, done, failed, stopped, idle), the latest activity, and the model and effort its next turn runs on, as start_session and send_message take them.",
