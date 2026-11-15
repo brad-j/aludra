@@ -507,7 +507,7 @@ test("archive_session refuses a running or waiting session, and both tools refus
 	for (const name of ["archive_session", "unarchive_session"]) {
 		const refused = await call(client, name, mine.id);
 		assert.equal(refused.isError, true, name);
-		assert.match(text(refused), new RegExp(`session ${mine.id} isn't in a sandbox, and ${name} acts only on sandbox sessions`), name);
+		assert.match(text(refused), new RegExp(`session ${mine.id} isn't in a sandbox or a worktree, and ${name} acts only on those`), name);
 	}
 	await host.sessions.archive(mine.id, true);
 	assert.match(text(await call(client, "unarchive_session", mine.id)), /isn't in a sandbox/);
@@ -532,7 +532,7 @@ test("sandboxOnly: archive_session and unarchive_session refuse local sessions w
 	}
 	assert.equal((await host.sessions.get(mine.id))?.archived, undefined);
 	const tools = (await client.listTools()).tools;
-	for (const name of ["archive_session", "unarchive_session"]) assert.match(tools.find((tool) => tool.name === name)?.description ?? "", /Sandbox-only/, name);
+	for (const name of ["archive_session", "unarchive_session"]) assert.match(tools.find((tool) => tool.name === name)?.description ?? "", /Sandbox and worktree sessions only/, name);
 
 	const readOnly = await connect(bearer(reader.secret));
 	const refused = await readOnly.callTool({ name: "archive_session", arguments: { id: mine.id } });

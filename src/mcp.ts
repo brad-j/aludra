@@ -231,11 +231,12 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		if (worktreeOnly && !isWorktreeSession(record)) return `session ${id} isn't in a worktree, and this endpoint acts only on worktree sessions (mcp.worktreeOnly)`;
 		return undefined;
 	};
-	/** As sessionRefusal, but sandbox-only whether or not mcp.sandboxOnly is on: archiving is never for local sessions. */
+	/** As sessionRefusal, but only sandbox and worktree sessions whatever the mode: archiving is never for sessions in the checkout. */
 	const archiveRefusal = async (id: number, tool: string): Promise<string | undefined> => {
 		const refused = await sessionRefusal(id);
 		if (refused !== undefined) return refused === `No session ${id}` ? `No session ${id}; list_sessions lists them, with includeArchived for archived ones` : refused;
-		if (!isSandboxSession(await host.sessions.get(id))) return `session ${id} isn't in a sandbox, and ${tool} acts only on sandbox sessions`;
+		const record = await host.sessions.get(id);
+		if (!isSandboxSession(record) && !isWorktreeSession(record)) return `session ${id} isn't in a sandbox or a worktree, and ${tool} acts only on those`;
 		return undefined;
 	};
 	const readOnly = { readOnlyHint: true, openWorldHint: false };
@@ -384,7 +385,7 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		});
 
 		server.registerTool("archive_session", {
-			description: "Archive a session: list_sessions leaves it out unless includeArchived is true, and read_session still reads it. Its transcript stays, and its commits are fetched to its sandbox/N branch before its sandbox is deleted, as archiving from the apps does; a sandbox with uncommitted files is kept. Only a session that has come to rest (done, failed, stopped or idle) can be archived, not one running or waiting for approval. Sandbox-only: a session that isn't in a sandbox is refused. Archiving one already archived changes nothing.",
+			description: "Archive a session: list_sessions leaves it out unless includeArchived is true, and read_session still reads it. Its transcript stays, and its commits are fetched to its sandbox/N branch before its sandbox is deleted, as archiving from the apps does; a sandbox with uncommitted files is kept. A worktree session's worktree is removed and its worktree/N branch kept; one with uncommitted files is kept. Only a session that has come to rest (done, failed, stopped or idle) can be archived, not one running or waiting for approval. Sandbox and worktree sessions only: any other session is refused. Archiving one already archived changes nothing.",
 			inputSchema: { id: z.number().int() },
 			annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		}, async ({ id }) => {
@@ -410,7 +411,7 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		});
 
 		server.registerTool("unarchive_session", {
-			description: "Bring an archived session back to list_sessions. It stays listed however long it sits idle, until it's archived again. A sandbox deleted when it was archived doesn't come back. Sandbox-only: a session that isn't in a sandbox is refused. Unarchiving one that isn't archived changes nothing.",
+			description: "Bring an archived session back to list_sessions. It stays listed however long it sits idle, until it's archived again. A sandbox deleted or a worktree removed when it was archived doesn't come back. Sandbox and worktree sessions only: any other session is refused. Unarchiving one that isn't archived changes nothing.",
 			inputSchema: { id: z.number().int() },
 			annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		}, async ({ id }) => {

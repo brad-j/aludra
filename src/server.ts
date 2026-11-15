@@ -27,6 +27,7 @@ import { type AgentEvent, AssistantEntry, type EntryId, type EntryRecord, watchE
 import type { SessionSummary, Settings } from "./api-types.ts";
 import { createApi } from "./api.ts";
 import { removeSandboxesOnArchive } from "./sandbox-cleanup.ts";
+import { removeWorktreesOnArchive } from "./worktree-cleanup.ts";
 import type { ShipResult } from "./ship.ts";
 import { sandboxSyncAfterRuns } from "./sandbox-sync.ts";
 import { createLive, monthSpend, readSummary } from "./live.ts";
@@ -268,6 +269,8 @@ export async function serve(config: Config) {
 	});
 	// And its sandbox goes when it's archived (src/sandbox-cleanup.ts).
 	const sandboxCleanup = removeSandboxesOnArchive(host);
+	// And a worktree session's worktree, its branch kept (src/worktree-cleanup.ts).
+	const worktreeCleanup = removeWorktreesOnArchive(host);
 	const server = listen(host, socketPath, watchers);
 	console.error(`aludra listening on ${socketPath}, model ${host.model.provider}/${host.model.modelId}`);
 	const stopBackups = scheduleBackups(config);
@@ -285,7 +288,8 @@ export async function serve(config: Config) {
 		stopSandboxSync();
 		stopChecks();
 		sandboxCleanup.stop();
-		await Promise.all([sandboxSync.settled(), sandboxCleanup.settled(), host.results.settled()]);
+		worktreeCleanup.stop();
+		await Promise.all([sandboxSync.settled(), sandboxCleanup.settled(), worktreeCleanup.settled(), host.results.settled()]);
 		await api?.close();
 		server.close();
 		for (const socket of watchers) socket.destroy();

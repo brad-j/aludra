@@ -193,7 +193,7 @@ Where the database, keys, scratch directories, uploaded videos and screenshots g
 | `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, with its refreshed tokens, and the key `aludra login openrouter` gets. Owner-only. |
 | `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |
 | `scratch/<id>/` | The working directory of each no-project session. |
-| `worktrees/<project>-<N>/` | The git worktree of each worktree session, on branch `worktree/N` in the project's checkout. Removing one with `git worktree remove` from the project keeps the branch. |
+| `worktrees/<project>-<N>/` | The git worktree of each worktree session, on branch `worktree/N` in the project's checkout. It's removed when the session is archived, by hand or after `archive.afterDays` idle, and the branch is kept; one with uncommitted files is kept until they're committed and the session is archived again. |
 | `uploads/<id>/` | Videos and files sent with a session's messages, and messages too long to send whole, deleted 14 days after they arrive. |
 | `shots/<id>/` | Screenshots of sandbox sessions' pages, deleted 14 days after they're taken. |
 | `backups/` | Copies of the database, unless `backup.dir` says otherwise. |

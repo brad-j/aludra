@@ -113,6 +113,8 @@ export type SessionRecord = {
 	 * refused in it, so its work stays on the branch until the user merges it.
 	 */
 	worktree?: number;
+	/** Its worktree was removed when it was archived (src/worktree-cleanup.ts); its branch was kept. */
+	worktreeRemoved?: boolean;
 	/**
 	 * The skills copied into its sandbox when it was made, at their paths there (src/sandbox-skills.ts); `[]` when the copy
 	 * failed. Sandboxes from before the copies have none, and their prompts name no skills.
@@ -469,6 +471,7 @@ export async function openHost(options: HostOptions) {
 				if (sandbox?.removed === true) throw new Error(`This session's sandbox was deleted when the session was archived, so its tools have nowhere to run. Its commits were fetched to ${sandbox.branch} in the project first. Start a new sandbox session to keep going.`);
 				if (sandbox !== undefined) return sandboxes.env(sandbox.sandbox, cwd ?? sandbox.dir);
 				const record = (await target.read.snapshot(Sessions, ctx))?.sessions[String(target.conversationId)];
+				if (record?.worktreeRemoved === true) throw new Error(`This session's worktree was removed when the session was archived, so its tools have nowhere to run. Its commits are on ${worktreeBranch(record)} in the project. Start a new session to keep going.`);
 				if (isWorktreeSession(record)) return new NodeExecutionEnv({ cwd: cwd ?? record!.dir, shellEnv: WORKTREE_ENV });
 				return new NodeExecutionEnv({ cwd: cwd ?? homedir() });
 			},
@@ -729,6 +732,32 @@ export async function openHost(options: HostOptions) {
 		untitled.add(record!.id);
 		for (const listener of created) listener(record!);
 		return record!;
+	}
+
+	/**
+	 * Removes worktree session `id`'s worktree with `git worktree remove` from its project, keeping its branch, unless it's
+	 * running or waiting, or holds uncommitted files, which removing would lose. Marks the session so its tools say why
+	 * they can't run. Never throws.
+	 */
+	async function removeWorktree(id: number): Promise<{ removed: true } | { removed: false; reason: string }> {
+		const record = await get(id);
+		if (record?.worktree === undefined || record.source === undefined) return { removed: false, reason: "not a worktree session" };
+		if (record.worktreeRemoved === true) return { removed: false, reason: "already removed" };
+		const state = (await states()).get(id);
+		if (state === "running" || state === "waiting") return { removed: false, reason: `kept: the session is ${state}` };
+		const top = (await run("git", ["-C", record.dir, "rev-parse", "--show-toplevel"]).catch(() => "")).trim();
+		if (top !== "") {
+			const dirty = (await run("git", ["-C", top, "status", "--porcelain"]).catch(() => "?")).trim();
+			if (dirty !== "") return { removed: false, reason: `kept: ${dirty === "?" ? "its files couldn't be read" : `${dirty.split("\n").length} uncommitted file${dirty.split("\n").length === 1 ? "" : "s"} in it`}` };
+			try {
+				// Without --force, so git refuses too if anything is left uncommitted.
+				await run("git", ["-C", record.source, "worktree", "remove", top]);
+			} catch (error) {
+				return { removed: false, reason: `couldn't remove it: ${error instanceof Error ? error.message : String(error)}` };
+			}
+		}
+		await changeRecord(id, (r) => void (r.worktreeRemoved = true));
+		return { removed: true };
 	}
 
 	/**
@@ -1565,7 +1594,7 @@ export async function openHost(options: HostOptions) {
 			/** Resolves once session `id`'s sandbox is ready or failed. */
 			prepared: (id: number) => prepareSandbox(id),
 		},
-		sessions: { list, get, create, createScratch, createWorktree, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
+		sessions: { list, get, create, createScratch, createWorktree, removeWorktree, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		/** Sandbox sessions' results (src/results.ts). */
 		results: {
 			result: results.result,
