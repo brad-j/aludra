@@ -70,4 +70,5 @@ determined agent. [docs/security.md](docs/security.md) has the details.
 - [Architecture](docs/architecture.md): how the host, the Claude Code provider and the clients fit together.
 - [API](docs/api.md): the HTTP API, amyrlin's endpoint, the CLI socket.
 - [Development](docs/development.md): commands, tests, the faux model, dependencies.
-- [Plan](docs/plan.md): decisions, milestones and their reasons.
+- [Plan](docs/plan.md): open work.
+- [Decisions](docs/decisions.md): decisions, milestones and their reasons.

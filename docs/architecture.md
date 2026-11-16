@@ -1,6 +1,6 @@
 # Architecture
 
-How aludra works today. [plan.md](plan.md) has the history: what was decided, when, and why.
+How aludra works today. [decisions.md](decisions.md) has the history: what was decided, when, and why.
 
 ## The pieces
 

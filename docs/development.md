@@ -11,7 +11,7 @@
 | `scripts/` | `install.sh`, the live check, the site's terminal picture, and the amyrlin fixture scripts. |
 | `deploy/` | The optional Tailscale node unit for Linux. |
 | `spike/` | The scripts that proved pi-claude-bridge, aludra's original Claude provider, in the Pi SDK and in Pi Durable. References, not app code; their paths need adjusting to run again. |
-| `docs/` | These docs and [plan.md](plan.md) (decisions and history). |
+| `docs/` | These docs, [plan.md](plan.md) (open work) and [decisions.md](decisions.md) (decisions and history). |
 
 ## Commands
 
@@ -74,5 +74,5 @@ pnpm test
 ## Conventions
 
 - Update these docs when behavior they describe changes: a setting, a command, an endpoint, a permission rule.
-- Record decisions, and the reasons for them, in [plan.md](plan.md).
+- Record decisions, and the reasons for them, in [decisions.md](decisions.md), and open work in [plan.md](plan.md).
 - Comments say what code is for and why, in plain sentences. Match the surrounding code.

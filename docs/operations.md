@@ -80,7 +80,7 @@ aludra loads pi-claude-code from its source files, and depends on how Pi Durable
 1. Change the version in a branch. Pi's packages move together: `chord`, `pi-agent-core`, `pi-ai`, `pi-codemode`, `pi-coding-agent`, `pi-durable`, `pi-mcp`, `pi-telemetry` and `pi-tui` should all be the same exact version. For pi-claude-code, `pnpm add github:earendil-works/pi-claude-code#<commit>` with the full commit hash.
 2. `pnpm check`. `test/claude-code.test.ts` tests the wrapper in `src/claude-code.ts`, and `test/claude-code-load.test.ts` loads the real package.
 3. Run the live check against the real Claude Code and your own login: `node --no-warnings scripts/live-check.ts`. It runs two sessions at once, a compaction, and a `kill -9` mid tool call with recovery, in a temporary directory, and checks the answers were on the plan's limits. It spends a little of the subscription.
-4. Update `PINNED` in `src/doctor.ts` and the versions in [architecture.md](architecture.md) and `docs/plan.md`.
+4. Update `PINNED` in `src/doctor.ts` and the versions in [architecture.md](architecture.md) and `docs/decisions.md`.
 
 ## Troubleshooting
 
