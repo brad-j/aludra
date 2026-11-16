@@ -10,10 +10,6 @@ The old plan.md is now decisions.md, unchanged apart from its opening, and its o
 
 ## Next
 
-### skills-live-check: Run the live check for skills in a sandbox
-Kind: chore
-`scripts/skills-check.ts SANDBOX_HOST_JSON PROJECT_DIR [SKILL]`: a real sandbox session reads a copied skill file. It hasn't run, since the sandbox it was built in reached neither stedding nor Claude Code ("Skills in sandboxes", decisions.md).
-
 ### new-projects-live-check: Try projects.create against GitHub
 Kind: chore
 Not checked live in November because egwene's gh token was invalid. gh is signed in now and `newProjects` is in egwene's settings, so a real create, and a scratch sandbox promoted with Claude, can run. Delete the test repository by hand afterward.
@@ -79,6 +75,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Verin now covers voice and the apps, so these may not be needed.
 
 ## Done
+
+### skills-live-check: Run the live check for skills in a sandbox
+Kind: chore · Done: 2026-11-15
+Passed on matrim with Claude, after fixing what it found: a dangling link in the skills directory stopped every copy, so sandboxes had no skills.
 
 ### strip-invisible: Strip zero-width and tag characters from incoming text
 Kind: step · Done: 2026-11-15

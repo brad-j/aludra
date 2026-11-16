@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
@@ -79,6 +79,20 @@ test("a sandbox gets copies of the user's and the project's skills, and its prom
 	assert.match(system, new RegExp(`<location>${home}/.aludra/project-skills/ship-notes/SKILL.md</location>`));
 	assert.ok(!system.includes(agentDir), "no host path in a sandbox prompt");
 	assert.ok(!system.includes(join(project.dir, ".pi")), "no project path on the host either");
+});
+
+test("a link in the skills directory that leads nowhere doesn't stop the other skills being copied", async (t) => {
+	const { host, fake, project, agentDir } = await skillsHost(t);
+	// A skill whose repository moved: the link stays and points at nothing, which tar -h used to stop at.
+	symlinkSync(join(agentDir, "..", "moved", "skills", "gone"), join(agentDir, "skills", "gone"));
+	mkdirSync(join(agentDir, "skills", "notes"), { recursive: true });
+	writeFileSync(join(agentDir, "skills", "notes", "README.md"), "not a skill\n");
+	const session = await host.sessions.createSandbox(project, "hello");
+	const record = (await host.sessions.get(session.id))!;
+	const home = fake.sandboxes.home(record.sandbox!);
+	assert.deepEqual(record.sandboxSkills?.map((s) => s.name), ["deepen", "recraft", "ship-notes"]);
+	assert.ok(existsSync(`${home}/.pi/agent/skills/recraft/refs/styles.md`));
+	assert.ok(!existsSync(`${home}/.pi/agent/skills/notes`), "only the skills' own directories are copied");
 });
 
 test("a sandbox whose skills couldn't be copied is ready with none in its prompt", async (t) => {

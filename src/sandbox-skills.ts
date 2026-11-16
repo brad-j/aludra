@@ -4,7 +4,7 @@
 // host.info's sandbox.skills and `/skill:` expansion all name files the agent can read. No live sync.
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { BACKGROUND_CONTEXT as BACKGROUND } from "@earendil-works/chord/context";
@@ -19,6 +19,20 @@ export const userSkillsIn = (home: string) => `${home}/.pi/agent/skills`;
 export const projectSkillsIn = (home: string) => `${home}/.aludra/project-skills`;
 
 const tar = (args: string[]) => new Promise<void>((done, fail) => execFile("tar", args, { maxBuffer: 1024 * 1024 }, (error, _out, err) => (error === null ? done() : fail(new Error(`tar: ${err.trim() || error.message}`)))));
+
+/**
+ * The top-level entries of `local` the skills live under, each as `./<name>`, for tar; entries whose links lead nowhere
+ * are left out, since no skill can be in them.
+ */
+async function skillDirs(local: string, skills: readonly SkillInfo[]): Promise<string[]> {
+	const wanted = new Set(skills.map((s) => relative(local, resolve(s.filePath)).split(/[/\\]/)[0]!).filter((name) => name !== "" && name !== ".."));
+	const present: string[] = [];
+	for (const name of (await readdir(local)).sort()) {
+		if (!wanted.has(name)) continue;
+		if (await stat(join(local, name)).then(() => true, () => false)) present.push(`./${name}`);
+	}
+	return present;
+}
 
 /**
  * Copies `skills`, as `skillsFor` found them here under `userDir` (the agent directory's skills/) and `projectDir` (the
@@ -38,7 +52,10 @@ export async function copySkills(env: ExecutionEnv, skills: readonly SkillInfo[]
 			const mine = skills.filter((s) => s.source === root.source);
 			if (mine.length === 0) continue;
 			const file = join(scratch, `${root.source}.tar`);
-			await tar(["-chf", file, "-C", root.local, "."]);
+			// Only the skills' own directories, so a link in the skills directory that leads nowhere (a skill whose repository
+			// moved) doesn't fail the whole copy: tar -h would stop at it.
+			const dirs = await skillDirs(root.local, mine);
+			await tar(["-chf", file, "-C", root.local, ...dirs]);
 			const bytes = await readFile(file);
 			total += bytes.length;
 			if (total > MAX_SKILL_BYTES) throw new Error(`the skills come to over ${MAX_SKILL_BYTES / 1024 / 1024} MB`);
