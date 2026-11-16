@@ -10,10 +10,6 @@ The old plan.md is now decisions.md, unchanged apart from its opening, and its o
 
 ## Next
 
-### new-projects-live-check: Try projects.create against GitHub
-Kind: chore
-Not checked live in November because egwene's gh token was invalid. gh is signed in now and `newProjects` is in egwene's settings, so a real create, and a scratch sandbox promoted with Claude, can run. Delete the test repository by hand afterward.
-
 ## Questions
 
 ## Later
@@ -75,6 +71,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Verin now covers voice and the apps, so these may not be needed.
 
 ## Done
+
+### new-projects-live-check: Try projects.create against GitHub
+Kind: chore · Done: 2026-11-15
+`scripts/new-projects-check.ts` passed: a private repository with its first commit, and a scratch sandbox promoted to a second. Delete brad-j/aludra-check-a and -b by hand.
 
 ### skills-live-check: Run the live check for skills in a sandbox
 Kind: chore · Done: 2026-11-15
