@@ -10,10 +10,6 @@ The old plan.md is now decisions.md, unchanged apart from its opening, and its o
 
 ## Next
 
-### subagents: An agent tool with children shown under the call
-Kind: step
-Deferred 2026-10-12, moved up 2026-11-15. Pi Durable 1.3.0, already pinned, has both the documented subagent pattern (a child conversation owned by the tool's task, which survives a restart and reruns safely) and codemode fan-out, so nothing waits on Pi now. A child starts as a copy of its parent's agent, so in a sandbox or worktree session it works in the same place. Decide: children on a cheaper model or the parent's; how deep (one level, no subagents of their own); and how clients show them (`read_session` and `check_sessions` over MCP for Verin, `/amyrlin` for loial). Every child spends the same five-hour window, which Verin also uses.
-
 ### skills-live-check: Run the live check for skills in a sandbox
 Kind: chore
 `scripts/skills-check.ts SANDBOX_HOST_JSON PROJECT_DIR [SKILL]`: a real sandbox session reads a copied skill file. It hasn't run, since the sandbox it was built in reached neither stedding nor Claude Code ("Skills in sandboxes", decisions.md).
@@ -25,6 +21,10 @@ Not checked live in November because egwene's gh token was invalid. gh is signed
 ## Questions
 
 ## Later
+
+### subagents: An agent tool with children shown under the call
+Kind: step
+Deferred 2026-10-12, briefly moved up and put back 2026-11-15: not needed yet. Opus 5.5's 1M window with compaction keeps a session's context, Verin already runs several coding sessions in parallel and shows each, and every child would spend the five-hour window Verin shares. Pi Durable 1.3.0, already pinned, has what it would need (the documented subagent pattern and codemode fan-out), so it's ready to build when it pays off. Reasons to pick it up: sessions often compacting partway through a task because exploring filled the context, or one task regularly split by hand into several Verin sessions whose results are put together by hand. Before building, decide: children on a cheaper model or the parent's, one level deep or more, and how Verin and loial show them.
 
 ### usage-meter: Show the subscription's windows
 Kind: step
