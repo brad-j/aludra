@@ -81,6 +81,10 @@ Both read shell commands as text. A command can always be spelled so neither see
 
 Sessions run as you, with the PATH the service was installed with, so they can do anything you can from a shell.
 
+## Invisible characters
+
+Every message to a session, from any client, the CLI and MCP included, has its zero-width characters (zero-width space, word joiner, invisible operators, a byte-order mark inside text) and Unicode tag characters taken out before the model sees it. Tag characters can spell out text that no screen shows, which is how instructions get hidden in a paste, a web page or another agent's message. The agent gets a note saying how many were removed, never what they said, and the host's log says the same. A zero-width joiner or non-joiner between two visible non-ASCII characters stays, since emoji sequences and scripts such as Persian and Devanagari are written with them; a run of them goes. This covers the message only: files the agent reads, web pages and tool output aren't cleaned.
+
 ## Data at rest
 
 - The data directory is created `0700`, and the service runs with a `0077` umask, so files the host writes are yours alone. Sessions inherit that umask, so files they create in projects are owner-only too.

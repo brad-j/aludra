@@ -28,6 +28,7 @@ import { createCheckpoints, restoreNoteText } from "./checkpoints.ts";
 import { pagesExtension } from "./pages.ts";
 import { claudeConfigDir, type Config, expandHome, THINKING, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
+import { invisibleNote, stripInvisible } from "./invisible.ts";
 import { AGENT_DIR, contextExtension, expandSkill, type Place, projectSkills, type SkillInfo, skillsFor } from "./context.ts";
 import { copySkills } from "./sandbox-skills.ts";
 import { ApprovalService, permissionsExtension } from "./permissions.ts";
@@ -1163,6 +1164,11 @@ export async function openHost(options: HostOptions) {
 		}
 		// A new message instead of an answer: the waiting call is refused, so the run can take the message.
 		await approvals!.supersede(id);
+		// Invisible characters come out of every text block first, so a long paste moved to a file is clean too, and the
+		// agent is told how many there were (src/invisible.ts).
+		const cleaned = withoutInvisible(content);
+		content = cleaned.content;
+		if (cleaned.removed > 0) console.error(`[submit] removed ${cleaned.removed} invisible characters from a message to session ${id}`);
 		// Text too long for a message goes to a file the message points at, unless this is a retry of one already sent.
 		if (!(await sent(id, options.requestId))) content = await movedLongText(id, content);
 		// A new session's first message names it, in the background.
@@ -1172,6 +1178,7 @@ export async function openHost(options: HostOptions) {
 		// After a restore, the next message tells the agent the files were put back.
 		const note = await checkpoints.takeNote(id);
 		if (note !== undefined) content = [{ type: "text", text: restoreNoteText(note) }, ...(typeof content === "string" ? [{ type: "text" as const, text: content }] : content)];
+		if (cleaned.removed > 0) content = [...(typeof content === "string" ? [{ type: "text" as const, text: content }] : content), { type: "text", text: invisibleNote(cleaned.removed) }];
 		return target.submit({ type: "input", content, whenBusy: options.steer ? "steer" : "followUp", ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }, context);
 	}
 
@@ -1201,6 +1208,22 @@ export async function openHost(options: HostOptions) {
 		if (text === (blocks[first] as TextContent).text) return content;
 		if (typeof content === "string") return text;
 		return blocks.map((b, i) => (i === first ? { ...b, text } : b));
+	}
+
+	/** `content` with every text block's invisible characters taken out, and how many there were. */
+	function withoutInvisible(content: UserMessage["content"]): { content: UserMessage["content"]; removed: number } {
+		if (typeof content === "string") {
+			const cleaned = stripInvisible(content);
+			return { content: cleaned.text, removed: cleaned.removed };
+		}
+		let removed = 0;
+		const blocks = content.map((block) => {
+			if (block.type !== "text") return block;
+			const cleaned = stripInvisible(block.text);
+			removed += cleaned.removed;
+			return cleaned.removed === 0 ? block : { ...block, text: cleaned.text };
+		});
+		return { content: removed === 0 ? content : blocks, removed };
 	}
 
 	/** Whether a message with `requestId` was already sent to session `id`: a retry, whose files mustn't be saved again. */

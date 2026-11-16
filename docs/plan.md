@@ -14,10 +14,6 @@ The old plan.md is now decisions.md, unchanged apart from its opening, and its o
 Kind: step
 Deferred 2026-10-12, moved up 2026-11-15. Pi Durable 1.3.0, already pinned, has both the documented subagent pattern (a child conversation owned by the tool's task, which survives a restart and reruns safely) and codemode fan-out, so nothing waits on Pi now. A child starts as a copy of its parent's agent, so in a sandbox or worktree session it works in the same place. Decide: children on a cheaper model or the parent's; how deep (one level, no subagents of their own); and how clients show them (`read_session` and `check_sessions` over MCP for Verin, `/amyrlin` for loial). Every child spends the same five-hour window, which Verin also uses.
 
-### strip-invisible: Strip zero-width and tag characters from incoming text
-Kind: step
-Text from outside (MCP, pasted text) can carry instructions the user can't see in zero-width and Unicode tag characters. Strip them from prompts and say so. Noted with the T3 Code items in decisions.md and not done: nothing in `src/` strips them.
-
 ### skills-live-check: Run the live check for skills in a sandbox
 Kind: chore
 `scripts/skills-check.ts SANDBOX_HOST_JSON PROJECT_DIR [SKILL]`: a real sandbox session reads a copied skill file. It hasn't run, since the sandbox it was built in reached neither stedding nor Claude Code ("Skills in sandboxes", decisions.md).
@@ -83,6 +79,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Verin now covers voice and the apps, so these may not be needed.
 
 ## Done
+
+### strip-invisible: Strip zero-width and tag characters from incoming text
+Kind: step · Done: 2026-11-15
+Every message, in host.submit, with a note to the agent saying how many. Files, pages and tool output aren't cleaned.
 
 ### relay-terms: Is the loopback relay in front of Claude Code acceptable?
 Kind: question · Done: 2026-11-15

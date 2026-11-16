@@ -125,7 +125,7 @@ Messages may carry PNG, JPEG, GIF or WebP images, at most 8 of at most 5 MB each
 
 ## Files and long messages
 
-`src/files.ts` saves files from clients to `uploads/<session>/`, named for when they came and what they're called, made safe. Each becomes a `<file name="…" type="…" bytes="…" path="…" until="…">` text block after the message's images. `host.submit` moves any text block over 32 KB the same way, as `message.txt`, keeping its first 1,500 characters in the message, so the CLI's `ask` gets it too; a retry, found by its request ID, saves nothing again. The title writer and the search index see messages without file notes. The same hourly sweep as videos deletes them after 14 days.
+`src/files.ts` saves files from clients to `uploads/<session>/`, named for when they came and what they're called, made safe. Each becomes a `<file name="…" type="…" bytes="…" path="…" until="…">` text block after the message's images. `host.submit` first takes invisible characters out of every text block (`src/invisible.ts`) and, when there were any, adds a note saying how many; then it moves any text block over 32 KB the same way, as `message.txt`, keeping its first 1,500 characters in the message, so the CLI's `ask` gets it too; a retry, found by its request ID, saves nothing again. The title writer and the search index see messages without file notes. The same hourly sweep as videos deletes them after 14 days.
 
 ## Videos
 
