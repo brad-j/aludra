@@ -72,6 +72,10 @@ From the first plan's "Later, maybe". Slack would be a channel per project and a
 
 ## Done
 
+### ship-over-mcp: ship_session for Verin
+Kind: step · Done: 2026-11-16
+A write token with mcp.ship ships a sandbox session as the apps' Ship does; list_sessions, read_session and check_sessions say how it went, and check_sessions wakes on a ship landing or stopping. Verin's Ship button calls it.
+
 ### new-projects-live-check: Try projects.create against GitHub
 Kind: chore · Done: 2026-11-15
 `scripts/new-projects-check.ts` passed: a private repository with its first commit, and a scratch sandbox promoted to a second. Delete brad-j/aludra-check-a and -b by hand.

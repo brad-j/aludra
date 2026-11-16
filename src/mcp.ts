@@ -43,6 +43,8 @@ import { readSummary } from "./live.ts";
 import { findProject } from "./projects.ts";
 import { context, isSandboxSession, isWorktreeSession, worktreeBranch } from "./host.ts";
 import { itemsOf } from "./transcript.ts";
+import { shipLine, ShipRefused } from "./ship.ts";
+import type { SessionRecord } from "./host.ts";
 import { readPlan } from "./plans.ts";
 
 const THINKING_LIST = "off, minimal, low, medium, high, xhigh";
@@ -128,11 +130,39 @@ async function sessionAgent(host: Host, id: number) {
 	}
 }
 
+/**
+ * A session's ship as MCP reports it: shipping while one goes on, else how the latest went, landed or stopped, with its
+ * line. Undefined for a session that never shipped.
+ */
+export function shipOf(record: SessionRecord | undefined): { shipping: true } | { shipped: true; line: string; at: string; pushed: string; head: string; commits: number; pr?: string } | { shipped: false; line: string; at: string; kind: string; reason: string } | undefined {
+	if (record === undefined) return undefined;
+	if (record.shipping !== undefined) return { shipping: true };
+	// The newer of the two, as a landed ship clears the stopped one and a new start clears both.
+	const landed = record.shipped;
+	const stopped = record.shipStopped;
+	if (stopped !== undefined && (landed === undefined || stopped.at > landed.at)) {
+		return { shipped: false, line: shipLine({ shipStopped: stopped }), at: new Date(stopped.at).toISOString(), kind: stopped.kind, reason: stopped.reason };
+	}
+	if (landed === undefined) return undefined;
+	const answer = { shipped: true as const, line: shipLine({ shipped: landed }), at: new Date(landed.at).toISOString(), pushed: landed.pushed, head: landed.head, commits: landed.commits };
+	return landed.pr === undefined ? answer : { ...answer, pr: landed.pr };
+}
+
+/** `{ ship }` for a session that shipped or is shipping, else nothing, to spread into an answer. */
+function shipField(record: SessionRecord | undefined): { ship?: NonNullable<ReturnType<typeof shipOf>> } {
+	const ship = shipOf(record);
+	return ship === undefined ? {} : { ship };
+}
+
 /** What check_sessions tells a gate: whether to wake, an entry per changed session, and the newest change in a line. */
 export async function checkSessions(host: Host, token: Pick<Token, "id" | "createdAt">) {
 	const records = await host.sessions.list();
+	const byId = new Map(records.map((r) => [r.id, r]));
 	const summaries = new Map((await Promise.all(records.map((r) => readSummary(host, r.id)))).filter((s) => s !== undefined).map((s) => [s.id, s]));
-	host.sessionChanges.observe([...summaries.values()].map((s) => ({ id: s.id, state: s.state, updatedAt: s.updatedAt })));
+	// A ship's push comes after the session's ship turn has ended, so its landing or stopping counts as the session
+	// changing: an agent waiting on a ship hears how it went.
+	const changedAt = (id: number, updatedAt: number) => Math.max(updatedAt, byId.get(id)?.shipped?.at ?? 0, byId.get(id)?.shipStopped?.at ?? 0);
+	host.sessionChanges.observe([...summaries.values()].map((s) => ({ id: s.id, state: s.state, updatedAt: changedAt(s.id, s.updatedAt) })));
 	// One entry per session: from the state before its first unhandled change to its latest.
 	const bySession = new Map<number, { change: number; from: string | null; to: string }>();
 	for (const c of host.sessionChanges.pending(token.id, token.createdAt.getTime())) {
@@ -175,6 +205,7 @@ export async function checkSessions(host: Host, token: Pick<Token, "id" | "creat
 			...(question === undefined ? {} : { question }),
 			...(summary.sandbox === undefined ? {} : { sandbox: summary.sandbox }),
 			...(summary.archived === true ? { archived: true } : {}),
+			...shipField(byId.get(id)),
 		});
 	}
 	data.sort((a, b) => a.change - b.change);
@@ -268,7 +299,8 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		summaries.sort((a, b) => b.updatedAt - a.updatedAt);
 		const shown = summaries.slice(0, limit ?? 30);
 		const agents = await Promise.all(shown.map((s) => sessionAgent(host, s.id)));
-		return answer(shown.map((s, i) => ({ id: s.id, project: s.project, title: s.title, state: s.state, line: s.line, updated: new Date(s.updatedAt).toISOString(), model: agents[i]!.model, effort: agents[i]!.effort, ...(s.archived === true ? { archived: true } : {}) })));
+		const shipRecords = await Promise.all(shown.map((s) => host.sessions.get(s.id)));
+		return answer(shown.map((s, i) => ({ id: s.id, project: s.project, title: s.title, state: s.state, line: s.line, updated: new Date(s.updatedAt).toISOString(), model: agents[i]!.model, effort: agents[i]!.effort, ...(s.archived === true ? { archived: true } : {}), ...shipField(shipRecords[i]) })));
 	});
 
 	server.registerTool("read_session", {
@@ -281,7 +313,9 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		const state = await (await host.conversation(id)).viewState(context);
 		try {
 			const { model, effort } = agentOf(host, state.value);
-			const header = `Session ${id}: ${summary.title}\nProject: ${summary.project} (${summary.dir})\nState: ${summary.state}\nModel: ${model}\nEffort: ${effort}\n\n`;
+			const ship = shipOf(await host.sessions.get(id));
+			const shipped = ship === undefined ? "" : `Ship: ${"shipping" in ship ? "shipping" : ship.line}\n`;
+			const header = `Session ${id}: ${summary.title}\nProject: ${summary.project} (${summary.dir})\nState: ${summary.state}\nModel: ${model}\nEffort: ${effort}\n${shipped}\n`;
 			return answer(header + transcriptText(itemsOf(state.value)));
 		} finally {
 			state.dispose();
@@ -396,6 +430,27 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 			await host.stop(id);
 			return answer(`stopped session ${id}`);
 		});
+
+		if (host.mcpShip()) {
+			server.registerTool("ship_session", {
+				description: `Ship a sandbox session's work: the session commits what's left and rebases onto the project's upstream branch in its sandbox, then ${options.machine} runs the project's declared checks there and pushes it ${host.shipMode() === "main" ? "to the upstream branch" : "to a branch of its own with a pull request"}, from ${options.machine}, so the sandbox never holds a key. A check that fails with the work and passes without it stops the ship with nothing pushed. Answers at once with started; how it went comes as the session changing in check_sessions, and in list_sessions and read_session, as ship: { shipped, line, ... }. Only a sandbox session at rest that isn't shipping already.`,
+				inputSchema: { id: z.number().int(), note: z.string().max(4000).optional().describe("Told to the session first, such as which side of a conflict to keep") },
+				annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+			}, async ({ id, note }) => {
+				const record = await host.sessions.get(id);
+				if (record === undefined) return failure(`No session ${id}; list_sessions lists them`);
+				if (!isSandboxSession(record)) return failure(`session ${id} isn't in a sandbox, and only a sandbox session's work ships`);
+				try {
+					const started = await host.ships.start(id, { mode: host.shipMode(), ...(note === undefined ? {} : { note }) });
+					// Its result is recorded on the session; nothing here waits for it.
+					void started.done.catch(() => undefined);
+					return answer({ id, started: true, to: host.shipMode() });
+				} catch (error) {
+					if (error instanceof ShipRefused) return failure(error.message);
+					throw error;
+				}
+			});
+		}
 
 		server.registerTool("archive_session", {
 			description: "Archive a session: list_sessions leaves it out unless includeArchived is true, and read_session still reads it. Its transcript stays, and its commits are fetched to its sandbox/N branch before its sandbox is deleted, as archiving from the apps does; a sandbox with uncommitted files is kept. A worktree session's worktree is removed and its worktree/N branch kept; one with uncommitted files is kept. Only a session that has come to rest (done, failed, stopped or idle) can be archived, not one running or waiting for approval. Sandbox and worktree sessions only: any other session is refused. Archiving one already archived changes nothing.",

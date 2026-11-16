@@ -1555,6 +1555,8 @@ export async function openHost(options: HostOptions) {
 		mcpSandboxOnly: () => config.mcp.sandboxOnly,
 		/** Whether the MCP endpoint's write tools start and act on worktree sessions only (the settings file's mcp.worktreeOnly). */
 		mcpWorktreeOnly: () => config.mcp.worktreeOnly,
+		/** Whether a write token on the MCP endpoint may ship a sandbox session's work (the settings file's mcp.ship). */
+		mcpShip: () => config.mcp.write && config.mcp.ship,
 		/** The tokens agents send to /mcp. */
 		tokens,
 		/** Session changes agents on /mcp wake on, with a cursor per token (src/session-changes.ts). */
