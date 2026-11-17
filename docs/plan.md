@@ -6,6 +6,11 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
+### worktree-ship: ship_session for a worktree session
+Kind: request · From: verin/worktree-ship
+Verin's worktree-ship needs `ship_session` to ship a session that ran on the Mac in a git worktree, with its commits on `worktree/N`. Today `ship_session` refuses anything but a sandbox session ("only a sandbox session's work ships"), and `src/ship.ts` knows only the sandbox route: rebase in the sandbox, run the checks there, push from egwene. The worktree route would rebase `worktree/N` in its worktree on the Mac, run the project's declared checks from `.agents/project.json` there, with a sandbox ship's rule for a check that fails on the base too (it isn't the work's, and the ship goes on, saying so), and push from the Mac's checkout, behind a file-only setting like `mcp.ship`. check_sessions reports the result as it does a sandbox ship's. The session itself still can't push; only the ship does.
+Decide first, before building: the push would use the owner's git credentials on the Mac, where worktree sessions are deliberately unable to push today, and the checks would run as the owner on the Mac, outside any sandbox. worktree-isolation (Seatbelt or a macOS VM) is related, since it would change where those checks run, but it's a separate item.
+
 ## Questions
 
 ## Later
