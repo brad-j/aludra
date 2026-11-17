@@ -4,10 +4,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
-### plan-convert: Move the plan into this format
-Kind: chore
-The old plan.md is now decisions.md, unchanged apart from its opening, and its open items are here. Once it's reviewed, decisions.md's "Not yet" and "Later" lines can point here or go.
-
 ## Next
 
 ## Questions
@@ -42,6 +38,10 @@ After Amp's routing: only matters if sandboxes move off matrim to a cloud host, 
 Kind: step
 A worktree session runs as the owner, outside any sandbox, only unable to push. Seatbelt or a macOS VM is the step after.
 
+### ship-branch-live-check: Try shipping in branch mode against GitHub
+Kind: chore
+`sandboxes.shipTo: "branch"` pushes `sandbox-N-<sha>` and opens a pull request with `gh pr create`. Only the tests have run it; the live ship checks used `main` mode, since there was no throwaway GitHub repository. gh can now make private repositories (new-projects-live-check), so a scratch one would do.
+
 ### page-self-check: A headless-browser check of published pages
 Kind: step
 `publish_page` has no check that a page renders. Add one if pages come out broken.
@@ -71,6 +71,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Verin now covers voice and the apps, so these may not be needed.
 
 ## Done
+
+### plan-convert: Move the plan into this format
+Kind: chore · Done: 2026-11-16
+decisions.md's "Not yet" and "Later" lines now name their plan items, or say what settled them. The untested `branch` ship mode became ship-branch-live-check.
 
 ### ship-over-mcp: ship_session for Verin
 Kind: step · Done: 2026-11-16
