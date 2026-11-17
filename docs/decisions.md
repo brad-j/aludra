@@ -64,6 +64,15 @@ For verin's worktree-ship (plan: `worktree-ship`), Brad decided a worktree sessi
 
 Turned down: fetching `worktree/N` to egwene and rebasing, checking and pushing there like a sandbox ship. It needs no git access on the Mac, but it can't ship repos egwene doesn't have, and it can't run checks that need macOS, such as Xcode and iOS builds.
 
+Built the same day (`src/ship.ts`, a route per kind of session; plan: `worktree-ship`):
+
+- **A setting of its own.** `mcp.shipWorktrees`, file-only and off by default, beside `mcp.ship`, which stays sandbox-only. A worktree ship runs the project's commands as the owner with no sandbox and pushes with the owner's login, which is a bigger grant than a sandbox ship, so turning on one doesn't turn on the other. `ship_session` is there when either is on, and refuses the other kind naming the setting that's off. The CLI's `aludra ship` takes either kind, as running it is the owner's approval; amyrlin's `sandbox.ship` still takes sandbox sessions only, since widening it is a protocol change.
+- **The base as a per-worktree ref.** The upstream goes in as `refs/worktree/aludra/base`, which git keeps per worktree, so the project's checkout never sees it and two sessions of one project can ship at once. The worktree shares the checkout's objects, so nothing is bundled.
+- **The checks** run in the worktree through a `NodeExecutionEnv` with the session's `WORKTREE_ENV`, so a check (or anything it runs) can't push either; only the ship's own `git push`, from the checkout, does. A check that fails is run again at the base in a worktree beside the session's, which works for a project below the repository's top too. `node_modules` is borrowed with `cp -al`, falling back to `cp -ac` (APFS clones on macOS, whose `cp` has no `-l`).
+- **Collecting the work** reads `worktree/N` directly: the ship stops when the worktree is on another branch or has uncommitted files. Branch mode pushes `worktree-N-<sha>`.
+- The owner's approval for each ship is the caller's to ask, as for `mcp.ship`: Verin asks before calling `ship_session`. aludra doesn't queue it.
+- Tested against local git (a bare upstream, a real worktree, the faux model over MCP), not yet on the Mac with Claude (plan: `worktree-ship-live-check`).
+
 ## To look into, from hosted agents (2026-11-15)
 
 Ideas from how Amp, Codex cloud and Claude Code on the web run sessions in cloud sandboxes. None is decided; each is a Later item in the plan (`setup-only-secrets`, `git-credential-proxy`, `home-routing`, `idle-pausing`).

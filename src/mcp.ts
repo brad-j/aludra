@@ -14,7 +14,8 @@
 // mcp.sandboxOnly narrows writing to sandboxes: start_session makes only sandbox sessions, refusing a call that asks for
 // a local one rather than quietly giving it a sandbox, and send_message and stop_session refuse any session that isn't
 // in one, whoever started it. Without a sandbox host every write tool refuses, so nothing falls back to a local
-// session. No tool here syncs, merges or ships; what a run's end does to the checkout is sandboxes.afterRun's.
+// session. No tool here syncs or merges; what a run's end does to the checkout is sandboxes.afterRun's. ship_session,
+// behind mcp.ship and mcp.shipWorktrees, pushes a session's work to the upstream (src/ship.ts).
 //
 // mcp.worktreeOnly narrows writing to worktree sessions in the same way: start_session makes each session in a git
 // worktree of its own on worktree/N, from the project's last commit, where git push is refused (src/permissions.ts), so
@@ -431,15 +432,26 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 			return answer(`stopped session ${id}`);
 		});
 
-		if (host.mcpShip()) {
+		const shipSandboxes = host.mcpShip();
+		const shipWorktrees = host.mcpShipWorktrees();
+		if (shipSandboxes || shipWorktrees) {
+			const where = host.shipMode() === "main" ? "to the upstream branch" : "to a branch of its own with a pull request";
+			const kinds = [
+				...(shipSandboxes ? [`A sandbox session commits what's left and rebases onto the project's upstream branch in its sandbox, then ${options.machine} runs the project's declared checks there and pushes it ${where}, from ${options.machine}, so the sandbox never holds a key.`] : []),
+				...(shipWorktrees ? [`A worktree session commits what's left and rebases its worktree/N branch onto the project's upstream branch in its worktree, then ${options.machine} runs the project's declared checks in the worktree and pushes it ${where} from the project's checkout on ${options.machine}, with the owner's git login; the session itself still can't push. Ask the owner before each ship.`] : []),
+			];
+			const which = shipSandboxes && shipWorktrees ? "a sandbox or worktree session" : shipSandboxes ? "a sandbox session" : "a worktree session";
 			server.registerTool("ship_session", {
-				description: `Ship a sandbox session's work: the session commits what's left and rebases onto the project's upstream branch in its sandbox, then ${options.machine} runs the project's declared checks there and pushes it ${host.shipMode() === "main" ? "to the upstream branch" : "to a branch of its own with a pull request"}, from ${options.machine}, so the sandbox never holds a key. A check that fails with the work and passes without it stops the ship with nothing pushed. Answers at once with started; how it went comes as the session changing in check_sessions, and in list_sessions and read_session, as ship: { shipped, line, ... }. Only a sandbox session at rest that isn't shipping already.`,
+				description: `Ship ${which}'s work. ${kinds.join(" ")} A check that fails with the work and passes without it stops the ship with nothing pushed; one that fails without the work too doesn't, and the outcome says so. Answers at once with started; how it went comes as the session changing in check_sessions, and in list_sessions and read_session, as ship: { shipped, line, ... }. Only ${which} at rest that isn't shipping already.`,
 				inputSchema: { id: z.number().int(), note: z.string().max(4000).optional().describe("Told to the session first, such as which side of a conflict to keep") },
 				annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
 			}, async ({ id, note }) => {
 				const record = await host.sessions.get(id);
 				if (record === undefined) return failure(`No session ${id}; list_sessions lists them`);
-				if (!isSandboxSession(record)) return failure(`session ${id} isn't in a sandbox, and only a sandbox session's work ships`);
+				if (isWorktreeSession(record)) {
+					if (!shipWorktrees) return failure(`session ${id} is in a worktree, and this host ships only sandbox sessions over MCP (mcp.shipWorktrees is off)`);
+				} else if (!isSandboxSession(record)) return failure(`session ${id} isn't in ${shipSandboxes && shipWorktrees ? "a sandbox or a worktree" : shipSandboxes ? "a sandbox" : "a worktree"}, and only ${which}'s work ships`);
+				else if (!shipSandboxes) return failure(`session ${id} is in a sandbox, and this host ships only worktree sessions over MCP (mcp.ship is off)`);
 				try {
 					const started = await host.ships.start(id, { mode: host.shipMode(), ...(note === undefined ? {} : { note }) });
 					// Its result is recorded on the session; nothing here waits for it.

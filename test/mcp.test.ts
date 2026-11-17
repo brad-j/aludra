@@ -18,7 +18,7 @@ const USER = "you@example.com";
 
 /** A faux host with its API on a free port and a read token and a write token for /mcp. `write` turns on mcp.write;
  * `connect` uses the write token unless given other headers. */
-async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; worktreeOnly?: boolean; ship?: boolean; git?: boolean; remote?: boolean; sandboxes?: boolean; approvals?: "ask" | "off"; responses?: FauxResponseStep[] } = {}) {
+async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; worktreeOnly?: boolean; ship?: boolean; shipWorktrees?: boolean; git?: boolean; remote?: boolean; sandboxes?: boolean; approvals?: "ask" | "off"; responses?: FauxResponseStep[] } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }, { id: "faux-think", reasoning: true }] });
 	faux.setResponses(options.responses ?? Array.from({ length: 20 }, () => fauxAssistantMessage(fauxText("The build passes now."))));
 	const models = createModels();
@@ -30,6 +30,7 @@ async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: bool
 	config.mcp.sandboxOnly = options.sandboxOnly === true;
 	config.mcp.worktreeOnly = options.worktreeOnly === true;
 	config.mcp.ship = options.ship === true;
+	config.mcp.shipWorktrees = options.shipWorktrees === true;
 	const made = fake === undefined && options.git !== true ? { project: makeProject(dir, "site"), remote: undefined } : gitProject(dir, "site", undefined, { remote: options.remote === true });
 	const { project } = made;
 	const server = createApi(host, { users: [USER], name: "egwene" });
@@ -248,13 +249,13 @@ test("the API still wants a listed Tailscale login, and a token isn't one", asyn
 	assert.equal((await fetch(`${url}/api/bootstrap`, { headers: { "tailscale-user-login": USER } })).status, 200);
 });
 
-test("mcp.write, mcp.sandboxOnly, mcp.worktreeOnly and mcp.ship come from the settings file, are off by default, and sandboxOnly and worktreeOnly can't both be on", () => {
+test("mcp.write, mcp.sandboxOnly, mcp.worktreeOnly, mcp.ship and mcp.shipWorktrees come from the settings file, are off by default, and sandboxOnly and worktreeOnly can't both be on", () => {
 	const workspaces = [{ name: "a", roots: [] }];
-	assert.deepEqual(configFor(JSON.stringify({ workspaces }), {}).config.mcp, { write: false, sandboxOnly: false, worktreeOnly: false, ship: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: false, ship: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, worktreeOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: true, ship: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true, ship: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: true });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces }), {}).config.mcp, { write: false, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: false, shipWorktrees: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, worktreeOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: true, ship: false, shipWorktrees: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true, ship: true, shipWorktrees: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: true, shipWorktrees: true });
 	assert.match(configFor(JSON.stringify({ workspaces, mcp: { sandboxOnly: "yes" } }), {}).errors.join("\n"), /sandboxOnly/);
 	assert.match(configFor(JSON.stringify({ workspaces, mcp: { sandboxOnly: true, worktreeOnly: true } }), {}).errors.join("\n"), /both on/);
 });
@@ -716,10 +717,10 @@ const SHIPPING: FauxResponseStep[] = Array.from({ length: 40 }, () => (ctx: Tran
 test("ship_session is there only with mcp.write and mcp.ship, for a write token", async (t) => {
 	const off = await mcp(t, true, { sandboxes: true });
 	assert.deepEqual((await (await off.connect()).listTools()).tools.map((tool) => tool.name).sort(), WRITE_TOOLS, "mcp.ship off");
-	const on = await mcp(t, true, { sandboxes: true, ship: true });
+	const on = await mcp(t, true, { sandboxes: true, ship: true, shipWorktrees: false });
 	assert.deepEqual((await (await on.connect()).listTools()).tools.map((tool) => tool.name).sort(), [...WRITE_TOOLS, "ship_session"].sort());
 	assert.deepEqual((await (await on.connect(on.bearer(on.reader.secret))).listTools()).tools.map((tool) => tool.name).sort(), READ_TOOLS, "a read token");
-	const noWrite = await mcp(t, false, { sandboxes: true, ship: true });
+	const noWrite = await mcp(t, false, { sandboxes: true, ship: true, shipWorktrees: false });
 	assert.ok(!(await (await noWrite.connect()).listTools()).tools.some((tool) => tool.name === "ship_session"), "mcp.ship without mcp.write");
 });
 
@@ -775,4 +776,65 @@ test("a blocked ship says so and pushes nothing, and ship_session refuses a loca
 	const unknown = await client.callTool({ name: "ship_session", arguments: { id: 999 } });
 	assert.equal(unknown.isError, true);
 	assert.match(text(unknown), /No session 999/);
+});
+
+/** SHIPPING for a worktree session: the ship prompt names refs/worktree/aludra/base, which the session rebases onto. */
+const SHIPPING_WORKTREE: FauxResponseStep[] = Array.from({ length: 40 }, () => (ctx: TranscriptContext) => {
+	const last = ctx.messages.at(-1);
+	const user = JSON.stringify(ctx.messages.findLast((m) => m.role === "user")?.content ?? "");
+	if (/refs\/worktree\/aludra\/base/.test(user)) {
+		if (last?.role === "toolResult") return fauxAssistantMessage(fauxText("Rebased.\nSHIP-READY"));
+		return fauxAssistantMessage(fauxToolCall("bash", { command: "git rebase -q refs/worktree/aludra/base 2>&1" }), { stopReason: "toolUse" });
+	}
+	if (last?.role === "toolResult") return fauxAssistantMessage(fauxText("Committed."));
+	const name = /commit (\w+)/.exec(user)?.[1];
+	if (name !== undefined) return fauxAssistantMessage(fauxToolCall("bash", { command: `echo ${name} > ${name}.txt && git add ${name}.txt && git -c user.name=t -c user.email=t@example.com commit -q -m ${name}` }), { stopReason: "toolUse" });
+	return fauxAssistantMessage(fauxText("ok"));
+});
+
+test("ship_session ships a worktree session with mcp.shipWorktrees: pushed from the checkout, and check_sessions says so", async (t) => {
+	const { host, project, remote, connect } = await mcp(t, true, { worktreeOnly: true, shipWorktrees: true, git: true, remote: true, responses: SHIPPING_WORKTREE });
+	const client = await connect();
+	const tools = (await client.listTools()).tools;
+	assert.match(tools.find((tool) => tool.name === "ship_session")?.description ?? "", /^Ship a worktree session's work\. A worktree session .*pushes it to the upstream branch from the project's checkout/);
+	const started = JSON.parse(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "commit feature" } })));
+	await until(async () => (await host.sessions.states()).get(started.id) === "idle" && git(project.dir, "log", "-1", "--format=%s", "worktree/0") === "feature", "the session's commit");
+	const before = JSON.parse(text(await client.callTool({ name: "check_sessions", arguments: {} })));
+	if (before.through !== undefined) await client.callTool({ name: "mark_sessions_handled", arguments: { through: before.through } });
+
+	assert.deepEqual(JSON.parse(text(await client.callTool({ name: "ship_session", arguments: { id: started.id } }))), { id: started.id, started: true, to: "main" });
+	await until(async () => (await host.sessions.get(started.id))?.shipped !== undefined || (await host.sessions.get(started.id))?.shipStopped !== undefined, "the ship to end");
+	const record = await host.sessions.get(started.id);
+	assert.equal(record?.shipStopped, undefined, record?.shipStopped?.reason ?? "");
+	assert.equal(git(remote!, "log", "-1", "--format=%s", "main"), "feature", "pushed to the upstream's main");
+	assert.equal(git(project.dir, "rev-parse", "main"), git(remote!, "rev-parse", "main"), "the checkout's main fast-forwarded");
+	await until(async () => {
+		const checked = JSON.parse(text(await client.callTool({ name: "check_sessions", arguments: {} })));
+		if (!checked.wake) return false;
+		const entry = (JSON.parse(checked.data) as { id: number; ship?: { shipped: boolean; line: string } }[]).find((e) => e.id === started.id);
+		return entry?.ship?.shipped === true && entry.ship.line.startsWith("Shipped to main · 1 commit");
+	}, "check_sessions to report the ship");
+});
+
+test("mcp.ship and mcp.shipWorktrees each ship only their own kind of session", async (t) => {
+	const worktrees = await mcp(t, true, { shipWorktrees: true, sandboxes: true });
+	const wClient = await worktrees.connect();
+	const boxed = await worktrees.host.sessions.createSandbox(worktrees.project, "Boxed");
+	const refusedBox = await wClient.callTool({ name: "ship_session", arguments: { id: boxed.id } });
+	assert.equal(refusedBox.isError, true);
+	assert.match(text(refusedBox), /is in a sandbox, and this host ships only worktree sessions over MCP \(mcp.ship is off\)/);
+
+	const sandboxes = await mcp(t, true, { ship: true, git: true });
+	const sClient = await sandboxes.connect();
+	const tree = await sandboxes.host.sessions.createWorktree(sandboxes.project, "Tree");
+	const refusedTree = await sClient.callTool({ name: "ship_session", arguments: { id: tree.id } });
+	assert.equal(refusedTree.isError, true);
+	assert.match(text(refusedTree), /is in a worktree, and this host ships only sandbox sessions over MCP \(mcp.shipWorktrees is off\)/);
+	const local = await sandboxes.host.sessions.create(sandboxes.project, "Local");
+	assert.match(text(await sClient.callTool({ name: "ship_session", arguments: { id: local.id } })), /isn't in a sandbox, and only a sandbox session's work ships/);
+
+	const neither = await mcp(t, true, { git: true });
+	assert.ok(!(await (await neither.connect()).listTools()).tools.some((tool) => tool.name === "ship_session"));
+	const noWrite = await mcp(t, false, { shipWorktrees: true, git: true });
+	assert.ok(!(await (await noWrite.connect()).listTools()).tools.some((tool) => tool.name === "ship_session"), "mcp.shipWorktrees without mcp.write");
 });

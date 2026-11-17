@@ -15,6 +15,11 @@
 //    landed already, or changed nothing) lands with no push and `commits: 0`: there's nothing left to do.
 //
 // Pressing Ship is the approval for the push, so it doesn't wait in the approvals queue as an agent's push would.
+//
+// A worktree session (src/host.ts createWorktree) ships the same way on this machine, with no sandbox: the base goes
+// into its worktree as `refs/worktree/aludra/base` (a ref only that worktree sees, so two sessions of a project can
+// ship at once), the session rebases `worktree/N` there, the checks run in the worktree with its shell's push refused,
+// and the push is made from the project's checkout with this machine's git login.
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import { AssistantEntry } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
@@ -133,17 +138,22 @@ class Stop extends Error {
 	}
 }
 
+/** Where a sandbox ship puts the base in the sandbox's repository. */
+export const SANDBOX_BASE_REF = "refs/aludra/base";
+/** Where a worktree ship puts the base: a per-worktree ref, which the project's checkout and other worktrees don't see. */
+export const WORKTREE_BASE_REF = "refs/worktree/aludra/base";
+
 /** The message that asks the session to get its work ready to land on `base`, with the user's `note` if any. */
-export function shipPrompt(base: string, sha: string, note?: string): string {
+export function shipPrompt(base: string, sha: string, note?: string, ref = SANDBOX_BASE_REF): string {
 	return [
 		...(note === undefined || note.trim() === "" ? [] : [`A note from the user about this ship: ${note.trim()}`, ""]),
-		`Ship this work: get it ready to land on ${base}, which is ${sha.slice(0, 12)} and is in this repository as refs/aludra/base.`,
+		`Ship this work: get it ready to land on ${base}, which is ${sha.slice(0, 12)} and is in this repository as ${ref}.`,
 		"1. Commit anything uncommitted that belongs to the work, with a clear message. Leave out stray files (scratch notes, logs, build output).",
-		"2. Rebase the work onto refs/aludra/base: `git rebase refs/aludra/base`. Resolve conflicts by keeping both sides' intent; if a conflict needs a decision only the user can make, stop and ask.",
+		`2. Rebase the work onto ${ref}: \`git rebase ${ref}\`. Resolve conflicts by keeping both sides' intent; if a conflict needs a decision only the user can make, stop and ask.`,
 		`3. Once you say SHIP-READY, the host runs the project's checks at your HEAD and tells a failure of the work from one the base has too, so you needn't run them to finish. Run whatever you need while fixing things, such as after resolving a conflict. Don't change the system (sysctl, packages, limits, swap), and don't dig into the machine. Each command is stopped after ${SHIP_COMMAND_S / 60} minutes.`,
 		"4. Don't push, and don't change git remotes: the host pushes once you're done.",
 		"Keep a plan block as for any work, with these steps (bring in the upstream, rebase, ready), so the user sees which one you're on.",
-		"End your reply with one line on its own: `SHIP-READY` when HEAD is the rebased work, or `SHIP-BLOCKED: <why>` when it isn't. When there's nothing beyond refs/aludra/base after the rebase (the work is upstream already, or changed nothing) and nothing is uncommitted, that's `SHIP-READY` too: the host sees there's nothing to push and says so. When you're blocked on a decision only the user can make, put a result block after it, as for any reply that asks, whose question names the choices as options.",
+		`End your reply with one line on its own: \`SHIP-READY\` when HEAD is the rebased work, or \`SHIP-BLOCKED: <why>\` when it isn't. When there's nothing beyond ${ref} after the rebase (the work is upstream already, or changed nothing) and nothing is uncommitted, that's \`SHIP-READY\` too: the host sees there's nothing to push and says so. When you're blocked on a decision only the user can make, put a result block after it, as for any reply that asks, whose question names the choices as options.`,
 	].join("\n");
 }
 
@@ -186,6 +196,11 @@ export type ShipHost = {
 		sync(id: number, into?: string, options?: { force?: boolean }): Promise<SyncResult>;
 		receiveBase(id: number, ref: string): Promise<string>;
 		/** Session `id`'s sandbox, to run checks in: its environment and the project's directory there. */
+		env(id: number): Promise<{ env: ExecutionEnv; dir: string }>;
+	};
+	/** Worktree sessions, which ship on this machine; without it, a worktree session's ship stops. */
+	worktrees?: {
+		/** Worktree session `id`'s shell, to run checks in (git push refused, as in the session), and its directory. */
 		env(id: number): Promise<{ env: ExecutionEnv; dir: string }>;
 	};
 	/**
@@ -247,7 +262,7 @@ if [ "$INSTALL" = 1 ]; then
 	fi
 else
 	(cd "$DIR" && find . -path ./.git -prune -o -name node_modules -type d -prune -print) | while read -r nm; do
-		[ -d "$WT/$(dirname "$nm")" ] && [ ! -e "$WT/$nm" ] && { cp -al "$DIR/$nm" "$WT/$nm" 2>/dev/null || cp -a "$DIR/$nm" "$WT/$nm"; }
+		[ -d "$WT/$(dirname "$nm")" ] && [ ! -e "$WT/$nm" ] && { cp -al "$DIR/$nm" "$WT/$nm" 2>/dev/null || cp -ac "$DIR/$nm" "$WT/$nm" 2>/dev/null || cp -a "$DIR/$nm" "$WT/$nm"; }
 	done
 fi
 exit 0
@@ -272,8 +287,8 @@ async function sh(env: ExecutionEnv, script: string, vars: Record<string, string
  * so the agent's tree isn't touched. Throws Stop (`check_failed`) for a failure of the work's; returns what failed on
  * the base too, and whether there was anything to run.
  */
-async function checkShip(host: ShipHost, id: number, base: { sha: string; name: string }, say: (line: string) => void): Promise<ShipChecked> {
-	const { env, dir } = await host.sandboxes.env(id);
+async function checkShip(host: ShipHost, id: number, at: { env: ExecutionEnv; dir: string }, base: { sha: string; name: string }, say: (line: string) => void): Promise<ShipChecked> {
+	const { env, dir } = at;
 	const config = await sh(env, "git show HEAD:.agents/project.json 2>/dev/null", {}, dir);
 	const declared = parseProjectConfig(config.code === 0 ? config.out : undefined).checks;
 	const checks = shipChecks(declared, declared.length > 0 ? [] : await host.turnCommands(id), dir);
@@ -288,8 +303,12 @@ async function checkShip(host: ShipHost, id: number, base: { sha: string; name: 
 	if (failed.length === 0) return {};
 
 	say(`${failed.map((c) => c.name).join(", ")} failed; running ${failed.length === 1 ? "it" : "them"} on ${base.name} to see whether the work is why`);
-	const wt = `${dir.replace(/\/[^/]+\/?$/, "")}/.aludra-ship-${id}-base`;
-	const vars = { DIR: dir, WT: wt, COMMIT: base.sha, INSTALL: "0" };
+	// The base's worktree goes beside the repository's top, and its checks run where the project is in it, which is
+	// below the top when the project is a folder of a bigger repository.
+	const where = await sh(env, "git rev-parse --show-toplevel && git rev-parse --show-prefix", {}, dir);
+	const [top = dir, prefix = ""] = where.code === 0 ? where.out.split("\n").map((l) => l.trim()) : [];
+	const wt = `${top.replace(/\/[^/]+\/?$/, "")}/.aludra-ship-${id}-base`;
+	const vars = { DIR: top, WT: wt, COMMIT: base.sha, INSTALL: "0" };
 	const depsChanged = (await sh(env, 'git diff --quiet "$COMMIT" HEAD -- package.json pnpm-lock.yaml package-lock.json yarn.lock', vars, dir)).code !== 0;
 	try {
 		const made = await sh(env, BASE_WORKTREE, { ...vars, INSTALL: depsChanged ? "1" : "0" }, dir, timeout);
@@ -297,7 +316,7 @@ async function checkShip(host: ShipHost, id: number, base: { sha: string; name: 
 			const first = failed[0]!;
 			throw new Stop("check_failed", `${first.name} fails: ${firstLine(ran[checks.indexOf(first)]!)}; it couldn't be run on ${base.name} to compare (${made.out.trim().split("\n").at(-1) || `exit ${made.code}`}), so nothing was pushed`);
 		}
-		const onBase = await runChecks(env, wt, failed, context, timeout);
+		const onBase = await runChecks(env, prefix === "" ? wt : posix.join(wt, prefix), failed, context, timeout);
 		const baseFailures: BaseFailure[] = [];
 		for (const [i, check] of failed.entries()) {
 			const atHead = ran[checks.indexOf(check)]!;
@@ -323,7 +342,7 @@ export async function askSession(host: Pick<Host, "submit" | "harness">, id: num
 }
 
 /**
- * Ships sandbox session `id`'s work (see the top of this file). Never throws: anything that goes wrong comes back as a
+ * Ships sandbox or worktree session `id`'s work (see the top of this file). Never throws: anything that goes wrong comes back as a
  * failure with its kind.
  */
 export async function ship(host: ShipHost, id: number, options: ShipOptions & { ask: NonNullable<ShipOptions["ask"]> }): Promise<ShipResult> {
@@ -331,9 +350,72 @@ export async function ship(host: ShipHost, id: number, options: ShipOptions & { 
 		return await shipping(host, id, options);
 	} catch (error) {
 		if (error instanceof Stop) return { shipped: false, kind: error.kind, reason: error.message };
-		// Anything else is git or gh failing to reach the upstream, or the sandbox.
+		// Anything else is git or gh failing to reach the upstream, or the sandbox or worktree.
 		return { shipped: false, kind: "push_failed", reason: error instanceof Error ? error.message : String(error) };
 	}
+}
+
+/**
+ * Where a session's work is and how a ship reaches it: a sandbox (the base bundled in, the result fetched back to
+ * `sandbox/N`) or a worktree on this machine (the base set as a per-worktree ref, the result read from `worktree/N`).
+ */
+type Route = {
+	/** "sandbox" or "worktree", for messages. */
+	kind: "sandbox" | "worktree";
+	/** The project's checkout here, which fetches the upstream and pushes. */
+	local: string;
+	/** The ref the session rebases onto. */
+	baseRef: string;
+	/** Puts the checkout's `ref` where the session can rebase onto it, as baseRef; its commit. */
+	receiveBase(ref: string): Promise<string>;
+	/** Once the session says it's ready: the branch here with its work, that branch's head, and files left uncommitted. */
+	collect(): Promise<{ branch: string; head: string; uncommitted: number }>;
+	/** Where the checks run, and the project's directory there. */
+	env(): Promise<{ env: ExecutionEnv; dir: string }>;
+};
+
+function sandboxRoute(host: ShipHost, id: number, record: SessionRecord): Route {
+	if (record.sandbox === undefined || record.source === undefined) throw new Stop("check_failed", `session ${id} isn't a sandbox session of a project with its sandbox ready`);
+	if (record.sandboxRemoved === true) throw new Stop("check_failed", `session ${id}'s sandbox was deleted when it was archived`);
+	return {
+		kind: "sandbox",
+		local: record.source,
+		baseRef: SANDBOX_BASE_REF,
+		receiveBase: (ref) => host.sandboxes.receiveBase(id, ref),
+		collect: async () => {
+			const synced = await host.sandboxes.sync(id, undefined, { force: true });
+			return { branch: synced.branch, head: synced.head, uncommitted: synced.uncommitted };
+		},
+		env: () => host.sandboxes.env(id),
+	};
+}
+
+function worktreeRoute(host: ShipHost, id: number, record: SessionRecord): Route {
+	if (record.source === undefined) throw new Stop("check_failed", `session ${id} has no project checkout to ship from`);
+	if (record.worktreeRemoved === true) throw new Stop("check_failed", `session ${id}'s worktree was removed when it was archived; its commits are on worktree/${record.worktree}`);
+	const worktrees = host.worktrees;
+	if (worktrees === undefined) throw new Stop("check_failed", "this host doesn't ship worktree sessions");
+	const local = record.source;
+	const branch = `worktree/${record.worktree}`;
+	const inWorktree = (...args: string[]) => run("git", ["-C", record.dir, ...args]).then((s) => s.trim());
+	return {
+		kind: "worktree",
+		local,
+		baseRef: WORKTREE_BASE_REF,
+		receiveBase: async (ref) => {
+			const sha = (await run("git", ["-C", local, "rev-parse", "--verify", `${ref}^{commit}`])).trim();
+			// The worktree shares the checkout's objects, so the commit is there already; only the ref is set.
+			await inWorktree("update-ref", WORKTREE_BASE_REF, sha);
+			return sha;
+		},
+		collect: async () => {
+			const current = await inWorktree("symbolic-ref", "--quiet", "--short", "HEAD").catch(() => "");
+			if (current !== branch) throw new Stop("check_failed", `the worktree is on ${current === "" ? "a detached HEAD" : current}, not ${branch}; nothing pushed`);
+			const dirty = (await inWorktree("status", "--porcelain")).split("\n").filter(Boolean).length;
+			return { branch, head: await inWorktree("rev-parse", "HEAD"), uncommitted: dirty };
+		},
+		env: () => worktrees.env(id),
+	};
 }
 
 async function shipping(host: ShipHost, id: number, options: ShipOptions & { ask: NonNullable<ShipOptions["ask"]> }): Promise<ShipResult> {
@@ -341,9 +423,8 @@ async function shipping(host: ShipHost, id: number, options: ShipOptions & { ask
 	const mode = options.mode ?? "main";
 	const record = await host.sessions.get(id);
 	if (record === undefined) throw new Stop("check_failed", `no session ${id}`);
-	if (record.sandbox === undefined || record.source === undefined) throw new Stop("check_failed", `session ${id} isn't a sandbox session of a project with its sandbox ready`);
-	if (record.sandboxRemoved === true) throw new Stop("check_failed", `session ${id}'s sandbox was deleted when it was archived`);
-	const local = record.source;
+	const route = record.worktree !== undefined ? worktreeRoute(host, id, record) : sandboxRoute(host, id, record);
+	const local = route.local;
 	const git = (...args: string[]) => run("git", ["-C", local, ...args]).then((s) => s.trim());
 
 	const base = await shipBase(local).catch((error: Error) => {
@@ -351,17 +432,17 @@ async function shipping(host: ShipHost, id: number, options: ShipOptions & { ask
 	});
 	say(`fetching ${base.remote}/${base.branch}`);
 	await git("fetch", "--quiet", base.remote, base.branch);
-	const sha = await host.sandboxes.receiveBase(id, base.ref);
+	const sha = await route.receiveBase(base.ref);
 	say(`asking session ${id} to rebase onto ${base.remote}/${base.branch} (${sha.slice(0, 12)})`);
 
-	const answered = await options.ask(id, shipPrompt(`${base.remote}/${base.branch}`, sha, options.note));
+	const answered = await options.ask(id, shipPrompt(`${base.remote}/${base.branch}`, sha, options.note, route.baseRef));
 	if (answered.status === "stopped") throw new Stop("blocked", "it was stopped before it was ready");
 	if (answered.status !== "done") throw new Stop("blocked", `its run ended ${answered.status} before it was ready`);
 	const verdict = shipVerdict(answered.answer);
 	if (!verdict.ready) throw new Stop("blocked", verdict.reason);
 
-	const synced = await host.sandboxes.sync(id, undefined, { force: true });
-	if (synced.uncommitted > 0) throw new Stop("check_failed", `the sandbox still has ${synced.uncommitted} uncommitted file${synced.uncommitted === 1 ? "" : "s"}; nothing pushed`);
+	const synced = await route.collect();
+	if (synced.uncommitted > 0) throw new Stop("check_failed", `the ${route.kind} still has ${synced.uncommitted} uncommitted file${synced.uncommitted === 1 ? "" : "s"}; nothing pushed`);
 	const onBase = await git("merge-base", "--is-ancestor", sha, synced.head).then(() => true, () => false);
 	if (!onBase) throw new Stop("check_failed", `${synced.branch} isn't on ${base.remote}/${base.branch}; the rebase didn't happen, nothing pushed`);
 	const commits = Number(await git("rev-list", "--count", `${sha}..${synced.head}`));
@@ -371,7 +452,7 @@ async function shipping(host: ShipHost, id: number, options: ShipOptions & { ask
 		// `main` whichever mode was asked: the work is on the base branch, and no branch or pull request was made.
 		return { shipped: true, mode: "main", pushed: `${base.remote}/${base.branch}`, head: synced.head, commits: 0 };
 	}
-	const checked = await checkShip(host, id, { sha, name: base.branch }, say);
+	const checked = await checkShip(host, id, await route.env(), { sha, name: base.branch }, say);
 
 	if (mode === "main") {
 		say(`pushing ${commits} commit${commits === 1 ? "" : "s"} to ${base.remote}/${base.branch}`);
@@ -386,7 +467,8 @@ async function shipping(host: ShipHost, id: number, options: ShipOptions & { ask
 		return { shipped: true, mode, pushed: `${base.remote}/${base.branch}`, head: synced.head, commits, ...(localResult === undefined ? {} : { local: localResult }), ...checked };
 	}
 
-	const branch = `${synced.branch}-${synced.head.slice(0, 7)}`.replace(/^sandbox\//, "sandbox-");
+	// sandbox/4 becomes sandbox-4-<sha>, worktree/2 worktree-2-<sha>.
+	const branch = `${synced.branch}-${synced.head.slice(0, 7)}`.replace(/^(sandbox|worktree)\//, "$1-");
 	say(`pushing ${commits} commit${commits === 1 ? "" : "s"} to ${base.remote}/${branch}`);
 	await git("push", "--quiet", base.remote, `${synced.head}:refs/heads/${branch}`);
 	const pr = await run("gh", ["pr", "create", "--repo", await repoOf(local, base.remote), "--base", base.branch, "--head", branch, "--fill-first"]).then((s) => s.trim().split("\n").at(-1), (error: Error) => {
@@ -458,15 +540,19 @@ export function createShips(options: ShipsOptions) {
 	return {
 		/**
 		 * Starts shipping session `id` and resolves once it's started, with the result's promise; throws ShipRefused when it
-		 * can't start: no sandbox, or the session running or already shipping.
+		 * can't start: no sandbox or worktree, or the session running or already shipping.
 		 */
 		async start(id: number, request: { mode: ShipMode; note?: string; onProgress?: (line: string) => void }): Promise<{ done: Promise<ShipResult> }> {
 			const record = await options.sessions.get(id);
 			if (record === undefined) throw new ShipRefused("bad_request", `no session ${id}`);
-			if (record.sandboxNumber === undefined && record.sandbox === undefined) throw new ShipRefused("bad_request", `session ${id} isn't in a sandbox`);
-			if (record.sandbox === undefined) throw new ShipRefused("bad_request", `session ${id}'s sandbox isn't ready`);
-			if (record.sandboxRemoved === true) throw new ShipRefused("bad_request", `session ${id}'s sandbox was deleted when it was archived`);
-			if (record.source === undefined || record.scratch === true) throw new ShipRefused("bad_request", `session ${id} is scratch work with no upstream to ship to; make it a project first`);
+			if (record.worktree !== undefined) {
+				if (options.worktrees === undefined) throw new ShipRefused("bad_request", `session ${id} is in a worktree, and this host doesn't ship those`);
+				if (record.worktreeRemoved === true) throw new ShipRefused("bad_request", `session ${id}'s worktree was removed when it was archived; its commits are on worktree/${record.worktree}`);
+				if (record.source === undefined) throw new ShipRefused("bad_request", `session ${id} has no project checkout to ship from`);
+			} else if (record.sandboxNumber === undefined && record.sandbox === undefined) throw new ShipRefused("bad_request", `session ${id} isn't in a sandbox or a worktree`);
+			else if (record.sandbox === undefined) throw new ShipRefused("bad_request", `session ${id}'s sandbox isn't ready`);
+			else if (record.sandboxRemoved === true) throw new ShipRefused("bad_request", `session ${id}'s sandbox was deleted when it was archived`);
+			else if (record.source === undefined || record.scratch === true) throw new ShipRefused("bad_request", `session ${id} is scratch work with no upstream to ship to; make it a project first`);
 			if (going.has(id)) throw new ShipRefused("busy", `session ${id} is already shipping`);
 			if ((await options.states()).get(id) !== "idle") throw new ShipRefused("busy", `session ${id} is running; ship once it's done`);
 			const shipping: Shipping = { requestId: `ship:${id}:${Date.now().toString(36)}`, mode: request.mode, startedAt: Date.now(), ...(request.note === undefined ? {} : { note: request.note }) };

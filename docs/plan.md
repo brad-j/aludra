@@ -6,11 +6,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
-### worktree-ship: ship_session for a worktree session
-Kind: request · From: verin/worktree-ship
-Verin's worktree-ship needs `ship_session` to ship a session that ran on the Mac in a git worktree, with its commits on `worktree/N`. Today `ship_session` refuses anything but a sandbox session ("only a sandbox session's work ships"), and `src/ship.ts` knows only the sandbox route: rebase in the sandbox, run the checks there, push from egwene. The worktree route would rebase `worktree/N` in its worktree on the Mac, run the project's declared checks from `.agents/project.json` there, with a sandbox ship's rule for a check that fails on the base too (it isn't the work's, and the ship goes on, saying so), and push from the Mac's checkout, behind a file-only setting like `mcp.ship`. check_sessions reports the result as it does a sandbox ship's. The session itself still can't push; only the ship does.
-Decided 2026-11-17: push from the Mac. The ship rebases `worktree/N`, runs the checks and pushes from the Mac's checkout as the owner, with the owner's git login there, outside any sandbox, and with the owner's approval for each ship. The session itself still can't push; only the ship does. Turned down: fetching `worktree/N` to egwene and rebasing, checking and pushing there like a sandbox ship. It needs no git access on the Mac, but it can't ship repos egwene doesn't have, and it can't run checks that need macOS (Xcode and iOS builds). See decisions.md, "Worktree ships push from the Mac". worktree-isolation (Seatbelt or a macOS VM) is related, since it would change where those checks run, but it's a separate item.
-
 ## Questions
 
 ## Later
@@ -42,6 +37,10 @@ After Amp's routing: only matters if sandboxes move off matrim to a cloud host, 
 ### worktree-isolation: Isolate worktree sessions on the Mac
 Kind: step
 A worktree session runs as the owner, outside any sandbox, only unable to push. Seatbelt or a macOS VM is the step after.
+
+### worktree-ship-live-check: Ship a worktree session on the Mac
+Kind: chore
+worktree-ship is tested against local git only: a bare upstream, a worktree on `worktree/N`, the faux model. Turn on `mcp.shipWorktrees` on the Mac, have Verin ship a worktree session of a scratch project with a real upstream and Claude, and check that the push used the Mac's git login, the declared checks ran in the worktree, and check_sessions reported it. Worth including a project whose checks need Xcode, since that's why the ship runs on the Mac.
 
 ### ship-branch-live-check: Try shipping in branch mode against GitHub
 Kind: chore
@@ -76,6 +75,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Verin now covers voice and the apps, so these may not be needed.
 
 ## Done
+
+### worktree-ship: ship_session for a worktree session
+Kind: request · From: verin/worktree-ship · Done: 2026-11-17
+`mcp.shipWorktrees` (file-only, off by default) lets ship_session ship a worktree session on this machine: rebased in its worktree onto `refs/worktree/aludra/base`, the declared checks run there with a sandbox ship's rule for base failures, pushed from the project's checkout. check_sessions reports it as it does a sandbox ship's. The live check on the Mac is worktree-ship-live-check.
 
 ### plan-convert: Move the plan into this format
 Kind: chore · Done: 2026-11-16

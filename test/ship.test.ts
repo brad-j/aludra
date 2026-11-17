@@ -338,3 +338,147 @@ test("a project with no checks, declared or from its turn, ships and says nothin
 		t.done();
 	}
 });
+
+/**
+ * A worktree session's ship: a remote (bare), the project's checkout cloned from it, and the session's worktree of the
+ * checkout on worktree/0, as src/host.ts createWorktree makes. Checks run in the worktree with the session's shell,
+ * where pushes are refused. `worktrees: false` leaves out the host's worktree support.
+ */
+async function worktreeSetup(checks?: unknown[], options: { worktrees?: boolean } = {}) {
+	const { NodeExecutionEnv } = await import("@earendil-works/pi-durable/env/node");
+	const { WORKTREE_ENV } = await import("../src/host.ts");
+	const root = mkdtempSync(join(tmpdir(), "aludra-wtship-"));
+	const remote = join(root, "remote.git");
+	const local = join(root, "local");
+	const wt = join(root, "worktrees", "p-0");
+	execFileSync("git", ["init", "-q", "--bare", "-b", "main", remote]);
+	mkdirSync(local);
+	git(local, "init", "-q", "-b", "main");
+	writeFileSync(join(local, "a.txt"), "one\n");
+	if (checks !== undefined) {
+		mkdirSync(join(local, ".agents"));
+		writeFileSync(join(local, ".agents", "project.json"), JSON.stringify({ checks }));
+	}
+	git(local, "add", "-A");
+	git(local, "commit", "-q", "-m", "first");
+	git(local, "remote", "add", "origin", remote);
+	git(local, "push", "-q", "-u", "origin", "main");
+	git(local, "worktree", "add", "-q", "-b", "worktree/0", wt);
+	const record = { id: 5, workspace: "w", project: "p", dir: wt, title: "t", createdAt: 0, source: local, worktree: 0 };
+	const unused = async () => {
+		throw new Error("a worktree ship doesn't touch sandboxes");
+	};
+	const host = {
+		sessions: { get: async (id: number) => (id === 5 ? record : undefined) },
+		sandboxes: { sync: unused, receiveBase: unused, env: unused },
+		...(options.worktrees === false ? {} : { worktrees: { env: async () => ({ env: new NodeExecutionEnv({ cwd: wt, shellEnv: WORKTREE_ENV }), dir: wt }) } }),
+		turnCommands: async () => [],
+	};
+	/** The agent's work, committed on worktree/0 with `files`. */
+	const work = (files: Record<string, string> = { "b.txt": "agent\n" }) => {
+		for (const [file, text] of Object.entries(files)) writeFileSync(join(wt, file), text);
+		git(wt, "add", "-A");
+		git(wt, "commit", "-q", "-m", "agent's work");
+	};
+	/** Main moves on the remote, from another clone. */
+	const moveMain = () => {
+		const other = join(root, "other");
+		execFileSync("git", ["clone", "-q", remote, other]);
+		writeFileSync(join(other, "c.txt"), "someone\n");
+		git(other, "add", "c.txt");
+		git(other, "commit", "-q", "-m", "someone else's");
+		git(other, "push", "-q", "origin", "main");
+	};
+	return { root, remote, local, wt, record, work, moveMain, host: host as never, done: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+const worktreeReady = (wt: string) => async () => {
+	git(wt, "rebase", "-q", "refs/worktree/aludra/base");
+	return { status: "done", answer: "Rebased.\nSHIP-READY" };
+};
+
+test("a worktree session ships from this machine: rebased in its worktree onto a main that moved, pushed from the checkout, and main fast-forwarded", async () => {
+	const t = await worktreeSetup();
+	try {
+		t.work();
+		t.moveMain();
+		const prompts: string[] = [];
+		const result = await ship(t.host, 5, {
+			ask: async (_id, prompt) => {
+				prompts.push(prompt);
+				// The base is a per-worktree ref: the session sees it, the checkout doesn't.
+				assert.notEqual(git(t.wt, "rev-parse", "--verify", "-q", "refs/worktree/aludra/base"), "");
+				assert.throws(() => git(t.local, "rev-parse", "--verify", "-q", "refs/worktree/aludra/base"));
+				return worktreeReady(t.wt)();
+			},
+		});
+		assert.ok(result.shipped, result.shipped ? "" : result.reason);
+		assert.equal(result.commits, 1);
+		assert.equal(result.unchecked, true);
+		assert.match(prompts[0]!, /land on origin\/main[\s\S]*as refs\/worktree\/aludra\/base[\s\S]*`git rebase refs\/worktree\/aludra\/base`/);
+		assert.doesNotMatch(prompts[0]!, /refs\/aludra\/base/);
+		assert.deepEqual(git(t.remote, "log", "--format=%s", "main").split("\n"), ["agent's work", "someone else's", "first"]);
+		assert.equal(git(t.remote, "rev-parse", "main"), git(t.wt, "rev-parse", "worktree/0"), "what was pushed is worktree/0");
+		assert.equal(git(t.local, "rev-parse", "main"), git(t.remote, "rev-parse", "main"), "the checkout's main is fast-forwarded");
+	} finally {
+		t.done();
+	}
+});
+
+test("a worktree ship runs the declared checks in the worktree, where a push still fails, and goes on past a check that fails on the base too", async () => {
+	const t = await worktreeSetup([
+		{ name: "types", command: "echo 'xcodebuild: not found' >&2; exit 127" },
+		{ name: "no push", command: "git push -q origin HEAD:refs/heads/from-check 2>/dev/null && exit 1 || exit 0" },
+		"test -f b.txt || test ! -f .git",
+	]);
+	try {
+		t.work();
+		const result = await ship(t.host, 5, { ask: worktreeReady(t.wt) });
+		assert.ok(result.shipped, result.shipped ? "" : result.reason);
+		assert.deepEqual(result.baseFailures, [{ name: "types", reason: "xcodebuild: not found" }]);
+		assert.equal(shipLine(shipOutcome(result, 1)), "Shipped to main · 1 commit · types fails on main too: xcodebuild: not found");
+		assert.equal(git(t.remote, "for-each-ref", "--format=%(refname)", "refs/heads/from-check"), "", "the check's push was refused");
+		assert.equal(git(t.local, "worktree", "list").split("\n").length, 2, "the base's worktree is gone");
+		assert.equal(git(t.wt, "status", "--porcelain"), "");
+	} finally {
+		t.done();
+	}
+});
+
+test("a worktree ship stops with nothing pushed for a check only the work fails, files left uncommitted, a branch switched, or a host that doesn't ship worktrees", async () => {
+	for (const what of ["check", "uncommitted", "switched", "unsupported"] as const) {
+		const t = await worktreeSetup(what === "check" ? [{ name: "no bad", command: "if [ -f bad.txt ]; then echo 'bad.txt is here'; exit 1; fi" }] : undefined, { worktrees: what !== "unsupported" });
+		try {
+			t.work(what === "check" ? { "bad.txt": "x\n" } : undefined);
+			const before = git(t.remote, "rev-parse", "main");
+			const result = await ship(t.host, 5, {
+				ask: async () => {
+					git(t.wt, "rebase", "-q", "refs/worktree/aludra/base");
+					if (what === "uncommitted") writeFileSync(join(t.wt, "stray.txt"), "x\n");
+					if (what === "switched") git(t.wt, "switch", "-q", "-c", "elsewhere");
+					return { status: "done", answer: "SHIP-READY" };
+				},
+			});
+			assert.equal(result.shipped, false, what);
+			const expected = { check: /no bad fails: bad.txt is here; it passes on main/, uncommitted: /the worktree still has 1 uncommitted file/, switched: /on elsewhere, not worktree\/0/, unsupported: /doesn't ship worktree sessions/ }[what];
+			assert.match(result.shipped ? "" : result.reason, expected, what);
+			assert.equal(result.shipped ? "" : result.kind, "check_failed", what);
+			assert.equal(git(t.remote, "rev-parse", "main"), before, `${what}: nothing pushed`);
+		} finally {
+			t.done();
+		}
+	}
+});
+
+test("a worktree ship in branch mode pushes worktree-N-<sha>", async () => {
+	const t = await worktreeSetup();
+	try {
+		t.work();
+		// The remote isn't on GitHub, so the pull request can't be opened after the push; the branch's name is the point.
+		await ship(t.host, 5, { mode: "branch", ask: worktreeReady(t.wt) });
+		const head = git(t.wt, "rev-parse", "HEAD");
+		assert.equal(git(t.remote, "rev-parse", `worktree-0-${head.slice(0, 7)}`), head);
+	} finally {
+		t.done();
+	}
+});

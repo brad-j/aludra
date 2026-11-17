@@ -1429,6 +1429,14 @@ export async function openHost(options: HostOptions) {
 	const ships = createShips({
 		sessions: { get },
 		sandboxes: sandboxApi,
+		// A worktree session's checks run here in its worktree, with its shell's pushes refused as in the session.
+		worktrees: {
+			env: async (id) => {
+				const record = await get(id);
+				if (record?.worktree === undefined || record.worktreeRemoved === true) throw new Error(`session ${id} has no worktree`);
+				return { env: new NodeExecutionEnv({ cwd: record.dir, shellEnv: WORKTREE_ENV }), dir: record.dir };
+			},
+		},
 		turnCommands: (id) => results.commands(id),
 		states,
 		// After the checks and screenshots of the run before, so a ship never runs beside them.
@@ -1557,6 +1565,8 @@ export async function openHost(options: HostOptions) {
 		mcpWorktreeOnly: () => config.mcp.worktreeOnly,
 		/** Whether a write token on the MCP endpoint may ship a sandbox session's work (the settings file's mcp.ship). */
 		mcpShip: () => config.mcp.write && config.mcp.ship,
+		/** Whether a write token on the MCP endpoint may ship a worktree session's work (the settings file's mcp.shipWorktrees). */
+		mcpShipWorktrees: () => config.mcp.write && config.mcp.shipWorktrees,
 		/** The tokens agents send to /mcp. */
 		tokens,
 		/** Session changes agents on /mcp wake on, with a cursor per token (src/session-changes.ts). */

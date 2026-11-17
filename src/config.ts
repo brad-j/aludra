@@ -7,7 +7,7 @@
 //     "approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
 //     "backup": { "dir": "/mnt/nas/aludra", "everyHours": 24, "keep": 7 },
 //     "archive": { "afterDays": 3 },
-//     "mcp": { "write": false, "sandboxOnly": false, "worktreeOnly": false },
+//     "mcp": { "write": false, "sandboxOnly": false, "worktreeOnly": false, "ship": false, "shipWorktrees": false },
 //     "api": { "port": 8724, "users": ["you@example.com"] },
 //     "dataDir": "~/.local/share/aludra"
 //   }
@@ -83,9 +83,10 @@ export type Config = {
 	/**
 	 * The MCP endpoint (src/mcp.ts): read-only unless `write`, which lets agents start, message and stop sessions. With
 	 * `sandboxOnly`, the sessions it starts and the ones its tools act on are only sandbox sessions; with `worktreeOnly`,
-	 * only worktree sessions. Both on is an error. `ship`, with `write`, lets a write token ship a sandbox session's work.
+	 * only worktree sessions. Both on is an error. `ship`, with `write`, lets a write token ship a sandbox session's work,
+	 * and `shipWorktrees` a worktree session's, pushed from this machine's checkout.
 	 */
-	mcp: { write: boolean; sandboxOnly: boolean; worktreeOnly: boolean; ship: boolean };
+	mcp: { write: boolean; sandboxOnly: boolean; worktreeOnly: boolean; ship: boolean; shipWorktrees: boolean };
 	/** The sandbox host (spike, src/sandboxes.ts), if sessions may run in sandboxes. */
 	sandboxes?: SandboxSetting;
 	/** ALUDRA_SANDBOXES=fake: sandboxes are local clones (src/fake-sandboxes.ts) in place of `sandboxes`' host, for development. */
@@ -129,7 +130,7 @@ const DEFAULTS = {
 	approvals: { hosts: [], waitHours: 24 },
 	backup: { everyHours: 24, keep: 7 },
 	archive: { afterDays: 3 },
-	mcp: { write: false, sandboxOnly: false, worktreeOnly: false, ship: false },
+	mcp: { write: false, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false },
 } satisfies Omit<Config, "workspaces" | "dataDir" | "backup" | "sandboxes"> & { backup: Omit<Config["backup"], "dir"> };
 
 const EXAMPLE_WORKSPACE = '"workspaces": [{ "name": "code", "roots": ["~/code/*"] }]';
@@ -142,7 +143,7 @@ const settingsFile = object({
 	approvals: optional(object({ hosts: optional(array(string)), waitHours: optional(number) })),
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	archive: optional(object({ afterDays: optional(number) })),
-	mcp: optional(object({ write: optional(boolean), sandboxOnly: optional(boolean), worktreeOnly: optional(boolean), ship: optional(boolean) })),
+	mcp: optional(object({ write: optional(boolean), sandboxOnly: optional(boolean), worktreeOnly: optional(boolean), ship: optional(boolean), shipWorktrees: optional(boolean) })),
 	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")), approvals: optional(literal("ask", "off")) })),
 	newProjects: optional(object({ root: string, owner: string })),
 	dataDir: optional(string),
