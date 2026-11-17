@@ -58,6 +58,12 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
+## Worktree ships push from the Mac (2026-11-17)
+
+For verin's worktree-ship (plan: `worktree-ship`), Brad decided a worktree session's ship runs on the Mac: it rebases `worktree/N`, runs the project's declared checks and pushes from the Mac's checkout as the owner, with the owner's git login there and outside any sandbox, and the owner approves each ship. The session itself still can't push; only the ship does.
+
+Turned down: fetching `worktree/N` to egwene and rebasing, checking and pushing there like a sandbox ship. It needs no git access on the Mac, but it can't ship repos egwene doesn't have, and it can't run checks that need macOS, such as Xcode and iOS builds.
+
 ## To look into, from hosted agents (2026-11-15)
 
 Ideas from how Amp, Codex cloud and Claude Code on the web run sessions in cloud sandboxes. None is decided; each is a Later item in the plan (`setup-only-secrets`, `git-credential-proxy`, `home-routing`, `idle-pausing`).
