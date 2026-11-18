@@ -42,6 +42,13 @@ A worktree session runs as the owner, outside any sandbox, only unable to push. 
 Kind: chore
 worktree-ship is tested against local git only: a bare upstream, a worktree on `worktree/N`, the faux model. Turn on `mcp.shipWorktrees` on the Mac, have Verin ship a worktree session of a scratch project with a real upstream and Claude, and check that the push used the Mac's git login, the declared checks ran in the worktree, and check_sessions reported it. Worth including a project whose checks need Xcode, since that's why the ship runs on the Mac.
 
+Progress 2026-11-18: `scripts/worktree-ship-check.ts` runs the ship end to end over `/mcp` in a temp data directory and checks each of these; its `--faux` run passed against a local bare upstream in a Linux sandbox, so the script works, and nothing has run on the Mac yet. On the Mac:
+
+1. `gh repo create brad-j/aludra-wtship-check --private --add-readme`.
+2. `node --no-warnings scripts/worktree-ship-check.ts git@github.com:brad-j/aludra-wtship-check.git`, then again with `--xcode` (needs `xcode-select` on a full Xcode). Each should end `all ok`, including the GitHub check that Brad's login pushed.
+3. Through the installed service and Verin: add `mcp.shipWorktrees: true` beside `mcp.write` and `mcp.worktreeOnly` in the Mac's settings file and run `aludra service install`. Clone the scratch repository into a workspace root, have Verin start a worktree session that edits it, approve the ship when Verin asks, and see Verin report it from `check_sessions`. This one tests what the script can't: the launchd unit's PATH and git login, which may differ from the terminal's (`SSH_AUTH_SOCK`, the keychain credential helper), and Verin asking before each ship.
+4. Delete the repository, or keep it for ship-branch-live-check.
+
 ### ship-branch-live-check: Try shipping in branch mode against GitHub
 Kind: chore
 `sandboxes.shipTo: "branch"` pushes `sandbox-N-<sha>` and opens a pull request with `gh pr create`. Only the tests have run it; the live ship checks used `main` mode, since there was no throwaway GitHub repository. gh can now make private repositories (new-projects-live-check), so a scratch one would do.
