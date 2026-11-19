@@ -83,6 +83,10 @@ From the first plan's "Later, maybe". Slack would be a channel per project and a
 
 ## Done
 
+### loial-followups: Titles, chat refusals, worktree checks and chats on macOS
+Kind: request · From: loial · Done: 2026-11-19
+Found testing loial on raken. A title's leading label ("Session title:", in bold or not) is stripped. A chat's write or edit outside its directory is blocked by a hook with the reason, where the tool alone said only "permission_denied". A worktree task's declared checks run in its worktree after each answer, as a sandbox's do, with code counts from the commit it started at; no screenshots, since a dev server here would share the machine's ports. A chat's commands run under Seatbelt on macOS (`CHAT_SEATBELT` in `src/chat-env.ts`), checked on the Mac, where they had run none for want of bubblewrap.
+
 ### loial-links: A task started from a chat, and a chat about a task
 Kind: request · From: loial · Done: 2026-11-19
 `conversations.create` takes `from` and `about`: the session is linked to the other, told of it in a `linked` prompt section (an excerpt, and where a task's work is), and its summary carries the link. For loial's "Start a task from this" and "Ask about this" (its plan, "Tasks and chats", step 5).

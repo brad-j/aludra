@@ -403,8 +403,12 @@ export type ResultsHost = {
 	entries(id: number): EntryPages;
 	/** Whether session `id` runs now (or waits on an approval). */
 	running(id: number): Promise<boolean>;
-	/** Session `id`'s sandbox: its environment, its directory there, its branch here and the commit it started from. */
-	sandbox(id: number): Promise<{ env: ExecutionEnv; dir: string; source: string; branch: string; base?: string; shipping: boolean } | undefined>;
+	/**
+	 * Session `id`'s sandbox, or its worktree on this machine: its environment, its directory there, its branch here and
+	 * the commit it started from. A worktree's checks run as a sandbox's do, but it takes no screenshots: a dev server here
+	 * would share this machine's ports with everything else.
+	 */
+	sandbox(id: number): Promise<{ env: ExecutionEnv; dir: string; source: string; branch: string; base?: string; shipping: boolean; worktree?: boolean } | undefined>;
 	/** Session `id`'s recorded checks, and recording them (the TurnChecks document). */
 	readChecks(id: number): Promise<TurnCheckState | undefined>;
 	writeChecks(id: number, state: TurnCheckState): Promise<void>;
@@ -494,9 +498,10 @@ export function createResults(host: ResultsHost) {
 	}
 
 	/**
-	 * After session `id`'s run ends with an answer: runs the project's declared checks in its sandbox, once per answer, and
-	 * records them, then takes its screenshots when it declares a dev server. Nothing for a session outside a sandbox,
-	 * one shipping (a check's build output would be left uncommitted), or a project that declares neither. Never throws.
+	 * After session `id`'s run ends with an answer: runs the project's declared checks in its sandbox or worktree, once per
+	 * answer, and records them, then, in a sandbox, takes its screenshots when it declares a dev server. Nothing for a
+	 * session outside a sandbox or worktree, one shipping (a check's build output would be left uncommitted), or a project
+	 * that declares neither. Never throws.
 	 */
 	function afterRun(id: number): Promise<void> {
 		const running = going.get(id);
@@ -510,7 +515,7 @@ export function createResults(host: ResultsHost) {
 			const stored = await host.readChecks(id);
 			if (stored?.at === answer.timestamp && !stored.running && stored.shooting !== true) return;
 			const config = await readProjectConfig(sandbox.env, sandbox.dir, host.context);
-			const { devServer } = config;
+			const devServer = sandbox.worktree === true ? undefined : config.devServer;
 			if (config.checks.length === 0 && devServer === undefined) return;
 			const at = answer.timestamp;
 			let checks: Check[] = [];

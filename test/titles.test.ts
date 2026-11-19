@@ -13,6 +13,8 @@ test("a model's reply is cut down to a title", () => {
 	assert.equal(cleanTitle('  "Keyboard shortcuts and idea fixes."  \n\nMore text'), "Keyboard shortcuts and idea fixes");
 	assert.equal(cleanTitle("Title: **Rename the session cookie**"), "Rename the session cookie");
 	assert.equal(cleanTitle("\n  \n"), undefined);
+	assert.equal(cleanTitle("Session title: Raken threshold test coverage check"), "Raken threshold test coverage check");
+	assert.equal(cleanTitle("**Conversation title:** Fix the importer"), "Fix the importer");
 	const long = cleanTitle("word ".repeat(40))!;
 	assert.ok(long.length <= 81 && long.endsWith("…"), long);
 });

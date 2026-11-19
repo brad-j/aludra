@@ -13,7 +13,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, defineDocFamily, defineExtension, type EntryId, Harness, hook, type Extension, type JsonObject, type ModelRef, section, ToolTask } from "@earendil-works/pi-durable";
-import { CHAT_REFUSAL, ChatEnv, findBwrap } from "./chat-env.ts";
+import { CHAT_REFUSAL, ChatEnv, findConfine, realOrParent } from "./chat-env.ts";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { fakeSandboxes } from "./fake-sandboxes.ts";
@@ -132,6 +132,8 @@ export type SessionRecord = {
 	worktree?: number;
 	/** Its worktree was removed when it was archived (src/worktree-cleanup.ts); its branch was kept. */
 	worktreeRemoved?: boolean;
+	/** The project's commit its worktree was made from, for its result's code counts. */
+	worktreeBase?: string;
 	/**
 	 * The skills copied into its sandbox when it was made, at their paths there (src/sandbox-skills.ts); `[]` when the copy
 	 * failed. Sandboxes from before the copies have none, and their prompts name no skills.
@@ -434,8 +436,8 @@ export async function openHost(options: HostOptions) {
 	/** Whether sandbox session `record`'s tools wait for approvals: its own setting, else the host's. */
 	const sandboxApprovals = (record: SessionRecord): "ask" | "off" => record.approvals ?? config.sandboxes?.approvals ?? "off";
 
-	/** bubblewrap, which a chat's commands run under; without it a chat runs none. */
-	const bwrap = findBwrap();
+	/** bubblewrap or Seatbelt, which a chat's commands run under; without either a chat runs none. */
+	const confine = findConfine();
 	const sandboxDir = resolve(config.dataDir, "sandboxes");
 	mkdirSync(sandboxDir, { recursive: true, mode: 0o700 });
 	const sandboxes = options.sandboxes ?? (config.fakeSandboxes === true ? fakeSandboxes(resolve(config.dataDir, "fake-sandboxes")).sandboxes : createSandboxes(config.sandboxes === undefined ? undefined : {
@@ -472,6 +474,20 @@ export async function openHost(options: HostOptions) {
 	// A session linked to another (a task from a chat, a chat about a task) is told of it.
 	registry.install(defineExtension({
 		name: "aludra-chat",
+		// A chat's write or edit outside its own directory is refused here, before the tool runs, so the model reads why;
+		// the tools themselves would refuse it too (src/chat-env.ts), with only "permission_denied".
+		hooks: [hook(ToolTask, {
+			beforeTool: async (call, api, ctx) => {
+				if (call.name !== "write" && call.name !== "edit") return undefined;
+				const record = (await api.snapshot(Sessions, ctx))?.sessions[String(api.conversationId)];
+				if (record?.chat !== true || record.chatDir === undefined || typeof call.arguments.path !== "string") return undefined;
+				// The tools resolve a relative path against the chat's working directory, which is where it starts.
+				const target = realOrParent(resolve(record.dir, expandHome(call.arguments.path)));
+				const own = realOrParent(record.chatDir);
+				if (target === own || target.startsWith(own + "/")) return undefined;
+				return { block: `${target} is outside this chat's own directory, ${record.chatDir}. ${CHAT_REFUSAL} Describe the change instead, so the user can start a task for it.` };
+			},
+		})],
 		sections: [section("linked", async ({ conversationId, read }) => (await read.snapshot(Sessions, context))?.sessions[String(conversationId)]?.linked), section("chat", async ({ conversationId, read }) => {
 			const record = (await read.snapshot(Sessions, context))?.sessions[String(conversationId)];
 			if (record?.chat !== true || record.chatDir === undefined) return undefined;
@@ -515,7 +531,7 @@ export async function openHost(options: HostOptions) {
 				if (isWorktreeSession(record)) return new NodeExecutionEnv({ cwd: cwd ?? record!.dir, shellEnv: WORKTREE_ENV });
 				if (record?.chat === true && record.chatDir !== undefined) {
 					mkdirSync(record.chatDir, { recursive: true, mode: 0o700 });
-					return new ChatEnv({ cwd: cwd ?? record.dir, writable: record.chatDir, bwrap });
+					return new ChatEnv({ cwd: cwd ?? record.dir, writable: record.chatDir, confine });
 				}
 				return new NodeExecutionEnv({ cwd: cwd ?? homedir() });
 			},
@@ -794,6 +810,7 @@ export async function openHost(options: HostOptions) {
 					createdAt: Date.now(),
 					source: project.dir,
 					worktree: number,
+					worktreeBase: head,
 					...("error" in base ? { baseError: base.error } : { base }),
 					...(options.planItem === undefined ? {} : { planItem: options.planItem }),
 				};
@@ -1611,6 +1628,18 @@ export async function openHost(options: HostOptions) {
 		running: async (id) => (await states()).get(id) !== "idle",
 		sandbox: async (id) => {
 			const record = await get(id);
+			// A worktree task's checks run in its worktree here, with pushes refused as in the task.
+			if (isWorktreeSession(record) && record!.worktreeRemoved !== true && record!.source !== undefined) {
+				return {
+					env: new NodeExecutionEnv({ cwd: record!.dir, shellEnv: WORKTREE_ENV }),
+					dir: record!.dir,
+					source: record!.source,
+					branch: worktreeBranch(record!),
+					...(record!.worktreeBase === undefined ? {} : { base: record!.worktreeBase }),
+					shipping: record!.shipping !== undefined,
+					worktree: true,
+				};
+			}
 			if (record?.sandbox === undefined || record.source === undefined || record.sandboxRemoved === true) return undefined;
 			return {
 				env: sandboxes.env(record.sandbox, record.dir),

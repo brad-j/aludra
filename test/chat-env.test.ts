@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
-import { ChatEnv, findBwrap, realOrParent } from "../src/chat-env.ts";
+import { ChatEnv, findConfine, realOrParent } from "../src/chat-env.ts";
 import { tempDir } from "./helpers.ts";
 
-const bwrap = findBwrap();
+const confine = findConfine();
 
 function setup(t: Parameters<typeof tempDir>[0]) {
-	const root = tempDir(t);
+	// On macOS the temporary folders stay writable to a chat's commands, so the project there goes in the home directory.
+	const root = process.platform === "darwin" ? mkdtempSync(join(homedir(), ".aludra-chat-test-")) : tempDir(t);
+	if (process.platform === "darwin") t.after(() => rmSync(root, { recursive: true, force: true }));
 	const project = join(root, "project");
 	const own = join(root, "chat");
 	mkdirSync(project);
@@ -20,7 +23,7 @@ function setup(t: Parameters<typeof tempDir>[0]) {
 
 test("a chat's file tools read anywhere and write only its own directory, links resolved", async (t) => {
 	const { project, own } = setup(t);
-	const env = new ChatEnv({ cwd: project, writable: own, bwrap });
+	const env = new ChatEnv({ cwd: project, writable: own, confine });
 	const read = await env.readTextFile("a.txt", ctx);
 	assert.ok(read.ok && read.value === "one\n");
 	for (const attempt of [
@@ -49,9 +52,9 @@ test("a chat's file tools read anywhere and write only its own directory, links 
 	assert.equal(realOrParent(join(own, "door", "nope", "x")), join(project, "nope", "x"));
 });
 
-test("a chat's commands run with the file system read-only but for its own directory", { skip: bwrap === undefined && "no bubblewrap here" }, async (t) => {
+test("a chat's commands run with the file system read-only but for its own directory", { skip: confine === undefined && "neither bubblewrap nor sandbox-exec here" }, async (t) => {
 	const { project, own } = setup(t);
-	const env = new ChatEnv({ cwd: project, writable: own, bwrap });
+	const env = new ChatEnv({ cwd: project, writable: own, confine });
 	const run = async (command: string) => {
 		let out = "";
 		const result = await env.exec(command, { onOutput: (text) => void (out += text) }, ctx);
@@ -61,9 +64,10 @@ test("a chat's commands run with the file system read-only but for its own direc
 	const look = await run("cat a.txt && pwd");
 	assert.equal(look.exitCode, 0);
 	assert.match(look.out, /^one\n.*project\n$/s);
+	assert.equal(look.out.endsWith(`${realOrParent(project)}\n`) || look.out.endsWith(`${project}\n`), true);
 	const write = await run("echo two > a.txt");
 	assert.notEqual(write.exitCode, 0);
-	assert.match(write.out, /Read-only file system/);
+	assert.match(write.out, /Read-only file system|Operation not permitted/);
 	assert.notEqual((await run(`touch ${JSON.stringify(join(project, "b.txt"))}`)).exitCode, 0);
 	assert.equal((await run(`echo kept > ${JSON.stringify(join(own, "kept.txt"))}`)).exitCode, 0);
 	assert.equal((await run("echo scratch > /tmp/scratch && cat /tmp/scratch")).out, "scratch\n", "a /tmp of its own");
@@ -72,9 +76,14 @@ test("a chat's commands run with the file system read-only but for its own direc
 	assert.equal(readFileSync(join(own, "kept.txt"), "utf8"), "kept\n");
 });
 
-test("without bubblewrap a chat runs no commands, and says why", async (t) => {
+test("the way to confine a chat's commands: bubblewrap on Linux, sandbox-exec on macOS", () => {
+	assert.equal(findConfine("/nowhere", "darwin")?.kind ?? "none", process.platform === "darwin" ? "seatbelt" : "none", "/usr/bin is looked in too on macOS");
+	assert.equal(findConfine("", "linux"), undefined);
+});
+
+test("without bubblewrap or sandbox-exec a chat runs no commands, and says why", async (t) => {
 	const { project, own } = setup(t);
-	const env = new ChatEnv({ cwd: project, writable: own, bwrap: undefined });
+	const env = new ChatEnv({ cwd: project, writable: own, confine: undefined });
 	const result = await env.exec("echo hi", undefined, ctx);
 	assert.ok(!result.ok && result.error.code === "shell_unavailable" && /bubblewrap/.test(result.error.message));
 });

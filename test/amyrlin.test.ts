@@ -52,12 +52,17 @@ const lastUser = (ctx: TranscriptContext) => JSON.stringify(ctx.messages.findLas
 async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: string; settings?: Record<string, unknown>; newProjects?: HostOptions["newProjects"] } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000 }, { id: "faux-2", name: "Faux 2" }] });
 	const prompts: string[] = [];
+	/** What "write outside" calls came back with. */
+	const writes: string[] = [];
 	faux.setResponses(Array.from({ length: 100 }, () => (ctx: TranscriptContext) => {
 		prompts.push(JSON.stringify(ctx.messages.filter((m) => m.role === "system")));
 		const last = ctx.messages.at(-1);
 		if (last?.role === "toolResult" && /pwd/.test(JSON.stringify(ctx.messages))) return fauxAssistantMessage(fauxText(`cwd: ${JSON.stringify(last.content)}`));
 		if (/where are you/.test(lastUser(ctx))) return fauxAssistantMessage(fauxToolCall("bash", { command: "pwd" }), { stopReason: "toolUse" });
 		const user = lastUser(ctx);
+		// "write outside" writes a.txt in the working directory, which a chat's is not to touch.
+		if (last?.role === "toolResult" && /write outside/.test(user)) return (writes.push(JSON.stringify(last.content)), fauxAssistantMessage(fauxText("Tried.")));
+		if (/write outside/.test(user)) return fauxAssistantMessage(fauxToolCall("write", { path: "a.txt", content: "changed\n" }), { stopReason: "toolUse" });
 		if (last?.role === "toolResult" && /refs\/aludra\/base/.test(user)) return fauxAssistantMessage(fauxText("Rebased and tested.\nSHIP-READY"));
 		if (last?.role === "toolResult" && /report \w+/.test(user)) return fauxAssistantMessage(fauxText(REPORTED));
 		if (last?.role === "toolResult" && /commit \w+/.test(user)) return fauxAssistantMessage(fauxText(`Committed: ${JSON.stringify(last.content)}`));
@@ -79,7 +84,7 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 	const server = createApi(host, { users: [USER], name: "test-host", checkoutMs: 100 });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
-	return { host, project, prompts, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin` };
+	return { host, project, prompts, writes, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin` };
 }
 
 /** A protocol v1 client: requests, and each subscription's events in order with `seq` checked. */
@@ -605,6 +610,17 @@ test("a task started from a chat, and a chat about a task, each carry the link a
 	await assert.rejects(mac.request("conversations.create", { requestId: "link-5", project: project.dir, text: "x", chat: true, from: 999_999 }), { code: "bad_request" });
 });
 
+test("a chat's write outside its own directory is blocked with the reason, before the tool runs", async (t) => {
+	const { url, host, project, writes } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const chat = (await mac.request("conversations.create", { requestId: "chat-w", project: project.dir, text: "write outside", chat: true })).conversation;
+	await waitFor(() => writes.length > 0, "the write's result");
+	assert.match(writes[0]!, /outside this chat's own directory/);
+	assert.match(writes[0]!, /start a task/);
+	assert.equal(readFileSync(join(project.dir, "a.txt"), "utf8"), "one\n", "the project's file is unchanged");
+	await waitFor(async () => (await host.sessions.states()).get(chat.id) === "idle", "the chat to finish");
+});
+
 test("a chat reads the project, can't change it, and has no changes or ship", async (t) => {
 	const { url, project, host } = await sandboxApi(t);
 	const mac = await client(t, url);
@@ -859,6 +875,23 @@ async function waitFor(check: () => boolean | Promise<boolean>, what: string, ms
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
 }
+
+test("a worktree task's declared checks run in its worktree after an answer, and its code counts from where it started", async (t) => {
+	const { url, host, project } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const created = (await mac.request("conversations.create", { requestId: "wt-checks", project: project.dir, text: "report notes", worktree: true })).conversation;
+	const id = created.id;
+	const dir = created.dir as string;
+	mkdirSync(join(dir, ".agents"), { recursive: true });
+	writeFileSync(join(dir, ".agents", "project.json"), JSON.stringify({ checks: [{ name: "here", command: "test -f a.txt" }, { name: "fails", command: "echo broken; exit 3" }] }));
+	await waitFor(async () => (await host.sessions.states()).get(id) === "idle" && git(dir, "log", "-1", "--format=%s") === "notes", "the run");
+	await host.results.afterRun(id);
+	const result = (await mac.request("task.result", { conversationId: id })).result;
+	assert.deepEqual(result.checks.map((c: Json) => [c.name, c.ok]), [["here", true], ["fails", false]]);
+	assert.match(result.checks[1].detail, /broken/);
+	assert.equal(result.code.commits, 1);
+	assert.deepEqual(result.shots, [], "no screenshots in a worktree");
+});
 
 test("a sandbox task's result: what it said, its checks run in the sandbox, its code, and its line", async (t) => {
 	const { url, host, project, fake, prompts } = await sandboxApi(t);

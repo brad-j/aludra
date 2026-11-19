@@ -41,7 +41,8 @@ export function cleanTitle(reply: string): string | undefined {
 	const line = reply.split("\n").map((l) => l.trim()).find((l) => l !== "");
 	if (line === undefined) return undefined;
 	const title = line
-		.replace(/^(title|session)\s*:\s*/i, "")
+		// A label, bare or in bold ("Title:", "**Session title:**"), before the title itself.
+		.replace(/^[*_\s]*(?:session\s+|conversation\s+)?(?:title|session)\s*:[*_]*\s*/i, "")
 		.replace(/^[#>*_`"'“‘\s]+|[*_`"'”’\s]+$/g, "")
 		.replace(/\.$/, "")
 		.replace(/\s+/g, " ")
