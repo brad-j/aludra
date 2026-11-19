@@ -1,4 +1,5 @@
-// A project's plan, docs/plan.md, read from its working copy for read_plan over MCP (src/mcp.ts), so an agent on
+// A project's plan, docs/plan.md, read from its working copy for read_plan over MCP (src/mcp.ts) and projects.plan on
+// /amyrlin (its items, for an app's list of what to start), so an agent on
 // another machine (Verin's Plans) sees the plan as it is on this one, unpushed edits included. Only that one file: a
 // docs or docs/plan.md that's a symbolic link, or resolves outside the project, isn't followed, and a plan over
 // MAX_PLAN bytes is refused rather than cut, since half a plan reads as a whole one.
@@ -13,6 +14,56 @@ export const MAX_PLAN = 512 * 1024;
 export type Plan =
 	| { project: string; path: string; exists: true; text: string; size: number; modified: string }
 	| { project: string; path: string; exists: false };
+
+export const PLAN_SECTIONS = ["Now", "Next", "Questions", "Later", "Done"] as const;
+export type PlanSection = (typeof PLAN_SECTIONS)[number];
+/** One item of a plan in the standard format: `### id: title` under a section, then its status line. */
+export type PlanItem = { id: string; title: string; section: PlanSection; kind?: string; needs?: string[]; run?: string };
+
+/** What an item's id looks like: lowercase kebab-case. */
+export const PLAN_ITEM_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
+
+/**
+ * The items of a plan in the standard format, in the file's order: each `### id: title` under `## Now`, `Next`,
+ * `Questions`, `Later` or `Done`, with `Kind`, `Needs` and `Run` from the status line under it when it has one.
+ * Headings in fenced code, under any other section, or without an id are left out, so a plan in another format has none.
+ */
+export function planItems(text: string): PlanItem[] {
+	const items: PlanItem[] = [];
+	let section: PlanSection | undefined;
+	let fence: string | undefined;
+	let awaiting: PlanItem | undefined;
+	for (const line of text.split(/\r?\n/)) {
+		const mark = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+		if (mark !== undefined) {
+			if (fence === undefined) fence = mark[0]!;
+			else if (mark[0] === fence) fence = undefined;
+			awaiting = undefined;
+			continue;
+		}
+		if (fence !== undefined) continue;
+		const heading = /^(#{1,6})\s+(.*?)\s*$/.exec(line);
+		if (heading !== null) {
+			awaiting = undefined;
+			if (heading[1]!.length <= 2) section = heading[1]!.length === 2 ? PLAN_SECTIONS.find((s) => s === heading[2]) : undefined;
+			const item = heading[1]!.length === 3 && section !== undefined ? /^([^:\s]+):\s+(.+)$/.exec(heading[2]!) : null;
+			if (item !== null && PLAN_ITEM_ID.test(item[1]!)) items.push((awaiting = { id: item[1]!, title: item[2]!, section: section! }));
+			continue;
+		}
+		if (awaiting === undefined || line.trim() === "") continue;
+		// The first line of text under the heading is the status line, when it starts with Kind.
+		const found = awaiting;
+		awaiting = undefined;
+		if (!line.trim().startsWith("Kind:")) continue;
+		for (const field of line.split(" · ")) {
+			const [, name, value] = /^\s*([A-Za-z]+):\s*(.*?)\s*$/.exec(field) ?? [];
+			if (name === "Kind" && value) found.kind = value;
+			if (name === "Run" && value) found.run = value;
+			if (name === "Needs" && value) found.needs = value.split(",").map((n) => n.trim()).filter((n) => n !== "");
+		}
+	}
+	return items;
+}
 
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR";
 

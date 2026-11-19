@@ -36,6 +36,7 @@ import type { ApprovalRequest } from "../permissions.ts";
 import { monthSpend } from "../live.ts";
 import { RestoreRefused } from "../checkpoints.ts";
 import { ParseError } from "../parse.ts";
+import { PLAN_ITEM_ID, planItems, readPlan } from "../plans.ts";
 import { SettingsError } from "../settings.ts";
 import { billedCost } from "../transcript.ts";
 import { DurableTranslator, entryItem, type Json, text, usageState } from "./translate.ts";
@@ -192,6 +193,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			dir: record.dir,
 			...(sandbox === undefined ? {} : { sandbox: sandbox.wire, ...(record.source === undefined ? {} : { source: record.source }) }),
 			...(line === undefined || line === "" ? {} : { line }),
+			// aludra's own: the plan item it was started for.
+			...(record.planItem === undefined ? {} : { planItem: record.planItem }),
 			...(allowed.length > 0 ? { alwaysAllowed: allowed } : {}),
 		};
 	}
@@ -451,11 +454,13 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		if (p.group != null && p.sandbox !== true) throw new ProtocolError("bad_request", "group is for sandbox sessions");
 		if (p.size != null && !isSize(p.size)) throw new ProtocolError("bad_request", "size should be small, medium, large or xlarge");
 		if (p.size != null && p.sandbox !== true) throw new ProtocolError("bad_request", "size is for sandbox sessions");
+		if (p.planItem != null && (typeof p.planItem !== "string" || !PLAN_ITEM_ID.test(p.planItem))) throw new ProtocolError("bad_request", "planItem should be a plan item's id");
+		if (p.planItem != null && project === undefined) throw new ProtocolError("bad_request", "planItem is for a session in a project");
 		const sandboxed = p.sandbox === true;
 		if (sandboxed && host.sandboxSettings() === undefined) throw new ProtocolError("unsupported", "This host has no sandbox host in its settings");
-		const record = sandboxed ? await host.sessions.startSandbox(project, title, agent, { ...(p.approvals == null ? {} : { approvals: p.approvals }), ...(p.group == null ? {} : { group: p.group }), ...(p.size == null ? {} : { size: p.size }) })
+		const record = sandboxed ? await host.sessions.startSandbox(project, title, agent, { ...(p.approvals == null ? {} : { approvals: p.approvals }), ...(p.group == null ? {} : { group: p.group }), ...(p.size == null ? {} : { size: p.size }), ...(p.planItem == null ? {} : { planItem: p.planItem }) })
 			: project === undefined ? await host.sessions.createScratch(title, agent)
-			: await host.sessions.create(project, title, agent);
+			: await host.sessions.create(project, title, agent, p.planItem == null ? {} : { planItem: p.planItem });
 		await host.root.commit(async (tx) => {
 			(await tx.doc(AmyrlinDoc)).created[p.requestId] = record.id;
 		}, context);
@@ -976,6 +981,19 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 					const answer = { project: await newProject(() => host.newProjects.promote(record.id, p.name, p.description ?? undefined)) };
 					markDirty(record.id);
 					return answer;
+				}
+				// aludra's own: the items of a project's docs/plan.md, for a client's list of what to start.
+				case "projects.plan": {
+					if (typeof p.project !== "string") throw new ProtocolError("bad_request", "projects.plan takes a project's directory");
+					const project = host.projects().find((candidate) => candidate.dir === p.project);
+					if (project === undefined) throw new ProtocolError("not_found", `${p.project} isn't a project aludra knows; host.info lists them`);
+					let plan;
+					try {
+						plan = await readPlan(project);
+					} catch (error) {
+						throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+					}
+					return { plan: plan.exists ? { path: plan.path, exists: true, modified: plan.modified, items: planItems(plan.text) } : { path: plan.path, exists: false, items: [] } };
 				}
 				// aludra's own: hiding a project from the lists; its files and sessions stay as they are.
 				case "projects.archive": {

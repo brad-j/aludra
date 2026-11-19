@@ -83,6 +83,10 @@ From the first plan's "Later, maybe". Slack would be a channel per project and a
 
 ## Done
 
+### plan-items: A project's plan items over /amyrlin, and the item a session was started for
+Kind: request · From: loial · Done: 2026-11-18
+`projects.plan { project }` answers the items of the project's `docs/plan.md` (`planItems` in `src/plans.ts`), and `conversations.create` takes `planItem`, kept on the session and carried in its summary. For loial's list of what to start (its plan, "Tasks and chats", step 3). [api.md](api.md#amyrlins-endpoint-ws-amyrlin) has both.
+
 ### worktree-ship: ship_session for a worktree session
 Kind: request · From: verin/worktree-ship · Done: 2026-11-17
 `mcp.shipWorktrees` (file-only, off by default) lets ship_session ship a worktree session on this machine: rebased in its worktree onto `refs/worktree/aludra/base`, the declared checks run there with a sandbox ship's rule for base failures, pushed from the project's checkout. check_sessions reports it as it does a sandbox ship's. The live check on the Mac is worktree-ship-live-check.

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { MAX_PLAN, readPlan } from "../src/plans.ts";
+import { MAX_PLAN, planItems, readPlan } from "../src/plans.ts";
 import { makeProject, tempDir } from "./helpers.ts";
 
 test("read_plan reads docs/plan.md from the working copy as it is now", async (t) => {
@@ -18,6 +18,33 @@ test("read_plan reads docs/plan.md from the working copy as it is now", async (t
 	const again = await readPlan(project);
 	assert.ok(again.exists);
 	assert.match(again.text, /edited: Not committed/);
+});
+
+test("a plan's items: each heading with an id under one of the five sections, with its status line's fields", () => {
+	const text = [
+		"# Plan", "", "Open work.", "",
+		"## Now", "",
+		"### pages-web-view: The apps' web view for published pages",
+		"Kind: step · Needs: verin/pages-server, attachments · Run: aludra worktree",
+		"The server side shipped.", "",
+		"```markdown", "## Later", "### not-an-item: In a code block", "```", "",
+		"### no-status: An item with prose first", "",
+		"It has no status line.", "Kind: step", "",
+		"## Next", "## Questions",
+		"### push-bundle-id: New bundle id, or reuse Lan's?",
+		"Kind: question", "",
+		"## Notes", "### stray: Under a section the format doesn't have", "Kind: step", "",
+		"## Later", "### Not an id: a heading without one", "#### deeper: Not an item", "",
+		"## Done", "### mail-shadow: Gmail in shadow mode", "Kind: step · Done: 2026-11-14 eb4754e",
+	].join("\n");
+	assert.deepEqual(planItems(text), [
+		{ id: "pages-web-view", title: "The apps' web view for published pages", section: "Now", kind: "step", needs: ["verin/pages-server", "attachments"], run: "aludra worktree" },
+		{ id: "no-status", title: "An item with prose first", section: "Now" },
+		{ id: "push-bundle-id", title: "New bundle id, or reuse Lan's?", section: "Questions", kind: "question" },
+		{ id: "mail-shadow", title: "Gmail in shadow mode", section: "Done", kind: "step" },
+	]);
+	assert.deepEqual(planItems("# loial plan\n\n## Steps\n\n1. Post-mortem.\n\n## Later\n\nCandidates.\n"), [], "a plan in another format has no items");
+	assert.deepEqual(planItems(""), []);
 });
 
 test("a project without a plan, or without docs, answers exists: false", async (t) => {

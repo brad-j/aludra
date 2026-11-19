@@ -538,6 +538,33 @@ async function sandboxApi(t: TestContext) {
 
 const updated = (id: number, test: (c: Json) => boolean) => (e: Json) => e.type === "conversation.updated" && e.conversation.id === id && test(e.conversation);
 
+test("projects.plan lists a project's plan items, and a session started for one carries it in its summary", async (t) => {
+	const { url, project, fake } = await sandboxApi(t);
+	const mac = await client(t, url);
+	assert.deepEqual((await mac.request("projects.plan", { project: project.dir })).plan, { path: "docs/plan.md", exists: false, items: [] });
+	mkdirSync(join(project.dir, "docs"), { recursive: true });
+	writeFileSync(join(project.dir, "docs", "plan.md"), "# Plan\n\n## Now\n### csv-export: Export a season as CSV\nKind: step · Needs: flaky-import\n\n## Next\n## Questions\n## Later\n## Done\n");
+	const { plan } = await mac.request("projects.plan", { project: project.dir });
+	assert.equal(plan.exists, true);
+	assert.ok(!Number.isNaN(Date.parse(plan.modified)));
+	assert.deepEqual(plan.items, [{ id: "csv-export", title: "Export a season as CSV", section: "Now", kind: "step", needs: ["flaky-import"] }]);
+	await assert.rejects(mac.request("projects.plan", { project: "/nowhere" }), { code: "not_found" });
+	await assert.rejects(mac.request("projects.plan", {}), { code: "bad_request" });
+
+	const local = await mac.request("conversations.create", { requestId: "plan-1", project: project.dir, title: "Export a season as CSV", planItem: "csv-export" });
+	assert.equal(local.conversation.planItem, "csv-export");
+	fake.control.hold = true;
+	const boxed = await mac.request("conversations.create", { requestId: "plan-2", project: project.dir, title: "Export a season as CSV", sandbox: true, planItem: "csv-export" });
+	assert.equal(boxed.conversation.planItem, "csv-export");
+	fake.control.hold = false;
+	const listed = (await mac.request("conversations.list")).conversations;
+	assert.deepEqual(listed.filter((c: Json) => c.planItem === "csv-export").map((c: Json) => c.id).sort(), [local.conversation.id, boxed.conversation.id].sort());
+	const plain = await mac.request("conversations.create", { requestId: "plan-3", project: project.dir, title: "Nothing to do with the plan" });
+	assert.equal("planItem" in plain.conversation, false);
+	await assert.rejects(mac.request("conversations.create", { requestId: "plan-4", project: project.dir, planItem: "Not An Id" }), { code: "bad_request" });
+	await assert.rejects(mac.request("conversations.create", { requestId: "plan-5", planItem: "csv-export" }), { code: "bad_request", message: /in a project/ });
+});
+
 test("a sandbox session from the Mac answers at once, holds its first message while it's made, then runs in it", async (t) => {
 	const { url, project, fake } = await sandboxApi(t);
 	const mac = await client(t, url);
