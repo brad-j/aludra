@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
-import { context, conversationId, type Host, isSandboxSession, SandboxNotReady, sandboxBranch, type SessionRecord } from "../host.ts";
+import { context, conversationId, type Host, isSandboxSession, isWorktreeSession, SandboxNotReady, sandboxBranch, type SessionRecord, worktreeBranch } from "../host.ts";
 import { checkedOf, ShipRefused, type ShipResult } from "../ship.ts";
 import { codeChanges, codeDiff } from "../results.ts";
 import { changesSince, fileDiff } from "../changes.ts";
@@ -193,8 +193,10 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			dir: record.dir,
 			...(sandbox === undefined ? {} : { sandbox: sandbox.wire, ...(record.source === undefined ? {} : { source: record.source }) }),
 			...(line === undefined || line === "" ? {} : { line }),
-			// aludra's own: the plan item it was started for.
+			// aludra's own: the plan item it was started for, and what kind of session it is when it's a worktree task or a chat.
 			...(record.planItem === undefined ? {} : { planItem: record.planItem }),
+			...(isWorktreeSession(record) ? { worktree: worktreeOf_(record), ...(record.source === undefined ? {} : { source: record.source }) } : {}),
+			...(record.chat === true ? { chat: true } : {}),
 			...(allowed.length > 0 ? { alwaysAllowed: allowed } : {}),
 		};
 	}
@@ -363,6 +365,26 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		return { record, conversation: await host.conversation(id) };
 	}
 
+	/** A worktree session's `worktree` for its summary: its number, branch, whether its worktree was removed, and its ships. */
+	function worktreeOf_(record: SessionRecord): Json {
+		return {
+			number: record.worktree!,
+			branch: worktreeBranch(record),
+			...(record.worktreeRemoved === true ? { removed: true } : {}),
+			...(record.shipped === undefined ? {} : { shipped: record.shipped }),
+			...(record.shipStopped === undefined ? {} : { shipStopped: record.shipStopped }),
+		};
+	}
+
+	/** Makes a worktree session, answering git's refusals (not in git, no commits) as bad_request. */
+	async function worktreeOf(make: () => Promise<SessionRecord>): Promise<SessionRecord> {
+		try {
+			return await make();
+		} catch (error) {
+			throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+		}
+	}
+
 	/** A sandbox session's record, or the error saying it isn't one. */
 	async function sandboxSession(id: unknown): Promise<SessionRecord> {
 		const { record } = await session(id);
@@ -456,9 +478,18 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		if (p.size != null && p.sandbox !== true) throw new ProtocolError("bad_request", "size is for sandbox sessions");
 		if (p.planItem != null && (typeof p.planItem !== "string" || !PLAN_ITEM_ID.test(p.planItem))) throw new ProtocolError("bad_request", "planItem should be a plan item's id");
 		if (p.planItem != null && project === undefined) throw new ProtocolError("bad_request", "planItem is for a session in a project");
+		// aludra's own: a worktree task on this machine, and a chat, which changes nothing outside its own directory.
+		if (p.worktree != null && typeof p.worktree !== "boolean") throw new ProtocolError("bad_request", "worktree should be true or false");
+		if (p.chat != null && typeof p.chat !== "boolean") throw new ProtocolError("bad_request", "chat should be true or false");
+		const kinds = [p.sandbox === true, p.worktree === true, p.chat === true].filter(Boolean).length;
+		if (kinds > 1) throw new ProtocolError("bad_request", "a session is one of a sandbox, a worktree or a chat");
+		if (p.worktree === true && project === undefined) throw new ProtocolError("bad_request", "a worktree needs a project");
+		if (p.chat === true && p.planItem != null) throw new ProtocolError("bad_request", "a chat isn't for a plan item; start a task for it");
 		const sandboxed = p.sandbox === true;
 		if (sandboxed && host.sandboxSettings() === undefined) throw new ProtocolError("unsupported", "This host has no sandbox host in its settings");
-		const record = sandboxed ? await host.sessions.startSandbox(project, title, agent, { ...(p.approvals == null ? {} : { approvals: p.approvals }), ...(p.group == null ? {} : { group: p.group }), ...(p.size == null ? {} : { size: p.size }), ...(p.planItem == null ? {} : { planItem: p.planItem }) })
+		const record = p.chat === true ? await host.sessions.createChat(project, title, agent)
+			: p.worktree === true ? await worktreeOf(() => host.sessions.createWorktree(project!, title, agent, p.planItem == null ? {} : { planItem: p.planItem }))
+			: sandboxed ? await host.sessions.startSandbox(project, title, agent, { ...(p.approvals == null ? {} : { approvals: p.approvals }), ...(p.group == null ? {} : { group: p.group }), ...(p.size == null ? {} : { size: p.size }), ...(p.planItem == null ? {} : { planItem: p.planItem }) })
 			: project === undefined ? await host.sessions.createScratch(title, agent)
 			: await host.sessions.create(project, title, agent, p.planItem == null ? {} : { planItem: p.planItem });
 		await host.root.commit(async (tx) => {
@@ -1083,7 +1114,9 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 					};
 				}
 				case "sandbox.ship": {
-					const record = await sandboxSession(p.conversationId);
+					// A worktree task ships the same way, from this machine (src/ship.ts).
+					const found = (await session(p.conversationId)).record;
+					const record = isWorktreeSession(found) ? found : await sandboxSession(p.conversationId);
 					if (p.to != null && p.to !== "main" && p.to !== "branch") throw new ProtocolError("bad_request", "to should be main or branch");
 					if (p.note != null && typeof p.note !== "string") throw new ProtocolError("bad_request", "note should be text");
 					try {

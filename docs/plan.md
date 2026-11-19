@@ -83,6 +83,10 @@ From the first plan's "Later, maybe". Slack would be a channel per project and a
 
 ## Done
 
+### loial-tasks-chats: Worktree tasks and read-only chats over /amyrlin
+Kind: request · From: loial · Done: 2026-11-18
+`conversations.create` takes `worktree` and `chat`, summaries carry `worktree` and `chat`, and `sandbox.ship` ships a worktree task. A chat reads anything and writes only `chats/<id>` in the data directory: its file tools check paths (`src/chat-env.ts`) and its commands run under bubblewrap with the file system read-only. Brad chose read-only chats and worktree tasks in place of sessions in the checkout for loial (its plan, "Tasks and chats", step 4). [api.md](api.md#amyrlins-endpoint-ws-amyrlin) has both.
+
 ### plan-items: A project's plan items over /amyrlin, and the item a session was started for
 Kind: request · From: loial · Done: 2026-11-18
 `projects.plan { project }` answers the items of the project's `docs/plan.md` (`planItems` in `src/plans.ts`), and `conversations.create` takes `planItem`, kept on the session and carried in its summary. For loial's list of what to start (its plan, "Tasks and chats", step 3). [api.md](api.md#amyrlins-endpoint-ws-amyrlin) has both.

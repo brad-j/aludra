@@ -12,7 +12,8 @@ import { createModels, getSupportedThinkingLevels, type Models, type Provider } 
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
-import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, defineDocFamily, defineExtension, type EntryId, Harness, hook, type Extension, type JsonObject, type ModelRef, ToolTask } from "@earendil-works/pi-durable";
+import { type CompactionPolicy, configure as configureAgent, type ConversationId, type DocumentReader, createRegistry, defineDoc, defineDocFamily, defineExtension, type EntryId, Harness, hook, type Extension, type JsonObject, type ModelRef, section, ToolTask } from "@earendil-works/pi-durable";
+import { CHAT_REFUSAL, ChatEnv, findBwrap } from "./chat-env.ts";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { fakeSandboxes } from "./fake-sandboxes.ts";
@@ -105,6 +106,12 @@ export type SessionRecord = {
 	group?: string;
 	/** The item of its project's docs/plan.md it was started for, by id, when a client said so. */
 	planItem?: string;
+	/**
+	 * A chat (createChat): it reads anything and writes only `chatDir`, its own directory in the data directory
+	 * (src/chat-env.ts). `dir` is where it starts, its project's checkout or, with no project, `chatDir`.
+	 */
+	chat?: boolean;
+	chatDir?: string;
 	/** A sandbox session's size: asked for when it was made, else the project's (.agents/project.json), set once known. */
 	sandboxSize?: SandboxSize;
 	/** A sandbox session's project directory on this machine, which its template was made from; context is read there. */
@@ -418,6 +425,8 @@ export async function openHost(options: HostOptions) {
 	/** Whether sandbox session `record`'s tools wait for approvals: its own setting, else the host's. */
 	const sandboxApprovals = (record: SessionRecord): "ask" | "off" => record.approvals ?? config.sandboxes?.approvals ?? "off";
 
+	/** bubblewrap, which a chat's commands run under; without it a chat runs none. */
+	const bwrap = findBwrap();
 	const sandboxDir = resolve(config.dataDir, "sandboxes");
 	mkdirSync(sandboxDir, { recursive: true, mode: 0o700 });
 	const sandboxes = options.sandboxes ?? (config.fakeSandboxes === true ? fakeSandboxes(resolve(config.dataDir, "fake-sandboxes")).sandboxes : createSandboxes(config.sandboxes === undefined ? undefined : {
@@ -450,6 +459,23 @@ export async function openHost(options: HostOptions) {
 			},
 		})],
 	}));
+	// A chat is told what it may do: read anything, write only its own directory, and start a task to change a project.
+	registry.install(defineExtension({
+		name: "aludra-chat",
+		sections: [section("chat", async ({ conversationId, read }) => {
+			const record = (await read.snapshot(Sessions, context))?.sessions[String(conversationId)];
+			if (record?.chat !== true || record.chatDir === undefined) return undefined;
+			return [
+				"This is a chat: the user is thinking something through with you, asking about their projects, or investigating.",
+				"You can read any file on this machine and run commands to look around. You can't change anything outside this chat's own directory: writes, edits and deletes elsewhere are refused, and commands run with the file system read-only.",
+				`This chat's own directory, for notes and scratch files: ${record.chatDir}`,
+				record.project === NO_PROJECT
+					? `Projects are in: ${places().filter((p) => p.what.startsWith("projects")).map((p) => p.path).join(", ") || "the workspaces in aludra's settings"}.`
+					: `It's about ${record.project}, at ${record.dir}.`,
+				`When something should change in a project, say so and describe the task; the user starts it from the chat, and it runs in a sandbox or a worktree. ${CHAT_REFUSAL}`,
+			].join("\n");
+		})],
+	}));
 	// Last, so it wraps the tools the others bring, and other hooks see a call before it waits for the user.
 	registry.install(permissionsExtension({
 		approvals: () => approvals!,
@@ -477,6 +503,10 @@ export async function openHost(options: HostOptions) {
 				const record = (await target.read.snapshot(Sessions, ctx))?.sessions[String(target.conversationId)];
 				if (record?.worktreeRemoved === true) throw new Error(`This session's worktree was removed when the session was archived, so its tools have nowhere to run. Its commits are on ${worktreeBranch(record)} in the project. Start a new session to keep going.`);
 				if (isWorktreeSession(record)) return new NodeExecutionEnv({ cwd: cwd ?? record!.dir, shellEnv: WORKTREE_ENV });
+				if (record?.chat === true && record.chatDir !== undefined) {
+					mkdirSync(record.chatDir, { recursive: true, mode: 0o700 });
+					return new ChatEnv({ cwd: cwd ?? record.dir, writable: record.chatDir, bwrap });
+				}
 				return new NodeExecutionEnv({ cwd: cwd ?? homedir() });
 			},
 			onReport: (error) => console.error("[report]", error),
@@ -718,7 +748,7 @@ export async function openHost(options: HostOptions) {
 	 * worktrees/<project>-<n> in the data directory, and the session works there. The project's checkout, its branch and
 	 * its uncommitted files are never touched. Its changes view compares against the worktree as it was made.
 	 */
-	async function createWorktree(project: Project, prompt: string, agent: { model?: string; thinking?: Thinking } = {}): Promise<SessionRecord> {
+	async function createWorktree(project: Project, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { planItem?: string } = {}): Promise<SessionRecord> {
 		const git = (...args: string[]) => run("git", ["-C", project.dir, ...args]);
 		const top = (await git("rev-parse", "--show-toplevel").catch(() => "")).trim();
 		if (top === "") throw new Error(`${project.name} isn't in git, so it can't have a worktree session`);
@@ -755,6 +785,7 @@ export async function openHost(options: HostOptions) {
 					source: project.dir,
 					worktree: number,
 					...("error" in base ? { baseError: base.error } : { base }),
+					...(options.planItem === undefined ? {} : { planItem: options.planItem }),
 				};
 				(await tx.doc(Sessions)).sessions[String(id)] = record;
 			},
@@ -795,6 +826,41 @@ export async function openHost(options: HostOptions) {
 	 * directory, which the agent makes files in; it reads anything else by absolute path. No changes view: nothing to
 	 * compare against.
 	 */
+	/**
+	 * A chat: a session on this machine that reads anything and changes nothing outside its own directory, chats/<id> in
+	 * the data directory (src/chat-env.ts). In `project` it starts in the project's checkout; without one, in its own
+	 * directory, told where the projects are. It has no changes, nothing to ship, and starts no sandbox.
+	 */
+	async function createChat(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}): Promise<SessionRecord> {
+		let record: SessionRecord | undefined;
+		await harness.createConversation({
+			ownership: { kind: "ownerless" },
+			agent: { model: choose(agent.model) ?? model, thinkingLevel: agent.thinking ?? config.model.thinking },
+			init: async (tx, id) => {
+				const chatDir = resolve(config.dataDir, "chats", String(id));
+				const dir = project?.dir ?? chatDir;
+				await configureAgent(tx, id, { cwd: dir });
+				record = {
+					id,
+					workspace: project?.workspace ?? config.workspaces[0]?.name ?? "local",
+					project: project?.name ?? NO_PROJECT,
+					dir,
+					title: prompt.split("\n")[0]!.slice(0, 80),
+					createdAt: Date.now(),
+					baseError: "A chat changes nothing in a project.",
+					chat: true,
+					chatDir,
+					...(project === undefined ? { scratch: true } : {}),
+				};
+				(await tx.doc(Sessions)).sessions[String(id)] = record;
+			},
+		}, context);
+		mkdirSync(record!.chatDir!, { recursive: true, mode: 0o700 });
+		untitled.add(record!.id);
+		for (const listener of created) listener(record!);
+		return record!;
+	}
+
 	async function createScratch(prompt: string, agent: { model?: string; thinking?: Thinking } = {}): Promise<SessionRecord> {
 		let record: SessionRecord | undefined;
 		await harness.createConversation({
@@ -1661,7 +1727,7 @@ export async function openHost(options: HostOptions) {
 			/** Resolves once session `id`'s sandbox is ready or failed. */
 			prepared: (id: number) => prepareSandbox(id),
 		},
-		sessions: { list, get, create, createScratch, createWorktree, removeWorktree, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
+		sessions: { list, get, create, createScratch, createChat, createWorktree, removeWorktree, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		/** Sandbox sessions' results (src/results.ts). */
 		results: {
 			result: results.result,

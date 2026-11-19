@@ -565,6 +565,50 @@ test("projects.plan lists a project's plan items, and a session started for one 
 	await assert.rejects(mac.request("conversations.create", { requestId: "plan-5", planItem: "csv-export" }), { code: "bad_request", message: /in a project/ });
 });
 
+test("a worktree task runs on this machine in a worktree of its own, carries it in its summary, and ships from here", async (t) => {
+	const { url, project, remote } = await sandboxApi(t);
+	const mac = await client(t, url);
+	writeFileSync(join(project.dir, "uncommitted.txt"), "mine\n");
+	const created = await mac.request("conversations.create", { requestId: "wt-1", project: project.dir, title: "In a worktree", worktree: true, planItem: "csv-export" });
+	const c = created.conversation;
+	assert.deepEqual(c.worktree, { number: 0, branch: "worktree/0" });
+	assert.equal(c.source, project.dir);
+	assert.equal(c.planItem, "csv-export");
+	assert.equal(c.sandbox, undefined);
+	assert.notEqual(c.dir, project.dir);
+	assert.equal(existsSync(join(c.dir, "a.txt")), true);
+	assert.equal(existsSync(join(c.dir, "uncommitted.txt")), false, "it starts from the last commit");
+	// Its work, committed on its branch in the worktree, ships from the checkout.
+	execFileSync("git", ["-C", c.dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "worktree work"]);
+	assert.deepEqual(await mac.request("sandbox.ship", { conversationId: c.id }), { started: true });
+	await assert.rejects(mac.request("conversations.create", { requestId: "wt-2", title: "No project", worktree: true }), { code: "bad_request", message: /needs a project/ });
+	await assert.rejects(mac.request("conversations.create", { requestId: "wt-3", project: project.dir, worktree: true, sandbox: true }), { code: "bad_request" });
+	void remote;
+});
+
+test("a chat reads the project, can't change it, and has no changes or ship", async (t) => {
+	const { url, project, host } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const inProject = (await mac.request("conversations.create", { requestId: "chat-1", project: project.dir, title: "About one", chat: true })).conversation;
+	assert.equal(inProject.chat, true);
+	assert.equal(inProject.project, "one");
+	assert.equal(inProject.dir, project.dir, "it starts in the checkout");
+	assert.equal(inProject.sandbox, undefined);
+	assert.equal(inProject.worktree, undefined);
+	const record = (await host.sessions.get(inProject.id))!;
+	assert.equal(record.chat, true);
+	assert.ok(record.chatDir !== undefined && existsSync(record.chatDir));
+	assert.deepEqual((await mac.request("task.code", { conversationId: inProject.id })).changes, { available: false, reason: "A chat changes nothing in a project." });
+	await assert.rejects(mac.request("sandbox.ship", { conversationId: inProject.id }), { code: "bad_request" });
+
+	const anywhere = (await mac.request("conversations.create", { requestId: "chat-2", title: "Across projects", chat: true })).conversation;
+	assert.equal(anywhere.chat, true);
+	assert.equal(anywhere.project, undefined);
+	assert.equal(anywhere.dir, (await host.sessions.get(anywhere.id))!.chatDir);
+	await assert.rejects(mac.request("conversations.create", { requestId: "chat-3", chat: true, sandbox: true }), { code: "bad_request" });
+	await assert.rejects(mac.request("conversations.create", { requestId: "chat-4", project: project.dir, chat: true, planItem: "x" }), { code: "bad_request" });
+});
+
 test("a sandbox session from the Mac answers at once, holds its first message while it's made, then runs in it", async (t) => {
 	const { url, project, fake } = await sandboxApi(t);
 	const mac = await client(t, url);
