@@ -112,6 +112,12 @@ export type SessionRecord = {
 	 */
 	chat?: boolean;
 	chatDir?: string;
+	/** The session it was started from, such as a chat a task came out of. */
+	from?: number;
+	/** For a chat: the task it's about. */
+	about?: number;
+	/** What it was told of those, written once when it was made: an excerpt of the other conversation and where its work is. */
+	linked?: string;
 	/** A sandbox session's size: asked for when it was made, else the project's (.agents/project.json), set once known. */
 	sandboxSize?: SandboxSize;
 	/** A sandbox session's project directory on this machine, which its template was made from; context is read there. */
@@ -143,6 +149,9 @@ export function copyRecord(record: SessionRecord): SessionRecord {
 
 /** The project name of a session that isn't in a project (T3 Code's "no project" threads). */
 export const NO_PROJECT = "no project";
+
+/** How much of a linked conversation a session is told: the first message and as many of the latest as fit. */
+const LINK_EXCERPT = 8000;
 
 /** Something to do later: a first message, filed under its project, not sent yet. */
 export type IdeaRecord = { id: number; workspace: string; project: string; dir: string; text: string; createdAt: number };
@@ -460,9 +469,10 @@ export async function openHost(options: HostOptions) {
 		})],
 	}));
 	// A chat is told what it may do: read anything, write only its own directory, and start a task to change a project.
+	// A session linked to another (a task from a chat, a chat about a task) is told of it.
 	registry.install(defineExtension({
 		name: "aludra-chat",
-		sections: [section("chat", async ({ conversationId, read }) => {
+		sections: [section("linked", async ({ conversationId, read }) => (await read.snapshot(Sessions, context))?.sessions[String(conversationId)]?.linked), section("chat", async ({ conversationId, read }) => {
 			const record = (await read.snapshot(Sessions, context))?.sessions[String(conversationId)];
 			if (record?.chat !== true || record.chatDir === undefined) return undefined;
 			return [
@@ -1160,18 +1170,51 @@ export async function openHost(options: HostOptions) {
 	 * by hand too. A rename made while the model writes wins. Resolves with the new record, or undefined when no model
 	 * wrote one; throws if there's no such session or it has no messages yet.
 	 */
-	async function regenerateTitle(id: number): Promise<SessionRecord | undefined> {
-		const before = await get(id);
-		if (before === undefined) throw new Error(`no session ${id}`);
+	/** Session `id`'s messages and finished answers, oldest first. */
+	async function exchangesOf(id: number): Promise<Exchange[]> {
 		const state = await (await conversation(id)).viewState(context);
-		let exchanges: Exchange[];
 		try {
-			exchanges = itemsOf(state.value).flatMap((item): Exchange[] =>
+			return itemsOf(state.value).flatMap((item): Exchange[] =>
 				item.kind === "user" ? [{ from: "user", text: withoutFileNotes(withoutVideoNotes(item.text)) }] : item.kind === "answer" && item.streaming !== true ? [{ from: "agent", text: item.text }] : [],
 			);
 		} finally {
 			state.dispose();
 		}
+	}
+
+	/**
+	 * Links session `id` to the one it was started `from` (a chat a task came out of) or, for a chat, the task it's
+	 * `about`, and writes what it's told of them: an excerpt of that conversation as it is now, and for a task where its
+	 * work is. Done before its first message, so its first request has it.
+	 */
+	async function link(id: number, links: { from?: number; about?: number }): Promise<SessionRecord | undefined> {
+		const parts: string[] = [];
+		const excerpt = async (other: number) => excerptOf(await exchangesOf(other), LINK_EXCERPT) || "(nothing said yet)";
+		if (links.from !== undefined) {
+			const from = await get(links.from);
+			if (from === undefined) throw new ParseError(`no session ${links.from} to start from`);
+			parts.push(`This was started from the ${from.chat === true ? "chat" : "session"} "${from.title}" (session ${from.id}). That conversation, its first message and the latest:\n${await excerpt(from.id)}`);
+		}
+		if (links.about !== undefined) {
+			const about = await get(links.about);
+			if (about === undefined) throw new ParseError(`no session ${links.about} to be about`);
+			const where = isWorktreeSession(about) && about.worktreeRemoved !== true ? `Its files are in its worktree, ${about.dir}, on branch ${worktreeBranch(about)}.`
+				: isWorktreeSession(about) ? `Its commits are on ${worktreeBranch(about)} in ${about.source}.`
+				: isSandboxSession(about) && about.source !== undefined ? `It works in a sandbox; its commits come home to ${sandboxBranch(about)} in ${about.source}, which you can read with git there.`
+				: `It works in ${about.dir}.`;
+			parts.push(`This chat is about the task "${about.title}" (session ${about.id}) in ${about.project}. ${where} You can't change it; the user steers it from the task. Its conversation, the first message and the latest:\n${await excerpt(about.id)}`);
+		}
+		return changeRecord(id, (r) => {
+			if (links.from !== undefined) r.from = links.from;
+			if (links.about !== undefined) r.about = links.about;
+			if (parts.length > 0) r.linked = parts.join("\n\n");
+		});
+	}
+
+	async function regenerateTitle(id: number): Promise<SessionRecord | undefined> {
+		const before = await get(id);
+		if (before === undefined) throw new Error(`no session ${id}`);
+		const exchanges = await exchangesOf(id);
 		if (!exchanges.some((e) => e.from === "user" && e.text.trim() !== "")) throw new ParseError("the session has no messages to title it from");
 		if (titler === undefined) return undefined;
 		const title = await titler(excerptOf(exchanges), { conversation: true });
@@ -1727,7 +1770,7 @@ export async function openHost(options: HostOptions) {
 			/** Resolves once session `id`'s sandbox is ready or failed. */
 			prepared: (id: number) => prepareSandbox(id),
 		},
-		sessions: { list, get, create, createScratch, createChat, createWorktree, removeWorktree, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
+		sessions: { list, get, link, create, createScratch, createChat, createWorktree, removeWorktree, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		/** Sandbox sessions' results (src/results.ts). */
 		results: {
 			result: results.result,

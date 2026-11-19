@@ -197,6 +197,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			...(record.planItem === undefined ? {} : { planItem: record.planItem }),
 			...(isWorktreeSession(record) ? { worktree: worktreeOf_(record), ...(record.source === undefined ? {} : { source: record.source }) } : {}),
 			...(record.chat === true ? { chat: true } : {}),
+			...(record.from === undefined ? {} : { from: record.from }),
+			...(record.about === undefined ? {} : { about: record.about }),
 			...(allowed.length > 0 ? { alwaysAllowed: allowed } : {}),
 		};
 	}
@@ -485,6 +487,12 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		if (kinds > 1) throw new ProtocolError("bad_request", "a session is one of a sandbox, a worktree or a chat");
 		if (p.worktree === true && project === undefined) throw new ProtocolError("bad_request", "a worktree needs a project");
 		if (p.chat === true && p.planItem != null) throw new ProtocolError("bad_request", "a chat isn't for a plan item; start a task for it");
+		// aludra's own: the session it was started from (a chat a task came out of), and the task a chat is about.
+		for (const key of ["from", "about"] as const) {
+			if (p[key] == null) continue;
+			if (typeof p[key] !== "number" || (await host.sessions.get(p[key])) === undefined) throw new ProtocolError("bad_request", `${key} should be a session's id`);
+		}
+		if (p.about != null && p.chat !== true) throw new ProtocolError("bad_request", "about is for a chat");
 		const sandboxed = p.sandbox === true;
 		if (sandboxed && host.sandboxSettings() === undefined) throw new ProtocolError("unsupported", "This host has no sandbox host in its settings");
 		const record = p.chat === true ? await host.sessions.createChat(project, title, agent)
@@ -495,6 +503,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		await host.root.commit(async (tx) => {
 			(await tx.doc(AmyrlinDoc)).created[p.requestId] = record.id;
 		}, context);
+		if (p.from != null || p.about != null) await host.sessions.link(record.id, { ...(p.from == null ? {} : { from: p.from }), ...(p.about == null ? {} : { about: p.about }) });
 		let state: "running" | "idle" = hasFirst ? "running" : "idle";
 		if (hasFirst) {
 			const message = content(text, images, [...(await host.files(record.id, files)), ...(await host.videos(record.id, videos))]);

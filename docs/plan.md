@@ -83,6 +83,10 @@ From the first plan's "Later, maybe". Slack would be a channel per project and a
 
 ## Done
 
+### loial-links: A task started from a chat, and a chat about a task
+Kind: request · From: loial · Done: 2026-11-19
+`conversations.create` takes `from` and `about`: the session is linked to the other, told of it in a `linked` prompt section (an excerpt, and where a task's work is), and its summary carries the link. For loial's "Start a task from this" and "Ask about this" (its plan, "Tasks and chats", step 5).
+
 ### loial-tasks-chats: Worktree tasks and read-only chats over /amyrlin
 Kind: request · From: loial · Done: 2026-11-18
 `conversations.create` takes `worktree` and `chat`, summaries carry `worktree` and `chat`, and `sandbox.ship` ships a worktree task. A chat reads anything and writes only `chats/<id>` in the data directory: its file tools check paths (`src/chat-env.ts`) and its commands run under bubblewrap with the file system read-only. Brad chose read-only chats and worktree tasks in place of sessions in the checkout for loial (its plan, "Tasks and chats", step 4). [api.md](api.md#amyrlins-endpoint-ws-amyrlin) has both.

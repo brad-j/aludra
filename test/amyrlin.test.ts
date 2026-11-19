@@ -586,6 +586,25 @@ test("a worktree task runs on this machine in a worktree of its own, carries it 
 	void remote;
 });
 
+test("a task started from a chat, and a chat about a task, each carry the link and are told of the other", async (t) => {
+	const { url, host, project, prompts } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const chat = (await mac.request("conversations.create", { requestId: "link-1", project: project.dir, text: "how should the importer handle duplicates?", chat: true })).conversation;
+	await waitFor(async () => (await host.sessions.states()).get(chat.id) === "idle" && (await host.sessions.get(chat.id)) !== undefined, "the chat's answer");
+	const from = prompts.length;
+	const task = (await mac.request("conversations.create", { requestId: "link-2", project: project.dir, text: "skip duplicates in the importer", worktree: true, from: chat.id })).conversation;
+	assert.equal(task.from, chat.id);
+	assert.equal((await host.sessions.get(task.id))?.from, chat.id);
+	await waitFor(() => prompts.slice(from).some((p) => p.includes("started from the chat") && p.includes("how should the importer handle duplicates?")), "the task told of its chat");
+
+	const before = prompts.length;
+	const about = (await mac.request("conversations.create", { requestId: "link-3", project: project.dir, text: "why did it stop?", chat: true, about: task.id })).conversation;
+	assert.equal(about.about, task.id);
+	await waitFor(() => prompts.slice(before).some((p) => p.includes("This chat is about the task") && p.includes("worktree/0") && p.includes("skip duplicates in the importer")), "the chat told of its task");
+	await assert.rejects(mac.request("conversations.create", { requestId: "link-4", project: project.dir, text: "x", worktree: true, about: task.id }), { code: "bad_request", message: /about is for a chat/ });
+	await assert.rejects(mac.request("conversations.create", { requestId: "link-5", project: project.dir, text: "x", chat: true, from: 999_999 }), { code: "bad_request" });
+});
+
 test("a chat reads the project, can't change it, and has no changes or ship", async (t) => {
 	const { url, project, host } = await sandboxApi(t);
 	const mac = await client(t, url);
