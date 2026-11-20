@@ -220,6 +220,7 @@ test("aludra's approvals reach the Mac: approve, deny, and a stop while one wait
 	assert.equal(approval.toolName, "bash");
 	assert.match(approval.args.command, /git push/);
 	assert.equal(approval.summary, "git push");
+	assert.equal(approval.risk, "push", "faux's git push is marked as a push");
 	await mac.event(list, (e) => e.type === "conversation.updated" && e.conversation.id === id && e.conversation.status === "needsApproval", "needsApproval");
 	const answered = await mac.request("approval.answer", { approvalId: approval.approvalId, decision: "approve" });
 	assert.equal(answered.approval.decision, "approve");

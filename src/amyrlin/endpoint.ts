@@ -32,7 +32,7 @@ import { checkImages, type ImageInput, messageContent, titleOf } from "../images
 import { PAGE_CSP } from "../pages.ts";
 import { checkFiles, type FileInput, MAX_FILE_BYTES, MAX_FILES, PASTE_BYTES } from "../files.ts";
 import { checkVideos, MAX_FRAMES, MAX_VIDEO_BYTES, MAX_VIDEOS, UPLOAD_DAYS, type VideoInput } from "../videos.ts";
-import type { ApprovalRequest } from "../permissions.ts";
+import { type ApprovalRequest, riskFor } from "../permissions.ts";
 import { monthSpend } from "../live.ts";
 import { RestoreRefused } from "../checkpoints.ts";
 import { ParseError } from "../parse.ts";
@@ -132,6 +132,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 	}
 
 	async function wireApproval(request: ApprovalRequest): Promise<Json> {
+		const risk = riskFor(request.command);
 		return {
 			approvalId: request.id,
 			conversationId: request.conversationId,
@@ -140,6 +141,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			args: { command: request.command },
 			requestedAt: request.createdAt,
 			summary: request.summary,
+			...(risk === undefined ? {} : { risk }),
 		};
 	}
 

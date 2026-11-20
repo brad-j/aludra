@@ -96,6 +96,60 @@ function listedHost(words: readonly string[], hosts: readonly string[]): string 
 	return undefined;
 }
 
+/** The words after `git` and its own options: the subcommand and its arguments, or nothing when `words` isn't git. */
+function gitArgs(words: readonly string[]): string[] | undefined {
+	const at = words.findIndex((w) => programName(w) === "git");
+	if (at === -1) return undefined;
+	let j = at + 1;
+	while (j < words.length && words[j]!.startsWith("-")) j += GIT_OPTIONS_WITH_VALUE.has(words[j]!) ? 2 : 1;
+	return words.slice(j);
+}
+
+/** Short flags in a word like `-rf`, or the long flag itself. */
+const flags = (args: readonly string[]) => args.filter((a) => a.startsWith("-")).flatMap((a) => (a.startsWith("--") ? [a] : Array.from(a.slice(1), (c) => `-${c}`)));
+
+/** Whether one simple command throws work away: deletes, resets, cleans, discards changes or force-pushes. */
+function isDestructive(words: readonly string[]): boolean {
+	const rmAt = words.findIndex((w) => programName(w) === "rm");
+	if (rmAt !== -1) {
+		const f = flags(words.slice(rmAt + 1));
+		if (f.some((x) => ["-r", "-R", "-f", "--recursive", "--force"].includes(x))) return true;
+	}
+	const git = gitArgs(words);
+	if (git === undefined || git.length === 0) return false;
+	const [sub, ...rest] = git;
+	const f = flags(rest);
+	switch (sub) {
+		case "reset":
+			return f.includes("--hard");
+		case "clean":
+			return f.includes("-f") || f.includes("--force");
+		case "checkout":
+			// `git checkout -- <paths>` and `git checkout .` discard changes; switching branches doesn't.
+			return rest.includes("--") || rest.includes(".");
+		case "restore":
+			// Only unstaging leaves the working tree alone.
+			return !(f.length > 0 && f.every((x) => x === "--staged" || x === "-S"));
+		case "branch":
+			return f.includes("-D") || (f.includes("--delete") && f.includes("--force"));
+		case "push":
+			return f.some((x) => x === "-f" || x === "--force" || x.startsWith("--force-with-lease") || x === "--delete" || x === "-d" || x === "--mirror") || rest.some((a) => a.startsWith("+") || a.startsWith(":"));
+		default:
+			return false;
+	}
+}
+
+/**
+ * How risky an approval's command is, for the apps: `destructive` when any part of it throws work away (a force push
+ * included), `push` when it pushes, else nothing. Read as text like approvalFor, so it's best effort.
+ */
+export function riskFor(command: string): "push" | "destructive" | undefined {
+	const parts = commandWords(command);
+	if (parts.some(isDestructive)) return "destructive";
+	if (parts.some(isGitPush)) return "push";
+	return undefined;
+}
+
 /** What a shell command does that needs the user's approval, in a line, or nothing. */
 export function approvalFor(command: string, hosts: readonly string[]): string | undefined {
 	for (const words of commandWords(command)) {

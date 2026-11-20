@@ -10,13 +10,14 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 Kind: request · From: pi-desktop/ideas-make-project
 `projects.create` (and so loial's New project…) makes the first commit with `README.md`, `AGENTS.md`, a one-line `CLAUDE.md` pointing at it, and `docs/plan.md` in the plan skill's format with its five sections. A new optional `plan` field takes items to seed it with (Pi Desktop sends an idea's open questions as questions and its next steps as steps), and `ui: true` copies `DESIGN.md` and `PRODUCT.md` from tar-valon's `design/`. Brad approved the API change on 2026-11-19. Open: whether the starter text lives in tar-valon or in aludra, since the Mac's aludra would need the tar-valon path too.
 
-### approval-risk: Mark approvals that push or destroy work
-Kind: request · From: loial/approval-risk
-Add `risk?: "push" | "destructive"` to the `Approval` in `approval.requested` and in summaries' `pendingApprovals`. Set it from the same command parsing the approval rules use. Any form of `git push` is "push". `rm -r`/`rm -f`, `git reset --hard`, `git clean -f`, `git checkout -- .`/`git restore`, `git branch -D`, `git push --force` (destructive wins over push) and redirects that overwrite tracked files are "destructive". Otherwise leave the field out. Faux's "push it" approval (`git push`) should come out as "push" so loial's e2e can check it. Check the destructive list against the parser before building; it's a first guess, since the decision only says "pushes or destroys work". Agreed with Brad 2026-11-19 (loial docs/decisions.md, "Approval risk").
 
 ## Questions
 
 ## Later
+
+### sandbox-template-flake: A sandbox template test fails now and then under the full suite
+Kind: chore
+"a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing.
 
 ### write-plan-amyrlin: write_plan over /amyrlin for Verin and loial
 Kind: step · Needs: write-plan
@@ -94,6 +95,10 @@ Kind: step
 aludra's side is done (usage-meter): `host.info` and `host.snapshot` carry `subscription`, `host.watch` sends `host.subscription` on each change, and MCP has `read_subscription`. Verin and loial draw the five-hour and seven-day use and resets. Check against a real answer on the Mac that `unifiedWindows` arrives, so both windows show from the first answer rather than one at a time.
 
 ## Done
+
+### approval-risk: Mark approvals that push or destroy work
+Kind: request · From: loial/approval-risk · Done: 2026-11-20
+`riskFor` in `src/permissions.ts` reads the command with the approval rules' word splitting: `destructive` for `rm` with `-r` or `-f`, `git reset --hard`, `git clean -f`, `git checkout --` or `.`, `git restore` of the working tree, `git branch -D`, and a force, `+ref`, `:ref`, `--delete` or `--mirror` push; `push` for any other `git push`; destructive wins. `wireApproval` adds it to `approval.requested` and summaries' approvals on `/amyrlin`. Redirects that overwrite tracked files weren't added: telling them apart from writing a new file needs the checkout, and the approval rules don't parse redirects. A unit test covers each form and its near misses, and the amyrlin test checks faux's `git push` approval carries `risk: "push"`. `tsc`, lint and `pnpm test` pass (319 of 320; the one failure is sandbox-template-flake, which passes alone and on main).
 
 ### write-plan-busy-session: Should write_plan refuse while a session runs in the project?
 Kind: question · Done: 2026-11-19

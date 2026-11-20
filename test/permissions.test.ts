@@ -6,7 +6,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { configFor } from "../src/config.ts";
 import { context, openHost } from "../src/host.ts";
-import { approvalFor, protectedTarget } from "../src/permissions.ts";
+import { approvalFor, protectedTarget, riskFor } from "../src/permissions.ts";
 import { makeProject, tempDir, testHost } from "./helpers.ts";
 
 test("git push and remote commands to listed hosts need approval; other commands don't", () => {
@@ -20,6 +20,39 @@ test("git push and remote commands to listed hosts need approval; other commands
 	assert.equal(approvalFor("scp notes.txt build-box:", hosts), "scp to build-box");
 	for (const command of ["git status", "git commit -m 'push the fix'", "git log --grep push", "ssh github.com", "echo build-box", "pnpm push-docs", "ssh-keygen -l"]) {
 		assert.equal(approvalFor(command, hosts), undefined, command);
+	}
+});
+
+test("riskFor marks pushes, and work-destroying commands over pushes", () => {
+	for (const command of ["git push", "git push origin main", "git -C repo push", "cd x && git push -u origin feat", "/usr/bin/git push --dry-run 2>&1 || true"]) {
+		assert.equal(riskFor(command), "push", command);
+	}
+	for (const command of [
+		"rm -rf dist",
+		"rm -r build",
+		"rm -f notes.txt",
+		"rm --recursive x",
+		"git reset --hard HEAD~1",
+		"git clean -fd",
+		"git clean --force",
+		"git checkout -- src/app.ts",
+		"git checkout .",
+		"git restore src/app.ts",
+		"git restore --worktree .",
+		"git branch -D old",
+		"git branch --delete --force old",
+		"git push --force",
+		"git push -f origin main",
+		"git push --force-with-lease",
+		"git push origin +main",
+		"git push origin --delete feat",
+		"git push origin :feat",
+		"git add . && git push && rm -rf tmp",
+	]) {
+		assert.equal(riskFor(command), "destructive", command);
+	}
+	for (const command of ["ls -la", "rm notes.txt", "git status", "git checkout main", "git checkout -b feat", "git restore --staged x", "git branch -d merged", "git reset HEAD x", "git clean -n", "ssh build-box uptime"]) {
+		assert.equal(riskFor(command), undefined, command);
 	}
 });
 
