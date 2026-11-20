@@ -77,6 +77,10 @@ The package ships TypeScript, which Node won't strip inside `node_modules`, so i
 
 pi-claude-code isn't on npm, so it's pinned to a commit, and Pi Durable to its version; `aludra doctor` fails if either changes version. `test/claude-code.test.ts` tests the wrapper, and `scripts/live-check.ts` runs the real thing ([operations.md](operations.md#upgrading-pi-durable-or-pi-claude-code)).
 
+## Pausing sandboxes
+
+`src/sandboxes.ts` holds one pi-env connection per sandbox, opened by the first call and counted while calls are in flight. Once none is, it closes at the later of `AGENT_IDLE_MS` after the last call and `USER_IDLE_MS` after the user last touched the session, and the sandbox host's reaper pauses the sandbox a minute after that, so a sandbox pauses 5 minutes after the agent stops or 20 after the user last interacted. `host.sessions.touch` marks the user interacting: `submit` calls it, as do an approval approved or denied, `/api/live`'s follow and `/amyrlin`'s `conversation.watch`. A touch never opens a connection, so it never wakes a paused sandbox; the next tool call does, through `connect N`. Each wake is logged with how long the connection had been closed, how long since the user's last touch, and what connecting and `.agents/resume` took.
+
 ## Archiving idle sessions
 
 `src/archive.ts` runs a minute after start and hourly: it reads every session's summary and archives each one idle for `archive.afterDays` with nothing running or waiting, through `host.sessions.archiveIdle`, which skips a session archived or kept in the meantime. Unarchiving one that was archived marks it `kept`; archiving it again clears that. The change reaches clients as any archive does, through the session's update.

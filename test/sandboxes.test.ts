@@ -18,7 +18,7 @@ test("a sandbox's connection opens on first use, stays open while a command runs
 	// pi-env's daemon on this machine stands in for a sandbox: the same protocol, without SSH.
 	const host = { ssh: "unused", gateKey: "/dev/null", hostKnownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA", dataDir: dir };
 	const sandboxes = createSandboxes(host, {
-		idleMs: 300,
+		agentIdleMs: 300,
 		state: async () => "running",
 		connect: (n) => {
 			opened.push(n);
@@ -44,6 +44,49 @@ test("a sandbox's connection opens on first use, stays open while a command runs
 		const again = sandboxes.env(3, dir);
 		assert.ok((await again.writeFile("x.txt", "hello", context)).ok);
 		assert.deepEqual(opened, [3, 3]);
+	} finally {
+		sandboxes.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("a sandbox's connection stays open until the agent and the user have both been idle long enough, and a wake is logged", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "aludra-sandboxes-"));
+	const host = { ssh: "unused", gateKey: "/dev/null", hostKnownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA", dataDir: dir };
+	let state = "running";
+	const logged: string[] = [];
+	const sandboxes = createSandboxes(host, { agentIdleMs: 150, userIdleMs: 600, state: async () => state, log: (line) => logged.push(line), connect: () => new Connection({ command: [localDaemon()] }) });
+	const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+	try {
+		// Touching a sandbox with no connection opens none.
+		sandboxes.touch(4);
+		assert.equal(sandboxes.connected(4), false);
+
+		// The user interacted just now: the agent's call ends, and the connection outlasts the agent's idle time.
+		assert.ok((await sandboxes.env(4, dir).exec("true", {}, context)).ok);
+		await sleep(300);
+		assert.equal(sandboxes.connected(4), true, "kept for the user");
+		await sleep(450);
+		assert.equal(sandboxes.connected(4), false, "closed once the user's idle time passed too");
+
+		// Untouched since, only the agent's idle time counts.
+		assert.ok((await sandboxes.env(4, dir).exec("true", {}, context)).ok);
+		await sleep(300);
+		assert.equal(sandboxes.connected(4), false);
+
+		// A touch while the connection is open puts its close off.
+		assert.ok((await sandboxes.env(4, dir).exec("true", {}, context)).ok);
+		await sleep(80);
+		sandboxes.touch(4);
+		await sleep(300);
+		assert.equal(sandboxes.connected(4), true, "a touch puts the close off");
+		await sleep(450);
+		assert.equal(sandboxes.connected(4), false);
+
+		// Waking a paused sandbox logs how long it slept and what the wake cost.
+		state = "paused";
+		assert.ok((await sandboxes.env(4, dir).exec("true", {}, context)).ok);
+		assert.match(logged.join("\n"), /\[sandbox 4\] woke \d+\.\d s after its connection closed, \d+\.\d s after the user last interacted: connecting took \d+\.\d s, \.agents\/resume \d+\.\d s/);
 	} finally {
 		sandboxes.close();
 		rmSync(dir, { recursive: true, force: true });
@@ -304,7 +347,7 @@ test("a sandbox that wakes runs the project's .agents/resume before the call tha
 	const host = { ssh: "unused", gateKey: "/dev/null", hostKnownHosts: "/dev/null", sandboxKey: "/dev/null", sandboxHostKey: "ssh-ed25519 AAAA", dataDir: dir };
 	let state = "running";
 	const logged: string[] = [];
-	const sandboxes = createSandboxes(host, { idleMs: 200, state: async () => state, log: (line) => logged.push(line), connect: () => new Connection({ command: [localDaemon()] }) });
+	const sandboxes = createSandboxes(host, { agentIdleMs: 200, state: async () => state, log: (line) => logged.push(line), connect: () => new Connection({ command: [localDaemon()] }) });
 	try {
 		mkdirSync(join(dir, ".agents"));
 		writeFileSync(join(dir, ".agents", "resume"), "#!/bin/sh\necho woke >> resumed.txt\n", { mode: 0o755 });

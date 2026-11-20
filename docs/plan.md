@@ -26,10 +26,6 @@ After Codex: `.agents/setup` gets a credential, such as a private registry token
 Kind: step
 After Claude Code on the web: the sandbox's git traffic goes through a proxy outside the VM that adds the credential, so a sandbox could push a branch without holding a token. Only matters if sandboxes ever need to push on their own; ship pushes from egwene today.
 
-### idle-pausing: Pause sandboxes on agent idle and human idle
-Kind: step
-After Amp: pause 5 minutes after the agent stops or 20 minutes after the user last interacted, whichever is later. Today the connection closes after 60 s and matrim's reaper pauses 60 s after that. Measure how often a reply meets a wake, and what a wake costs, before changing it.
-
 ### home-routing: Web traffic through a home connection
 Kind: step
 After Amp's routing: only matters if sandboxes move off matrim to a cloud host, since matrim already uses the home connection.
@@ -86,6 +82,10 @@ Kind: step
 aludra's side is done (usage-meter): `host.info` and `host.snapshot` carry `subscription`, `host.watch` sends `host.subscription` on each change, and MCP has `read_subscription`. Verin and loial draw the five-hour and seven-day use and resets. Check against a real answer on the Mac that `unifiedWindows` arrives, so both windows show from the first answer rather than one at a time.
 
 ## Done
+
+### idle-pausing: Pause sandboxes on agent idle and human idle
+Kind: step · Done: 2026-11-19
+A sandbox's connection closes at the later of 4 minutes after the agent's last call and 19 after the user last sent a message, answered an approval or opened the session, so with matrim's reaper it pauses at 5 and 20, after Amp. Each wake is logged with how long it slept and what it cost, for tuning. Not checked live on matrim.
 
 ### usage-meter: Show the subscription's windows
 Kind: step · Done: 2026-11-19

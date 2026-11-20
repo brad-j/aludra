@@ -101,6 +101,15 @@ Built the same day (`src/ship.ts`, a route per kind of session; plan: `worktree-
 - The owner's approval for each ship is the caller's to ask, as for `mcp.ship`: Verin asks before calling `ship_session`. aludra doesn't queue it.
 - Tested against local git (a bare upstream, a real worktree, the faux model over MCP), not yet on the Mac with Claude (plan: `worktree-ship-live-check`).
 
+## Pausing on agent idle and human idle (2026-11-19)
+
+Plan item `idle-pausing`, after Amp. A sandbox's connection used to close 60 s after its last call, and matrim's reaper paused it 60 s later, so reading a diff and replying often met a wake.
+
+- **The rule.** The connection closes at the later of 4 minutes after the agent's last call and 19 minutes after the user last interacted; with the reaper's minute that's Amp's 5 and 20. Only aludra's side changed: the reaper still pauses a minute after the last connection closes, and stedding wasn't touched.
+- **What counts as the user.** A message (`submit`, so every client and MCP), an approval approved or denied, and opening the session (`/api/live` follow, `/amyrlin` `conversation.watch`). Watching a list doesn't. A touch never opens a connection, so opening an old session doesn't wake its sandbox.
+- **Measured from the log, not first.** The plan asked to measure wakes before changing anything; there was no record of them to measure from. Each wake now logs how long the sandbox slept, how long since the user's last touch and what connecting and `.agents/resume` took (`[sandbox N] woke ...` in the host's log), so the times can be tuned from real use. A sandbox kept running costs matrim memory it would have saved to disk, bounded by the sessions touched in the last 20 minutes.
+- **Checked:** `pnpm check`, with a test on short idle times for the agent-only close, a touch putting the close off, and the wake line. Not checked live against matrim.
+
 ## To look into, from hosted agents (2026-11-15)
 
 Ideas from how Amp, Codex cloud and Claude Code on the web run sessions in cloud sandboxes. None is decided; each is a Later item in the plan (`setup-only-secrets`, `git-credential-proxy`, `home-routing`, `idle-pausing`).

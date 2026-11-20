@@ -788,6 +788,8 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 
 	async function watchConversation(id: number, send: (events: Json[]) => Promise<void>): Promise<() => Promise<void>> {
 		const { record, conversation, child } = await watchable(id);
+		// Opening a conversation is the user interacting, so its sandbox stays up (src/sandboxes.ts, touch).
+		void host.sessions.touch(record.id);
 		let settings = await settingsOf(id);
 		let inbox = new Map<number, { text?: string; kind?: string }>();
 		let pending = await pendingApprovals(id);

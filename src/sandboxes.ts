@@ -8,9 +8,12 @@
 // `new`, `save`, `connect`, `rm`, `status` and `templates` with plain arguments. The sandbox's own SSH runs through
 // `connect N`, which resumes a paused sandbox before relaying, so a tool call wakes it.
 //
-// A connection with nothing in flight for `idleMs` is closed, so the host's reaper can pause the sandbox. Closing ends the
-// pi-env daemon, which kills the process groups it started; a process started with setsid survives, and pauses and
-// resumes with the sandbox.
+// A connection is closed once the agent has been idle `agentIdleMs` and the user `userIdleMs`, whichever is later, so the
+// host's reaper can pause the sandbox a minute after: after Amp, 5 minutes after the agent stops or 20 after the user
+// last interacted. The agent is idle when nothing is in flight on the connection; the host says when the user interacts
+// (`touch`). Closing ends the pi-env daemon, which kills the process groups it started; a process started with setsid
+// survives, and pauses and resumes with the sandbox. Each wake is logged with how long the sandbox slept and what
+// waking cost, so the rule can be tuned from the log.
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -44,7 +47,14 @@ export const isSize = (value: unknown): value is SandboxSize => typeof value ===
 /** stedding's words for a sandbox of `size`. */
 const sizeWords = (size: SandboxSize = "small") => ["--mem", String(SIZES[size].mem), "--cpus", String(SIZES[size].cpus)];
 
-type Live = { connection: Connection; inFlight: number; timer?: NodeJS.Timeout };
+type Live = { connection: Connection; inFlight: number; timer?: NodeJS.Timeout; idleSince?: number };
+
+/** How long after its connection closes the sandbox host's reaper pauses a sandbox. */
+const REAPER_MS = 60_000;
+/** The connection closes this long after the agent's last call, so the sandbox pauses 5 minutes after it. */
+export const AGENT_IDLE_MS = 5 * 60_000 - REAPER_MS;
+/** And no sooner than this long after the user last interacted, so it pauses 20 minutes after. */
+export const USER_IDLE_MS = 20 * 60_000 - REAPER_MS;
 
 const TEMPLATE_MAX_AGE_S = 24 * 3600;
 /** Templates are made at large: a saved template keeps only its disk, so the CPUs and memory cost nothing after. Not xlarge, so making one never needs 32 GB free. */
@@ -154,14 +164,22 @@ export function templateScript(o: { dir: string; branch: string; from: boolean; 
 }
 
 export function createSandboxes(host: SandboxHost | undefined, options: {
-	idleMs?: number;
+	/** How long after the agent's last call a connection closes; AGENT_IDLE_MS by default. */
+	agentIdleMs?: number;
+	/** How long after the user last interacted (`touch`) it closes at the soonest; USER_IDLE_MS by default. */
+	userIdleMs?: number;
 	connect?: (sandbox: number, target: SshConnectOptions) => Connection;
 	/** Sandbox `n`'s state on its host before a connection opens; stedding's status by default. Tests replace it. */
 	state?: (n: number) => Promise<string | undefined>;
 	log?: (line: string) => void;
 } = {}) {
-	const idleMs = options.idleMs ?? 60_000;
+	const agentIdleMs = options.agentIdleMs ?? AGENT_IDLE_MS;
+	const userIdleMs = options.userIdleMs ?? USER_IDLE_MS;
 	const live = new Map<number, Live>();
+	/** When the user last interacted with each sandbox's session. */
+	const touched = new Map<number, number>();
+	/** When each sandbox's connection last closed, to say how long it slept when it wakes. */
+	const closedAt = new Map<number, number>();
 	const making = new Map<string, Promise<string>>();
 	/** Each sandbox's project directory, where `.agents/resume` runs after it wakes: the first directory an env names. */
 	const projectDirs = new Map<number, string>();
@@ -197,16 +215,31 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 		if (found === undefined) return;
 		clearTimeout(found.timer);
 		live.delete(n);
+		closedAt.set(n, Date.now());
 		found.connection.close();
 	}
 
-	function idleCheck(n: number, entry: Live) {
+	/** When sandbox `n`'s idle connection `entry` is due to close: the later of the agent's and the user's idle times. */
+	function closesAt(n: number, entry: Live): number {
+		return Math.max((entry.idleSince ?? Date.now()) + agentIdleMs, (touched.get(n) ?? -Infinity) + userIdleMs);
+	}
+
+	/** Sets `entry`'s timer to close it when it's due, unless something is in flight; checked again when it fires. */
+	function schedule(n: number, entry: Live) {
 		clearTimeout(entry.timer);
+		entry.timer = undefined;
 		if (entry.inFlight > 0) return;
 		entry.timer = setTimeout(() => {
-			if (live.get(n) === entry && entry.inFlight === 0) close(n);
-		}, idleMs);
+			if (live.get(n) !== entry || entry.inFlight > 0) return;
+			if (Date.now() >= closesAt(n, entry)) close(n);
+			else schedule(n, entry);
+		}, Math.max(0, closesAt(n, entry) - Date.now()));
 		entry.timer.unref();
+	}
+
+	function idleCheck(n: number, entry: Live) {
+		entry.idleSince = Date.now();
+		schedule(n, entry);
 	}
 
 	/**
@@ -237,7 +270,14 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 			const paused = dir !== undefined && (await stateOf(n).catch(() => undefined)) === "paused";
 			const t = await target(n);
 			inner = connect !== undefined ? connect(n, t) : sshConnection({ ...t, onLog: (text) => console.error(`[sandbox ${n}] ${text.trimEnd()}`) }).connection;
-			if (paused) await resume(n, inner, dir);
+			if (paused) {
+				const began = Date.now();
+				await inner.info();
+				const connected = Date.now();
+				await resume(n, inner, dir);
+				const slept = closedAt.get(n);
+				log(`[sandbox ${n}] woke${slept === undefined ? "" : ` ${seconds(began - slept)} after its connection closed`}${touched.has(n) ? `, ${seconds(began - touched.get(n)!)} after the user last interacted` : ""}: connecting took ${seconds(connected - began)}, .agents/resume ${seconds(Date.now() - connected)}`);
+			}
 			return inner;
 		})());
 		// A Connection whose requests wait for the target to be written; counts requests so it closes only between them.
@@ -483,6 +523,15 @@ export function createSandboxes(host: SandboxHost | undefined, options: {
 			}
 			return out;
 		},
+		/**
+		 * The user interacted with sandbox `n`'s session (a message, an approval answer, opening it), so its connection
+		 * stays open at least `userIdleMs` from now. Doesn't open one or wake the sandbox.
+		 */
+		touch(n: number) {
+			touched.set(n, Date.now());
+			const entry = live.get(n);
+			if (entry !== undefined) schedule(n, entry);
+		},
 		/** Whether this process holds a connection to sandbox `n`. */
 		connected: (n: number) => live.has(n),
 		/** Drops sandbox `n`'s connection, or all, as being idle would. */
@@ -543,6 +592,12 @@ export async function deleteBranch(local: string, branch: string): Promise<strin
 	// Only if it's still where it was read, so a sync landing meanwhile isn't lost.
 	await git("update-ref", "-d", `refs/heads/${branch}`, head);
 	return head;
+}
+
+/** `ms` as seconds, or minutes and seconds past a minute, for the log. */
+function seconds(ms: number): string {
+	const s = Math.max(0, ms) / 1000;
+	return s < 60 ? `${s.toFixed(1)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
 }
 
 function shellQuote(text: string): string {

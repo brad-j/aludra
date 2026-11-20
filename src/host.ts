@@ -577,6 +577,10 @@ export async function openHost(options: HostOptions) {
 	);
 	opened = harness;
 	approvals = new ApprovalService(harness, () => config.approvals.waitHours * 3_600_000);
+	// Answering an approval is the user interacting, so the session's sandbox stays up (src/sandboxes.ts, touch).
+	approvals.onChange((request) => {
+		if (request.status === "approved" || request.status === "denied") void touch(request.conversationId);
+	});
 	const root = await harness.root(context);
 	const created = new Set<(session: SessionRecord) => void>();
 
@@ -1383,6 +1387,15 @@ export async function openHost(options: HostOptions) {
 		return child === undefined ? undefined : { ...found, conversation: child };
 	}
 
+	/**
+	 * The user interacted with session `id` (sent it a message, answered an approval, opened it): its sandbox, if it has
+	 * one, stays up at least 20 minutes from now (src/sandboxes.ts). Never throws.
+	 */
+	async function touch(id: number): Promise<void> {
+		const record = await get(id).catch(() => undefined);
+		if (record?.sandbox !== undefined && record.sandboxRemoved !== true) sandboxes.touch(record.sandbox);
+	}
+
 	/** Sends `content` to session `id`. A busy session queues it as a follow-up, or as a steer. */
 	async function submit(id: number, content: UserMessage["content"], options: { requestId?: string; steer?: boolean } = {}) {
 		const target = await conversation(id);
@@ -1390,6 +1403,7 @@ export async function openHost(options: HostOptions) {
 		if (isSandboxSession(record) && record!.sandbox === undefined) {
 			throw new SandboxNotReady(record!.sandboxState === "failed" ? `session ${id}'s sandbox couldn't be made: ${record!.sandboxReason}` : `session ${id}'s sandbox is still being made; its messages wait for it`);
 		}
+		await touch(id);
 		// A new message instead of an answer: the waiting call is refused, so the run can take the message.
 		await approvals!.supersede(id);
 		// Invisible characters come out of every text block first, so a long paste moved to a file is clean too, and the
@@ -1872,7 +1886,7 @@ export async function openHost(options: HostOptions) {
 			/** Resolves once session `id`'s sandbox is ready or failed. */
 			prepared: (id: number) => prepareSandbox(id),
 		},
-		sessions: { list, get, link, create, createScratch, createChat, createWorktree, removeWorktree, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
+		sessions: { list, get, touch, link, create, createScratch, createChat, createWorktree, removeWorktree, createSandbox, startSandbox, onCreate, rename, retitle, regenerateTitle, archive, archiveIdle, onUpdate, states },
 		/** Sandbox sessions' results (src/results.ts). */
 		results: {
 			result: results.result,

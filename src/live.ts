@@ -74,6 +74,8 @@ export type Live = ReturnType<typeof createLive>;
 async function follow(host: Host, id: number, send: (event: ServerEvent) => void, feed: SessionsFeed): Promise<() => void> {
 	let record = await host.sessions.get(id);
 	if (record === undefined) throw new Error(`No session ${id}`);
+	// Opening a session is the user interacting, so its sandbox stays up (src/sandboxes.ts, touch).
+	void host.sessions.touch(id);
 	const state = await (await host.conversation(id)).viewState(context);
 	let sent: string[] = [];
 	let sentMeta = "";
