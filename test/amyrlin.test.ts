@@ -1180,7 +1180,7 @@ test("projects.create makes a project with its repository, lists it with its che
 	const signedIn = fakeGh(join(dir, "github"));
 	const { url } = await api(t, { dir, settings: { newProjects: { root, owner: "t" } }, newProjects: signedIn });
 	const mac = await client(t, url);
-	assert.deepEqual((await mac.request("host.info")).newProjects, { root, owner: "t" });
+	assert.deepEqual((await mac.request("host.info")).newProjects, { root, owner: "t", ui: false });
 	const list = (await mac.request("host.watch")).subscription;
 	await mac.event(list, type("host.snapshot"), "the host snapshot");
 
@@ -1190,6 +1190,11 @@ test("projects.create makes a project with its repository, lists it with its che
 	assert.deepEqual(project.checkout, { branch: "main", dirty: 0, ahead: 0, behind: 0, upstream: "origin/main", sandboxes: { reason: "this host has no sandbox host" }, checks: 0, code: false });
 	const listed = (await mac.event(list, (e) => e.type === "host.projects" && e.projects.some((p: Json) => p.name === "waygate"), "host.projects")).findLast(type("host.projects"));
 	assert.ok(listed.projects.some((p: Json) => p.dir === project.dir));
+	assert.match(readFileSync(join(project.dir, "docs", "plan.md"), "utf8"), /^## Now$/m);
+	const seeded = (await mac.request("projects.create", { name: "seeded", plan: { steps: ["First step"], questions: ["Open question?"] } })).project;
+	assert.match(readFileSync(join(seeded.dir, "docs", "plan.md"), "utf8"), /### first-step: First step\nKind: step/);
+	await assert.rejects(mac.request("projects.create", { name: "uiproj", ui: true }), { code: "bad_request", message: /designSeeds/ });
+	assert.equal((await mac.request("host.info")).newProjects.ui, false);
 	await assert.rejects(mac.request("projects.create", { name: "waygate" }), { code: "bad_request", message: /already exists/ });
 	await assert.rejects(mac.request("projects.create", { name: "Way Gate" }), { code: "bad_request" });
 });

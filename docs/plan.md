@@ -6,11 +6,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
-### starter-files: A new project's starter files and plan
-Kind: request · From: pi-desktop/ideas-make-project
-`projects.create` (and so loial's New project…) makes the first commit with `README.md`, `AGENTS.md`, a one-line `CLAUDE.md` pointing at it, and `docs/plan.md` in the plan skill's format with its five sections. A new optional `plan` field takes items to seed it with (Pi Desktop sends an idea's open questions as questions and its next steps as steps), and `ui: true` copies `DESIGN.md` and `PRODUCT.md` from tar-valon's `design/`. Brad approved the API change on 2026-11-19. Open: whether the starter text lives in tar-valon or in aludra, since the Mac's aludra would need the tar-valon path too.
-
-
 ## Questions
 
 ## Later
@@ -72,6 +67,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### starter-files: A new project's starter files and plan
+Kind: request · From: pi-desktop/ideas-make-project · Done: 2026-11-20
+`projects.create` (so loial's New project too) commits `AGENTS.md`, a `CLAUDE.md` of `@AGENTS.md`, and `docs/plan.md` in the plan format beside the README (`src/starters.ts`). `plan: { steps?, questions? }` seeds it: the first step in Now, the rest in Next, questions under Questions, ids from titles. `ui: true` copies `DESIGN.md` and `PRODUCT.md` from the new `newProjects.designSeeds`, and `host.info`'s `newProjects.ui` says whether it can. `sandbox.promote` adds none. The text lives in aludra so any machine makes the same project with no other checkout (Brad's call, 2026-11-20); a test checks the plan against the format and, where the plan skill is installed, that the skill still names the same sections and kinds. egwene's settings point `designSeeds` at tar-valon's `design/`.
 
 ### retire-agent-mcp: Which MCP pieces go now that Lan and Verin are retired?
 Kind: question · Done: 2026-11-20

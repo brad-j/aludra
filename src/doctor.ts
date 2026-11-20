@@ -15,6 +15,7 @@ import { isListening, socketPathFor } from "./server.ts";
 import { currentSpec, installedUnit, launchdPlist, lingers, platformOf, serviceState, systemdUnit, withoutPath } from "./service.ts";
 import { servesPort, tailnetSelf, tailscaleFor } from "./tailscale.ts";
 import { openTokens } from "./tokens.ts";
+import { seedsProblem } from "./starters.ts";
 
 export type Check = { status: "ok" | "warn" | "fail" | "skip"; area: string; detail: string };
 
@@ -209,7 +210,15 @@ async function newProjects(config: Config): Promise<Check[]> {
 	if (config.newProjects === undefined) return [{ status: "skip", area: "projects", detail: "newProjects isn't set, so the apps can't make projects" }];
 	const problem = await ghProblem();
 	if (problem !== undefined) return [{ status: "warn", area: "projects", detail: `can't make new projects: ${problem}` }];
-	return [{ status: "ok", area: "projects", detail: `new projects go in ${config.newProjects.root}, private on github.com/${config.newProjects.owner}` }];
+	const seeds = seedsProblem(config.newProjects.designSeeds);
+	return [
+		{ status: "ok", area: "projects", detail: `new projects go in ${config.newProjects.root}, private on github.com/${config.newProjects.owner}` },
+		seeds === undefined
+			? { status: "ok", area: "projects", detail: `UI projects get DESIGN.md and PRODUCT.md from ${config.newProjects.designSeeds}` }
+			: config.newProjects.designSeeds === undefined
+				? { status: "skip", area: "projects", detail: "newProjects.designSeeds isn't set, so a client can't ask for a UI project" }
+				: { status: "warn", area: "projects", detail: seeds },
+	];
 }
 
 async function push(): Promise<Check[]> {

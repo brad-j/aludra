@@ -170,8 +170,9 @@ Where the apps' New project makes projects, if anywhere. Only the settings file 
 
 - `root`: the folder new projects go in, each `<root>/<name>`. A workspace root must match the folders in it (`<root>/*`, or a pattern covering it), so a new project lists at once; aludra refuses one that doesn't.
 - `owner`: the GitHub account or organization the repository is made under, private.
+- `designSeeds` (optional): a folder holding `DESIGN.md` and `PRODUCT.md`, copied into a project made as a UI project. Without it, a client can't ask for one.
 
-Making one runs `git init` on `main`, writes a `README.md` with the name and description, commits with this machine's git identity, creates `<owner>/<name>` with `gh repo create --private`, and pushes `main` to `git@github.com:<owner>/<name>.git`. So it needs `gh` signed in to github.com with the `repo` scope (`gh auth login`), and this machine's SSH access to GitHub. While `gh auth status` fails, the apps aren't offered New project, MCP's `create_project` and `promote_session` refuse, and `aludra doctor` says why. Agents on `/mcp` ask to make one only with [`mcp.allowNewProjects`](#mcp), and each waits for your approval.
+Making one runs `git init` on `main`, writes a `README.md` with the name and description, `AGENTS.md`, a `CLAUDE.md` that points at it and `docs/plan.md` in the plan format (seeded with any steps and questions the client sends), commits with this machine's git identity, creates `<owner>/<name>` with `gh repo create --private`, and pushes `main` to `git@github.com:<owner>/<name>.git`. So it needs `gh` signed in to github.com with the `repo` scope (`gh auth login`), and this machine's SSH access to GitHub. While `gh auth status` fails, the apps aren't offered New project, MCP's `create_project` and `promote_session` refuse, and `aludra doctor` says why. Agents on `/mcp` ask to make one only with [`mcp.allowNewProjects`](#mcp), and each waits for your approval.
 
 ### `dataDir`
 

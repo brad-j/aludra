@@ -1,6 +1,6 @@
 // New projects, made here so every task after the first commit can run in a sandbox (amyrlin's protocol section 10
-// item 20): a folder in `newProjects.root`, `git init` on main, a README and a first commit with this machine's git
-// identity, then a private GitHub repository under `newProjects.owner` through gh, pushed, so origin/main is the
+// item 20): a folder in `newProjects.root`, `git init` on main, a README and the starter files (src/starters.ts) in a
+// first commit with this machine's git identity, then a private GitHub repository under `newProjects.owner` through gh, pushed, so origin/main is the
 // upstream a ship lands on. A scratch sandbox's work becomes a project the same way, its commits in place of the first.
 //
 // Nothing is left half made: a folder made here is removed when a later step fails. A repository gh created is left
@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { run } from "./sandboxes.ts";
+import { checkSeed, type PlanSeed, seedsProblem, writeStarters } from "./starters.ts";
 
 /** Why a project can't be made from what was asked: the client's mistake, not the machine's. */
 export class NewProjectRefused extends Error {}
@@ -35,7 +36,12 @@ export type NewProjectsOptions = {
 	gh?: (args: readonly string[], cwd?: string) => Promise<string>;
 	/** The remote URL for `owner/name`; `git@github.com:owner/name.git` by default. Tests point it at a bare repository. */
 	remoteUrl?: (repository: string) => string;
+	/** The folder DESIGN.md and PRODUCT.md are copied from for a UI project (newProjects.designSeeds). */
+	designSeeds?: string;
 };
+
+/** What goes in a new project's first commit beside its README (src/starters.ts). */
+export type StartOptions = { plan?: PlanSeed; ui?: boolean };
 
 const realGh = (args: readonly string[], cwd?: string) => (cwd === undefined ? run("gh", args) : run("gh", ["-R", "", ...args].slice(2)).then(() => "")).catch((error) => {
 	throw error;
@@ -90,9 +96,15 @@ export function createNewProjects(options: NewProjectsOptions) {
 	 * Makes project `name`. `from` puts commits in place of the first: a git bundle, or a repository, whose `ref` becomes
 	 * main. Throws NewProjectRefused for the caller's mistakes and Error for git or gh failing.
 	 */
-	async function create(name: unknown, description?: string, from?: { source: string; ref: string }): Promise<{ dir: string; repository: string }> {
+	async function create(name: unknown, description?: string, from?: { source: string; ref: string }, start: StartOptions = {}): Promise<{ dir: string; repository: string }> {
 		const checked = checkName(name);
 		if (description !== undefined && typeof description !== "string") throw new NewProjectRefused("description should be text");
+		const plan = checkSeed(start.plan);
+		if (start.ui !== undefined && typeof start.ui !== "boolean") throw new NewProjectRefused("ui should be true or false");
+		if (start.ui === true) {
+			const problem = seedsProblem(options.designSeeds);
+			if (problem !== undefined) throw new NewProjectRefused(problem);
+		}
 		const dir = await checkFree(checked);
 		const repository = `${options.owner}/${checked}`;
 		const git = (...args: string[]) => run("git", ["-C", dir, ...args]);
@@ -103,7 +115,8 @@ export function createNewProjects(options: NewProjectsOptions) {
 			await git("init", "-q", "-b", "main");
 			if (from === undefined) {
 				await writeFile(join(dir, "README.md"), readme(checked, description));
-				await git("add", "README.md");
+				const starters = await writeStarters(dir, checked, { description, plan, designSeeds: options.designSeeds, ui: start.ui });
+				await git("add", "README.md", ...starters);
 				await git("commit", "-q", "-m", `Start ${checked}${description?.trim() ? `: ${description.trim()}` : "."}`);
 			} else {
 				// main is born checked out and empty, so the commits come in under another name, and main is set to them.

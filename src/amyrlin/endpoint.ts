@@ -1052,7 +1052,9 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 				// aludra's own: new projects (protocol section 10 item 20).
 				case "projects.create": {
 					if (p.description != null && typeof p.description !== "string") throw new ProtocolError("bad_request", "description should be text");
-					return { project: await newProject(() => host.newProjects.create(p.name, p.description ?? undefined)) };
+					// aludra's own: plan seeds docs/plan.md with steps and questions, ui copies the design seeds (src/starters.ts).
+					const start = { ...(p.plan == null ? {} : { plan: p.plan as never }), ...(p.ui == null ? {} : { ui: p.ui as never }) };
+					return { project: await newProject(() => host.newProjects.create(p.name, p.description ?? undefined, undefined, start)) };
 				}
 				case "sandbox.promote": {
 					const { record } = await session(p.conversationId);

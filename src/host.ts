@@ -39,7 +39,8 @@ import { createResults, parseProjectConfig, TurnChecks } from "./results.ts";
 import { readShot } from "./shots.ts";
 import { HUES } from "./project-colors.ts";
 import { findProject, findProjects, type Project } from "./projects.ts";
-import { createNewProjects, ghProblem, NewProjectRefused, type NewProjectsOptions } from "./new-projects.ts";
+import { createNewProjects, ghProblem, NewProjectRefused, type NewProjectsOptions, type StartOptions } from "./new-projects.ts";
+import { seedsProblem } from "./starters.ts";
 import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
 import { messagesOf, openSearch } from "./search.ts";
@@ -597,10 +598,13 @@ export async function openHost(options: HostOptions) {
 		return ghChecked.problem;
 	};
 	/** Where new projects go and on whose GitHub, when this host can make them now; else why not (src/new-projects.ts). */
-	async function newProjectsInfo(): Promise<{ root: string; owner: string } | { reason: string }> {
+	async function newProjectsInfo(): Promise<{ root: string; owner: string; ui: boolean } | { reason: string }> {
 		if (config.newProjects === undefined) return { reason: "newProjects isn't set" };
 		const problem = await ghStatus();
-		return problem === undefined ? { ...config.newProjects } : { reason: problem };
+		if (problem !== undefined) return { reason: problem };
+		const { root, owner } = config.newProjects;
+		// ui: whether a client may ask for a UI project, which needs the design seeds (src/starters.ts).
+		return { root, owner, ui: seedsProblem(config.newProjects.designSeeds) === undefined };
 	}
 	/**
 	 * Makes scratch sandbox session `id`'s work a project: its commits, fetched now, become new project `name`'s main, and
@@ -631,10 +635,10 @@ export async function openHost(options: HostOptions) {
 	}
 
 	/** Makes project `name` in newProjects.root (src/new-projects.ts); the project it is, as the workspaces now list it. */
-	async function createProject(name: unknown, description?: string, from?: { source: string; ref: string }): Promise<Project> {
+	async function createProject(name: unknown, description?: string, from?: { source: string; ref: string }, start?: StartOptions): Promise<Project> {
 		const info = await newProjectsInfo();
 		if ("reason" in info) throw new Error(`this host can't make projects: ${info.reason}`);
-		const made = await createNewProjects({ ...info, ...options.newProjects }).create(name, description, from);
+		const made = await createNewProjects({ root: info.root, owner: info.owner, designSeeds: config.newProjects?.designSeeds, ...options.newProjects }).create(name, description, from, start);
 		const found = projects().find((p) => p.dir === made.dir);
 		if (found === undefined) throw new Error(`${made.dir} was made, but no workspace root lists it`);
 		for (const listener of projectListeners) listener(found);
