@@ -67,7 +67,8 @@ export async function testHost(t: TestContext, options: Omit<HostOptions, "confi
 	}
 	const agentDir = join(dir, "agent");
 	mkdirSync(agentDir, { recursive: true });
-	const host = await openHost({ agentDir, ...options, config });
+	// Claude Code's skills from the temp directory too, never the real ~/.claude.
+	const host = await openHost({ agentDir, claudeSkillsDir: join(dir, "claude", "skills"), ...options, config });
 	t.after(() => host.close());
 	host.resume();
 	return { host, dir, agentDir, config };

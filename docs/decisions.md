@@ -133,6 +133,15 @@ Lan wakes on session changes without a model running: its server calls a connect
 
 Lan's connector needs the two new tool names, `check_sessions` as its gate, and `mark_sessions_handled` with the answer's `through`. A read token is enough for the gate; `model` and `effort` need the write token it already uses for `start_session`.
 
+## Claude Code's skills (2026-11-19)
+
+Brad keeps some skills only in `~/.claude/skills`, and loial's picker and `/skill:` showed only `~/.pi/agent/skills`. pi-claude-code runs `claude -p` with `--setting-sources` and `--disable-slash-commands`, so Claude Code never offers its own skills to an aludra session; aludra has to list them itself.
+
+- `skillsFor` takes extra user directories after the agent directory's `skills/`. The host passes `skills` under Claude Code's config directory (`claudeConfigDir`: `claude.configDir`, else `CLAUDE_CONFIG_DIR`, else `~/.claude`), so the directory follows the login the host already uses. A missing directory is skipped.
+- Order is agent directory, Claude Code, project, first name wins. A skill in both directories is listed once, from `~/.pi/agent/skills`, and pi's loader also drops a second path to the same real file, so skills linked into both don't repeat. Claude Code's skills are `source: "user"`, so they're in host.info's top-level `skills` and beat a project skill of the same name.
+- A sandbox gets them in `~/.claude/skills`, the place Claude Code itself would look, as a third root of the same tar copy under the same 20 MB cap.
+- No new setting. A setting to turn it off can come if a Claude Code skill turns out to be wrong for aludra sessions.
+
 ## Skills in sandboxes and host.info (2026-11-06)
 
 A loial sandbox session ran `ls` on 2026-11-06 and showed that its prompt listed Brad's skills at `/home/brad/.pi/agent/skills/...`, which isn't in the VM. The `skills` section reads a sandbox session's skills from its local checkout and `~/.pi/agent` on this machine, so both user and project skills point at the host. Local sessions are right: they load from the project's directory and the agent directory, which are real paths here. loial wants a skill picker in its composer, so aludra reports the skills too.

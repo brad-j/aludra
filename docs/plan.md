@@ -123,6 +123,10 @@ decisions.md's "Not yet" and "Later" lines now name their plan items, or say wha
 Kind: step · Done: 2026-11-16
 A write token with mcp.ship ships a sandbox session as the apps' Ship does; list_sessions, read_session and check_sessions say how it went, and check_sessions wakes on a ship landing or stopping. Verin's Ship button calls it.
 
+### claude-code-skills: Claude Code's skills in sessions, host.info and sandboxes
+Kind: step · Done: 2026-11-19
+`~/.claude/skills` (under the Claude Code config directory in use) comes after `~/.pi/agent/skills`, losing name clashes to it. Sandboxes get a copy in `~/.claude/skills`.
+
 ### new-projects-live-check: Try projects.create against GitHub
 Kind: chore · Done: 2026-11-15
 `scripts/new-projects-check.ts` passed: a private repository with its first commit, and a scratch sandbox promoted to a second. Delete brad-j/aludra-check-a and -b by hand.

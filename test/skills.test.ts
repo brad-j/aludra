@@ -43,7 +43,7 @@ async function skillsHost(t: TestContext) {
 	mkdirSync(agentDir, { recursive: true });
 	writeSkills(agentDir, project.dir);
 	const { host } = await testHost(t, { dir: root, sandboxes: fake.sandboxes, settings: SANDBOX_SETTINGS, models, model: { provider: "faux", modelId: "faux-1" }, agentDir });
-	return { host, fake, project, agentDir, seen };
+	return { host, fake, project, agentDir, seen, root };
 }
 
 test("skillsFor lists the user's skills, then the project's, with a project skill named like a user skill left out", (t) => {
@@ -136,4 +136,50 @@ test("expandSkill leaves text alone when it isn't a skill command or the file ca
 	assert.equal(await expandSkill("hello /skill:a", list, async () => "body"), "hello /skill:a");
 	assert.equal(await expandSkill("/skill:a", list, async () => undefined), "/skill:a");
 	assert.equal(await expandSkill("/skill:a\nmore", list, async () => "---\nname: a\n---\nbody"), `<skill name="a" location="/x/a/SKILL.md">\nReferences are relative to /x/a.\n\nbody\n</skill>\n\nmore`);
+});
+
+test("Claude Code's skills come after the agent directory's, lose a clash to them, and beat the project's", (t) => {
+	const root = tempDir(t);
+	const agentDir = join(root, "agent");
+	const claude = join(root, "claude", "skills");
+	const project = makeProject(root, "one");
+	writeSkills(agentDir, project.dir);
+	for (const [name, text] of [["humanizer", skill("humanizer", "Edit prose.")], ["recraft", skill("recraft", "Claude Code's recraft.")], ["ship-notes", skill("ship-notes", "Claude Code's ship notes.")]] as const) {
+		mkdirSync(join(claude, name), { recursive: true });
+		writeFileSync(join(claude, name, "SKILL.md"), text);
+	}
+	const all = skillsFor(project.dir, agentDir, [claude]);
+	assert.deepEqual(all.map((s) => [s.name, s.source]), [["deepen", "user"], ["recraft", "user"], ["humanizer", "user"], ["ship-notes", "user"]]);
+	assert.equal(all.find((s) => s.name === "recraft")!.description, "Make images.");
+	const user = skillsFor(undefined, agentDir, [claude]);
+	assert.deepEqual(user.map((s) => s.name), ["deepen", "recraft", "humanizer", "ship-notes"]);
+	assert.deepEqual(projectSkills(project.dir, user, agentDir), []);
+	// A directory that isn't there is skipped.
+	assert.deepEqual(skillsFor(project.dir, agentDir, [join(root, "nowhere")]).map((s) => s.name), ["deepen", "recraft", "ship-notes"]);
+});
+
+test("a sandbox gets Claude Code's skills in its ~/.claude/skills, and /skill: expands them here and there", async (t) => {
+	const { host, fake, project, seen, root } = await skillsHost(t);
+	// testHost points Claude Code's skills at <root>/claude/skills.
+	const claudeDir = join(root, "claude", "skills");
+	mkdirSync(join(claudeDir, "humanizer"), { recursive: true });
+	writeFileSync(join(claudeDir, "humanizer", "SKILL.md"), skill("humanizer", "Edit prose.", "Cut the filler."));
+	assert.ok(host.skills.user().some((s) => s.name === "humanizer"), "host.info lists it");
+
+	const local = await host.sessions.create(project, "local");
+	await (await host.submit(local.id, "/skill:humanizer the README")).wait(context);
+	assert.match(seen.at(-1)!.user, /Cut the filler\./);
+
+	const session = await host.sessions.createSandbox(project, "hello");
+	const record = (await host.sessions.get(session.id))!;
+	const home = fake.sandboxes.home(record.sandbox!);
+	assert.deepEqual(record.sandboxSkills?.map((s) => [s.name, s.filePath]), [
+		["deepen", `${home}/.pi/agent/skills/deepen/SKILL.md`],
+		["recraft", `${home}/.pi/agent/skills/recraft/SKILL.md`],
+		["humanizer", `${home}/.claude/skills/humanizer/SKILL.md`],
+		["ship-notes", `${home}/.aludra/project-skills/ship-notes/SKILL.md`],
+	]);
+	await (await host.submit(session.id, "/skill:humanizer")).wait(context);
+	assert.match(seen.at(-1)!.user, new RegExp(`${home}/.claude/skills/humanizer/SKILL.md`));
+	assert.match(seen.at(-1)!.user, /Cut the filler\./);
 });

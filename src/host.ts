@@ -387,6 +387,8 @@ export type HostOptions = {
 	claudeCode?: Provider;
 	/** Where AGENTS.md and skills are looked for besides the project. Default: ~/.pi/agent. */
 	agentDir?: string;
+	/** Claude Code's skills, the user's after the agent directory's. Default: `skills` in Claude Code's config directory. */
+	claudeSkillsDir?: string;
 	/** Over Pi Durable's compaction defaults; the live check keeps less so a small conversation compacts. */
 	compaction?: Partial<CompactionPolicy>;
 	/** Sandboxes in place of the settings' sandbox host; tests pass ones over pi-env's local daemon. */
@@ -404,6 +406,8 @@ export async function openHost(options: HostOptions) {
 	let models: Models;
 	let model: ModelRef;
 	const agentDir = options.agentDir ?? AGENT_DIR;
+	const claudeSkillsDir = options.claudeSkillsDir ?? resolve(claudeConfigDir(config), "skills");
+	const moreUserSkills = [claudeSkillsDir];
 	// What a no-project session is told about this machine: each workspace's directory, and where agent histories are.
 	const places = (): Place[] => [
 		...config.workspaces.flatMap((w) => w.roots.map((root) => ({ path: expandHome(root.split("/*")[0]!), what: `projects in the ${w.name} workspace (${root.replace(/^.*?\/\*/, "*")})` }))),
@@ -421,7 +425,7 @@ export async function openHost(options: HostOptions) {
 	const extensions: Extension[] = [CodingTools, contextExtension(agentDir, { scratchRoot: resolve(config.dataDir, "scratch"), places }, async (input) => {
 		const found = await sandboxOf(input);
 		return found?.sandbox === undefined ? undefined : found;
-	})];
+	}, moreUserSkills)];
 	if (options.models !== undefined && options.model !== undefined) {
 		models = options.models;
 		model = options.model;
@@ -1056,10 +1060,10 @@ export async function openHost(options: HostOptions) {
 	 * rather than files the agent can't read.
 	 */
 	async function sandboxSkills(id: number, n: number, dir: string, local: string | undefined): Promise<SkillInfo[]> {
-		const found = skillsFor(local, agentDir);
+		const found = skillsFor(local, agentDir, moreUserSkills);
 		if (found.length === 0) return [];
 		try {
-			return await copySkills(sandboxes.env(n, dir), found, { userDir: resolve(agentDir, "skills"), ...(local === undefined ? {} : { projectDir: resolve(local, ".pi", "skills") }) }, sandboxes.home(n));
+			return await copySkills(sandboxes.env(n, dir), found, { userDir: resolve(agentDir, "skills"), claudeDir: claudeSkillsDir, ...(local === undefined ? {} : { projectDir: resolve(local, ".pi", "skills") }) }, sandboxes.home(n));
 		} catch (error) {
 			console.error(`[sandbox] session ${id}: couldn't copy its skills, so its prompt names none: ${error instanceof Error ? error.message : String(error)}`);
 			return [];
@@ -1443,7 +1447,7 @@ export async function openHost(options: HostOptions) {
 				return got.ok ? got.value : undefined;
 			};
 		} else {
-			list = skillsFor(record.dir, agentDir);
+			list = skillsFor(record.dir, agentDir, moreUserSkills);
 			read = (path) => readFile(path, "utf8");
 		}
 		const text = await expandSkill((blocks[first] as TextContent).text, list, read);
@@ -1920,7 +1924,7 @@ export async function openHost(options: HostOptions) {
 		},
 		/** The skills sessions get (src/context.ts): the user's, and project `dir`'s own beside `user`. For host.info. */
 		skills: {
-			user: () => skillsFor(undefined, agentDir),
+			user: () => skillsFor(undefined, agentDir, moreUserSkills),
 			project: (dir: string, user: readonly SkillInfo[]) => projectSkills(dir, user, agentDir),
 		},
 		scratchRoot,

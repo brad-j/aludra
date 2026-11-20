@@ -26,16 +26,20 @@ export type SkillInfo = { name: string; description: string; filePath: string; b
 const infoOf = (skill: Skill): SkillInfo => ({ name: skill.name, description: skill.description, filePath: skill.filePath, baseDir: skill.baseDir, source: skill.sourceInfo.scope === "project" ? "project" : "user" });
 
 /**
- * The skills a session in `cwd` is told about, in the prompt's order: the agent directory's, then the project's, with
- * pi's own loader, so a project skill named like a user skill loses. Without `cwd`, the user's alone. Skills marked
- * `disable-model-invocation` are left out, as the prompt leaves them out. The one source for the prompt, the copy into a
- * sandbox, host.info and `/skill:` expansion.
+ * The skills a session in `cwd` is told about, in the prompt's order: the agent directory's, then each of `moreUser`
+ * (Claude Code's skills directory), then the project's, with pi's own loader, so the first of a name wins and a project
+ * skill named like a user skill loses. Without `cwd`, the user's alone. Skills marked `disable-model-invocation` are left
+ * out, as the prompt leaves them out. The one source for the prompt, the copy into a sandbox, host.info and `/skill:`
+ * expansion.
  */
-export function skillsFor(cwd: string | undefined, agentDir = AGENT_DIR): SkillInfo[] {
-	const loaded = cwd === undefined
-		? loadSkills({ cwd: agentDir, agentDir, skillPaths: [join(agentDir, "skills")], includeDefaults: false }).skills
-		: loadSkills({ cwd, agentDir, skillPaths: [], includeDefaults: true }).skills;
-	return loaded.filter((s) => !s.disableModelInvocation).map(infoOf);
+export function skillsFor(cwd: string | undefined, agentDir = AGENT_DIR, moreUser: readonly string[] = []): SkillInfo[] {
+	const userDirs = [join(agentDir, "skills"), ...moreUser].filter((dir) => existsSync(dir));
+	const projectDir = cwd === undefined ? undefined : join(cwd, ".pi", "skills");
+	const paths = [...userDirs, ...(projectDir !== undefined && existsSync(projectDir) ? [projectDir] : [])];
+	// Anything outside the project's .pi/skills is the user's: pi calls the extra directories "path" skills.
+	return loadSkills({ cwd: cwd ?? agentDir, agentDir, skillPaths: paths, includeDefaults: false }).skills
+		.filter((s) => !s.disableModelInvocation)
+		.map((s) => ({ ...infoOf(s), source: projectDir !== undefined && s.filePath.startsWith(projectDir + "/") ? "project" as const : "user" as const }));
 }
 
 /**
@@ -57,8 +61,8 @@ export function skillsSection(list: readonly SkillInfo[]): string | undefined {
 	return formatSkillsForPrompt(asSkills, "read").trim() || undefined;
 }
 
-export function skills(cwd: string, agentDir = AGENT_DIR): string | undefined {
-	return skillsSection(skillsFor(cwd, agentDir));
+export function skills(cwd: string, agentDir = AGENT_DIR, moreUser: readonly string[] = []): string | undefined {
+	return skillsSection(skillsFor(cwd, agentDir, moreUser));
 }
 
 /**
@@ -126,7 +130,7 @@ export const RESULT_INSTRUCTIONS = [
  * instructions, which every session gets. `sandboxOf` tells a sandbox
  * session's sandbox and the local checkout its project context is read from (the sandbox's copy is at the same commit).
  */
-export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot: string; places: () => readonly Place[] }, sandboxOf?: (input: PromptInput) => Promise<{ sandbox: number; dir: string; local?: string; skills?: readonly SkillInfo[] } | undefined>) {
+export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot: string; places: () => readonly Place[] }, sandboxOf?: (input: PromptInput) => Promise<{ sandbox: number; dir: string; local?: string; skills?: readonly SkillInfo[] } | undefined>, moreUserSkills: readonly string[] = []) {
 	const inScratch = (cwd: string | undefined) => noProject !== undefined && cwd !== undefined && cwd.startsWith(noProject.scratchRoot + "/");
 	/** Where this session's project context is read: its own directory, or a sandbox session's local checkout. */
 	const contextDir = async (input: PromptInput): Promise<string | undefined> => {
@@ -155,7 +159,7 @@ export function contextExtension(agentDir = AGENT_DIR, noProject?: { scratchRoot
 				const sandbox = await sandboxOf?.(input);
 				if (sandbox !== undefined) return skillsSection(sandbox.skills ?? []);
 				const dir = await contextDir(input);
-				return dir === undefined ? undefined : skills(dir, agentDir);
+				return dir === undefined ? undefined : skills(dir, agentDir, moreUserSkills);
 			}, { tag: false }),
 		],
 	});
