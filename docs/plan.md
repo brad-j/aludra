@@ -6,6 +6,10 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
+### starter-files: A new project's starter files and plan
+Kind: request · From: pi-desktop/ideas-make-project
+`projects.create` (and so loial's New project…) makes the first commit with `README.md`, `AGENTS.md`, a one-line `CLAUDE.md` pointing at it, and `docs/plan.md` in the plan skill's format with its five sections. A new optional `plan` field takes items to seed it with (Pi Desktop sends an idea's open questions as questions and its next steps as steps), and `ui: true` copies `DESIGN.md` and `PRODUCT.md` from tar-valon's `design/`. Brad approved the API change on 2026-11-19. Open: whether the starter text lives in tar-valon or in aludra, since the Mac's aludra would need the tar-valon path too.
+
 ### approval-risk: Mark approvals that push or destroy work
 Kind: request · From: loial/approval-risk
 Add `risk?: "push" | "destructive"` to the `Approval` in `approval.requested` and in summaries' `pendingApprovals`. Set it from the same command parsing the approval rules use. Any form of `git push` is "push". `rm -r`/`rm -f`, `git reset --hard`, `git clean -f`, `git checkout -- .`/`git restore`, `git branch -D`, `git push --force` (destructive wins over push) and redirects that overwrite tracked files are "destructive". Otherwise leave the field out. Faux's "push it" approval (`git push`) should come out as "push" so loial's e2e can check it. Check the destructive list against the parser before building; it's a first guess, since the decision only says "pushes or destroys work". Agreed with Brad 2026-11-19 (loial docs/decisions.md, "Approval risk").
