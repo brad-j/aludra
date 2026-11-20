@@ -6,6 +6,10 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
+### approval-risk: Mark approvals that push or destroy work
+Kind: request · From: loial/approval-risk
+Add `risk?: "push" | "destructive"` to the `Approval` in `approval.requested` and in summaries' `pendingApprovals`. Set it from the same command parsing the approval rules use. Any form of `git push` is "push". `rm -r`/`rm -f`, `git reset --hard`, `git clean -f`, `git checkout -- .`/`git restore`, `git branch -D`, `git push --force` (destructive wins over push) and redirects that overwrite tracked files are "destructive". Otherwise leave the field out. Faux's "push it" approval (`git push`) should come out as "push" so loial's e2e can check it. Check the destructive list against the parser before building; it's a first guess, since the decision only says "pushes or destroys work". Agreed with Brad 2026-11-19 (loial docs/decisions.md, "Approval risk").
+
 ## Questions
 
 ## Later
