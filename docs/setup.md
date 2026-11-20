@@ -1,6 +1,6 @@
 # Setting up a machine
 
-Install aludra on each macOS or Linux computer whose projects you want to reach. Each one runs its own host, with its own sessions, at its own address on your tailnet. amyrlin, the optional macOS client, can show several machines at once. aludra has no web app.
+Install aludra on each macOS or Linux computer whose projects you want to reach. Each one runs its own host, with its own sessions, at its own address on your tailnet. loial, the desktop client, can show several machines at once. aludra has no web app.
 
 ## Requirements
 
@@ -32,8 +32,8 @@ aludra init
 `aludra init` writes `~/.config/aludra/config.json` (or `$XDG_CONFIG_HOME/aludra/config.json`). It asks three things, each with a guess you can accept with Enter:
 
 - **Project folders.** Patterns whose matches are projects, such as `~/code/*`. The guess comes from where git repositories are under your home directory: each repository's parent with `/*`, and sibling parents folded into one pattern (`~/Projects/Software` and `~/Projects/Tools` become `~/Projects/*/*`). A pattern is suggested only when it matches at least two repositories and at least half its matches are repositories.
-- **Tailscale logins.** Who may use this machine through amyrlin and the API. The guess is the login this machine's Tailscale is signed in as.
-- **This machine's name.** The workspace name amyrlin shows. The guess is the host name.
+- **Tailscale logins.** Who may use this machine through loial and the API. The guess is the login this machine's Tailscale is signed in as.
+- **This machine's name.** The workspace name clients show. The guess is the host name.
 
 To run it without questions, pass the answers and `--yes`:
 
@@ -103,11 +103,11 @@ The host listens on `127.0.0.1:8724` only. `tailscale serve` gives it an HTTPS a
 
 ## Connect a client
 
-**amyrlin (macOS, optional).** In [amyrlin](https://github.com/brad-j/amyrlin), add the machine as `wss://<machine>.<tailnet>.ts.net/amyrlin`, or just its tailnet name. A machine that can't connect says why under its name in the sidebar: 403 means your login isn't in `api.users`, 502 means nothing is behind `tailscale serve`.
+**loial (Mac and Linux).** In loial, add the machine by its tailnet name, or as `wss://<machine>.<tailnet>.ts.net/amyrlin`. A machine that can't connect says why under its name in the sidebar: 403 means your login isn't in `api.users`, 502 means nothing is behind `tailscale serve`.
 
 **The terminal.** On the machine itself (or over SSH), `aludra sessions` prints every session, `aludra watch` follows them, and the other commands talk to the running host directly; see [cli.md](cli.md).
 
-**Another agent, over MCP.** Claude Code, pi or Lan on any of your tailnet machines, tagged ones included, can list, read and search this machine's sessions, and with a write token and `mcp.write` start and message them. Make each agent a token on this machine, then give it to the agent:
+**Another agent, over MCP.** Claude Code or pi on any of your tailnet machines, tagged ones included, can list, read and search this machine's sessions, and with a write token and `mcp.write` start and message them. Make each agent a token on this machine, then give it to the agent:
 
 ```sh
 aludra token add claude-code-<machine>          # read-only; --write to let it start sessions

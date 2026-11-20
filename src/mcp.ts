@@ -52,7 +52,7 @@
 // worktree and chat sessions don't count, as none of them can write the checkout. It stages and commits nothing.
 //
 // check_sessions and mark_sessions_handled are a gate for an agent that wakes on sessions changing without a model
-// running (Lan's): check_sessions answers { wake, data, topic } and moves nothing, mark_sessions_handled moves the
+// running: check_sessions answers { wake, data, topic } and moves nothing, mark_sessions_handled moves the
 // calling token's cursor (src/session-changes.ts). Both are reading tools, since a cursor is only that token's.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isAbsolute, relative } from "node:path";
@@ -255,7 +255,7 @@ export async function checkSessions(host: Host, token: Pick<Token, "id" | "creat
 	data.sort((a, b) => a.change - b.change);
 	const newest = data.at(-1);
 	const topic = newest === undefined ? "" : `${newest.project} #${newest.id} ${newest.title}: ${newest.transition}${data.length > 1 ? ` (+${data.length - 1} more)` : ""}`;
-	// A gate's data is text (Lan reads { wake: boolean, data?: string, topic?: string }), so the entries go as JSON text.
+	// A gate's data is text (a gate reads { wake: boolean, data?: string, topic?: string }), so the entries go as JSON text.
 	return { wake: data.length > 0, ...(data.length === 0 ? {} : { data: JSON.stringify(data, null, 2) }), topic, ...(newest === undefined ? {} : { through: newest.change }) };
 }
 

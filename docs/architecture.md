@@ -5,7 +5,7 @@ How aludra works today. [decisions.md](decisions.md) has the history: what was d
 ## The pieces
 
 ```
- an API client                 amyrlin (macOS)             terminal
+ an API client                 loial (desktop)             terminal
         │ HTTPS + WS /api/live        │ WSS /amyrlin             │
         └──────────────┬──────────────┘                          │
                tailscale serve  (adds Tailscale-User-Login)      │
@@ -24,7 +24,7 @@ How aludra works today. [decisions.md](decisions.md) has the history: what was d
                        Claude Code (claude.path), the user's own login
 ```
 
-One long-lived Node process, `aludra serve`, owns the SQLite file and runs every session. amyrlin, the CLI and anything else on the API are clients; none of them hold state that matters, and none is served by the host: there's no web app.
+One long-lived Node process, `aludra serve`, owns the SQLite file and runs every session. loial, the CLI and anything else on the API are clients; none of them hold state that matters, and none is served by the host: there's no web app.
 
 ## The host
 
@@ -127,7 +127,7 @@ Children have no session record. `aludra.subagents` maps each child to its sessi
 
 ## Pages
 
-`src/pages.ts` adds a `publish_page` tool. The agent passes a title and a self-contained HTML document; the tool seals it and stores it as its own document, so reading one page never loads another. Sealing reads each local image the page names (in `src=` or `url()`, by absolute or project-relative path, not a protected path, at most 3 MB) and inlines it as a data: URL, then puts a Content-Security-Policy first in the `<head>`: inline scripts and styles, data: and blob: images, fonts and media, and nothing else, so the page can't load anything or reach the network. A sealed page may be 5 MB. The page number is memoized, so a rerun after a restart writes the same page. The tool's result carries `{ page, title, bytes }` in its details, which is how a client finds the page in a transcript. Nothing serves pages over HTTP; amyrlin fetches one with `conversation.page`, and the CLI writes one to a file.
+`src/pages.ts` adds a `publish_page` tool. The agent passes a title and a self-contained HTML document; the tool seals it and stores it as its own document, so reading one page never loads another. Sealing reads each local image the page names (in `src=` or `url()`, by absolute or project-relative path, not a protected path, at most 3 MB) and inlines it as a data: URL, then puts a Content-Security-Policy first in the `<head>`: inline scripts and styles, data: and blob: images, fonts and media, and nothing else, so the page can't load anything or reach the network. A sealed page may be 5 MB. The page number is memoized, so a rerun after a restart writes the same page. The tool's result carries `{ page, title, bytes }` in its details, which is how a client finds the page in a transcript. Nothing serves pages over HTTP; a client fetches one with `conversation.page`, and the CLI writes one to a file.
 
 ## Images
 
@@ -139,7 +139,7 @@ Messages may carry PNG, JPEG, GIF or WebP images, at most 8 of at most 5 MB each
 
 ## Videos
 
-No model takes video, so a video sent from amyrlin (`src/videos.ts`) is written to `uploads/<session>/` in the data directory, and the message carries a text block saying where, `<video name="…" seconds="…" path="…" until="…">`, then the frames amyrlin pulled from it as image blocks. The note tells the agent to pull other frames with ffmpeg. Videos are checked against their magic bytes (an `ftyp` box, or WebM's EBML header) before anything is made or saved. The host deletes uploads 14 days after they arrive, at start and hourly; the frames stay in the conversation. The title writer sees the message without its notes.
+No model takes video, so a video a client sends (`src/videos.ts`) is written to `uploads/<session>/` in the data directory, and the message carries a text block saying where, `<video name="…" seconds="…" path="…" until="…">`, then the frames the client pulled from it as image blocks. The note tells the agent to pull other frames with ffmpeg. Videos are checked against their magic bytes (an `ftyp` box, or WebM's EBML header) before anything is made or saved. The host deletes uploads 14 days after they arrive, at start and hourly; the frames stay in the conversation. The title writer sees the message without its notes.
 
 ## Versions
 

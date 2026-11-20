@@ -13,23 +13,19 @@ Kind: request · From: pi-desktop/ideas-make-project
 
 ## Questions
 
+### retire-agent-mcp: Which MCP pieces go now that Lan and Verin are retired?
+Kind: question
+Lan and Verin were the MCP clients for most of `/mcp`'s write side: the `check_sessions` and `mark_sessions_handled` gate (`src/session-changes.ts`), `write_plan` (`mcp.writePlans`), `ship_session` with `mcp.ship` and `mcp.shipWorktrees`, `create_project` and `promote_session` (`mcp.allowNewProjects`, `project-requests.sqlite`), and scratch `start_session`. The read tools (`list_sessions`, `read_session`, `search`, `read_plan`) still serve Claude Code and pi. Remove the write side, keep it off, or keep it for another agent later? Removing it is an API change, and the tokens made for Lan and Verin should be revoked either way (`aludra token`).
+
 ## Later
+
+### landed-branch-cleanup: Delete a sandbox branch once its work has landed
+Kind: request · From: loial/stale-sandbox-branches
+aludra keeps `sandbox/N` after a task is archived: loial's checkout has 62 and aludra's 16 (2026-11-20). Once a sandbox session's work is on its upstream (a landed ship, or its commits reachable from `origin/main`) and it's archived, delete the local branch. Never one with commits not on the upstream. A one-off sweep of the existing ones can use the same check.
 
 ### sandbox-template-flake: A sandbox template test fails now and then under the full suite
 Kind: chore
 "a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing.
-
-### write-plan-amyrlin: write_plan over /amyrlin for Verin and loial
-Kind: step · Needs: write-plan
-The same write as MCP's `write_plan`, as a `projects.writePlan` request on `/amyrlin`, sharing `writePlan` and `checkPlan` in `src/plans.ts`, so Verin's Plans and loial can edit a plan without an MCP token.
-
-### write-plan-commit: Optionally commit docs/plan.md after a write
-Kind: step · Needs: write-plan
-write_plan writes the working copy only. An option to commit just `docs/plan.md` after a write, without touching anything else staged, so plan edits land in history on their own. Ask Brad before adding any git step.
-
-### subagents-clients: Show subagents under their call in Verin and loial
-Kind: step
-aludra's side is done (subagents): an `agent` tool item's `details.conversationId` names the child, and `conversation.watch` on it streams the child's transcript with `parent` set. Verin and loial draw the child's activity under the call, folded by default, and open it full size. Nothing to do in aludra unless they need more, such as the child's state in the call's details while it runs.
 
 ### setup-only-secrets: Secrets for setup scripts only
 Kind: step
@@ -46,17 +42,6 @@ After Amp's routing: only matters if sandboxes move off matrim to a cloud host, 
 ### worktree-isolation: Isolate worktree sessions on the Mac
 Kind: step
 A worktree session runs as the owner, outside any sandbox, only unable to push. Seatbelt or a macOS VM is the step after.
-
-### worktree-ship-live-check: Ship a worktree session on the Mac
-Kind: chore
-worktree-ship is tested against local git only: a bare upstream, a worktree on `worktree/N`, the faux model. Turn on `mcp.shipWorktrees` on the Mac, have Verin ship a worktree session of a scratch project with a real upstream and Claude, and check that the push used the Mac's git login, the declared checks ran in the worktree, and check_sessions reported it. Worth including a project whose checks need Xcode, since that's why the ship runs on the Mac.
-
-Progress 2026-11-18: `scripts/worktree-ship-check.ts` runs the ship end to end over `/mcp` in a temp data directory and checks each of these; its `--faux` run passed against a local bare upstream in a Linux sandbox, so the script works, and nothing has run on the Mac yet. On the Mac:
-
-1. `gh repo create brad-j/aludra-wtship-check --private --add-readme`.
-2. `node --no-warnings scripts/worktree-ship-check.ts git@github.com:brad-j/aludra-wtship-check.git`, then again with `--xcode` (needs `xcode-select` on a full Xcode). Each should end `all ok`, including the GitHub check that Brad's login pushed.
-3. Through the installed service and Verin: add `mcp.shipWorktrees: true` beside `mcp.write` and `mcp.worktreeOnly` in the Mac's settings file and run `aludra service install`. Clone the scratch repository into a workspace root, have Verin start a worktree session that edits it, approve the ship when Verin asks, and see Verin report it from `check_sessions`. This one tests what the script can't: the launchd unit's PATH and git login, which may differ from the terminal's (`SSH_AUTH_SOCK`, the keychain credential helper), and Verin asking before each ship.
-4. Delete the repository, or keep it for ship-branch-live-check.
 
 ### ship-branch-live-check: Try shipping in branch mode against GitHub
 Kind: chore
@@ -88,13 +73,29 @@ The Flame of Tar Valon is a Wheel of Time symbol. Both repositories are private,
 
 ### more-surfaces: Slack, voice, a native companion
 Kind: step
-From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Verin now covers voice and the apps, so these may not be needed.
-
-### usage-meter-clients: Show the subscription's windows in Verin and loial
-Kind: step
-aludra's side is done (usage-meter): `host.info` and `host.snapshot` carry `subscription`, `host.watch` sends `host.subscription` on each change, and MCP has `read_subscription`. Verin and loial draw the five-hour and seven-day use and resets. Check against a real answer on the Mac that `unifiedWindows` arrives, so both windows show from the first answer rather than one at a time.
+From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### write-plan-amyrlin: write_plan over /amyrlin for Verin and loial
+Kind: step · Needs: write-plan · Done: 2026-11-20
+Dropped 2026-11-20: it was for Verin's Plans, and Verin is retired; loial doesn't edit plans.
+
+### write-plan-commit: Optionally commit docs/plan.md after a write
+Kind: step · Needs: write-plan · Done: 2026-11-20
+Dropped 2026-11-20: write_plan's only caller was Verin, which is retired.
+
+### worktree-ship-live-check: Ship a worktree session on the Mac
+Kind: chore · Done: 2026-11-20
+Dropped 2026-11-20: the MCP worktree ship (`mcp.shipWorktrees`) was Verin's, and Verin is retired. loial ships worktree tasks over `/amyrlin` with `sandbox.ship`.
+
+### subagents-clients: Show subagents under their call in Verin and loial
+Kind: step · Done: 2026-11-20
+Moved 2026-11-20 to loial/subagents: aludra's side is done, and with Verin retired loial is the only client to draw them.
+
+### usage-meter-clients: Show the subscription's windows in Verin and loial
+Kind: step · Done: 2026-11-20
+Moved 2026-11-20 to loial/usage-meter: aludra's side is done, and with Verin retired loial is the only client to draw them.
 
 ### approval-risk: Mark approvals that push or destroy work
 Kind: request · From: loial/approval-risk · Done: 2026-11-20

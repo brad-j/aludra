@@ -44,7 +44,7 @@ The host writes to stderr, which the service sends to the log above. Lines worth
 | model | The default model's provider has it (for Claude, among the models Claude Code says the account offers). Each choice its provider lacks is a warning, since clients get it left out. | Lists the models the provider has. |
 | openrouter | When a choice is an OpenRouter model or the machine is signed in: there's a key. | `aludra login openrouter`. |
 | openai | Only when a choice is an OpenAI model: signed in with ChatGPT, and the account offers each one. | `aludra login openai`. An `OPENAI_API_KEY` with no sign-in is a warning: requests would be billed per token. |
-| api | `api.users` is set, Tailscale is installed and logged in, and `tailscale serve` points at `api.port`. | Prints the command to run, then the API's and amyrlin's addresses once it's all there. |
+| api | `api.users` is set, Tailscale is installed and logged in, and `tailscale serve` points at `api.port`. | Prints the command to run, then the API's and the `/amyrlin` endpoint's addresses once it's all there. |
 | push | Apple's and Google's push services are reachable. | Notifications to those devices won't arrive. |
 | video | `ffmpeg` is on the PATH. | Agents see only the frames sent with a video; install ffmpeg. |
 | service | Installed, running, and the unit matches this aludra, Node and settings file. On Linux, lingering is on. | Prints the command to run. |
@@ -84,9 +84,9 @@ aludra loads pi-claude-code from its source files, and depends on how Pi Durable
 
 ## Troubleshooting
 
-**amyrlin says 403.** Your Tailscale login isn't in `api.users` on that machine, or the request didn't come through `tailscale serve`. Add the login (exactly as `tailscale status` shows it) and restart the host.
+**loial says 403.** Your Tailscale login isn't in `api.users` on that machine, or the request didn't come through `tailscale serve`. Add the login (exactly as `tailscale status` shows it) and restart the host.
 
-**amyrlin says 502.** `tailscale serve` has nothing behind it: the host isn't running, or `tailscale serve` points at another port. `aludra doctor` says which.
+**loial says 502.** `tailscale serve` has nothing behind it: the host isn't running, or `tailscale serve` points at another port. `aludra doctor` says which.
 
 **A request gets "Forbidden".** As for 403. If you're on the right login, check you're using the `https://…ts.net/` address and not `127.0.0.1` directly, which has no Tailscale header.
 

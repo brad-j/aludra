@@ -1,4 +1,4 @@
-// Session changes for agents that wake on them, such as Lan's gate over /mcp (src/mcp.ts check_sessions and
+// Session changes for agents that wake on them, through a gate over /mcp (src/mcp.ts check_sessions and
 // mark_sessions_handled), in the pattern of a mail connector's check_new_mail and mark_handled(throughUid).
 //
 // session-changes.sqlite in the data directory keeps three things: what was last seen of each session (its state and

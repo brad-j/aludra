@@ -109,7 +109,7 @@ Lists sessions grouped by project, the project that most needs you first, and wi
 
 A session that used OpenRouter shows what it cost before its age, and the month's OpenRouter total is at the foot. Above it, once a Claude answer has reported them, are the Claude subscription's windows: each one's use and when it resets (`Claude: 5h 42% until 3:10 PM · 7d 18% until Mon 9:00 AM`), amber past a warning threshold and red with "limit reached" when requests are refused. A window that has reset since drops out until the next answer reports it.
 
-In a terminal, project names are in their project color (the same one amyrlin shows, including a picked one), waiting is amber, running violet and failed red, and long titles are cut to the terminal's width. Piped, the output is plain text at 100 columns. `NO_COLOR` turns color off, and `FORCE_COLOR` turns it on when piped.
+In a terminal, project names are in their project color (the same one clients show, including a picked one), waiting is amber, running violet and failed red, and long titles are cut to the terminal's width. Piped, the output is plain text at 100 columns. `NO_COLOR` turns color off, and `FORCE_COLOR` turns it on when piped.
 
 ### `aludra stop --session ID`
 
@@ -123,11 +123,11 @@ With `--session ID`, writes that session's title again from its whole conversati
 
 ### `aludra archive --session ID` and `aludra unarchive --session ID`
 
-Hides a session from the lists (amyrlin's and `aludra sessions`), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
+Hides a session from the lists (clients' and `aludra sessions`), or brings it back. Nothing is deleted, and a running session keeps running. `aludra sessions` counts the archived ones at its foot; `aludra --session ID` still opens one.
 
 ### `aludra archive --project NAME` and `aludra unarchive --project NAME`
 
-Hides a project from the lists (amyrlin's sidebar and `aludra projects`), or brings it back. `NAME` is the folder name, `parent/name` or the path. The folder, its sessions and `--project` still work as before.
+Hides a project from the lists (clients' lists and `aludra projects`), or brings it back. `NAME` is the folder name, `parent/name` or the path. The folder, its sessions and `--project` still work as before.
 
 ### `aludra page --session ID PAGE`
 

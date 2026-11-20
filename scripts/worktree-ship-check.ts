@@ -12,7 +12,7 @@
 //    ran at and whether a push from its shell got through, to a marker file outside the project; with --xcode, also an
 //    iOS Swift file and a check that type-checks it against the iOS Simulator SDK, which only a full Xcode has.
 // 2. Serves the MCP endpoint on 127.0.0.1 with mcp.write, mcp.worktreeOnly and mcp.shipWorktrees on, and calls it as
-//    Verin does: start_session gives a worktree session a small change to commit (with --xcode, one to the Swift file).
+//    an agent would: start_session gives a worktree session a small change to commit (with --xcode, one to the Swift file).
 // 3. Moves UPSTREAM's main from a second clone, so the ship has to rebase.
 // 4. ship_session, then check_sessions until it reports the ship.
 // 5. Checks: UPSTREAM's main is the session's rebased worktree/N and holds the other clone's commit; the declared checks
@@ -140,7 +140,7 @@ try {
 	const before = await call("check_sessions", {});
 	if (before.through !== undefined) await call("mark_sessions_handled", { through: before.through });
 
-	// 4. The ship, as Verin calls it once the owner says yes.
+	// 4. The ship, as an agent calls it once the owner says yes.
 	const shipStart = Date.now();
 	const answer = await call("ship_session", { id });
 	check("ship_session started", answer.started === true && answer.to === "main", JSON.stringify(answer));

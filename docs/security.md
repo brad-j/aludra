@@ -67,7 +67,7 @@ The request is stored, so a restart waits on the same one rather than asking aga
 
 A sandbox session asks nothing by default (`sandboxes.approvals: "off"`): its tools run in a VM with no git remotes, no keys and no route to the LAN or tailnet, so a push or an SSH to an approval host can't do anything there. Shipping, which does push, happens on this machine and is approved by asking for it. Set `ask`, or make the session with `approvals: "ask"`, to have it wait like any other.
 
-Approving one "always" (from amyrlin) lets that session run the same kind of call, `git push` or `ssh to host`, without asking again. The rule covers only that session, other sessions still ask, and amyrlin can take it back. Rules are kept with the approvals, so they survive a restart.
+Approving one "always" (from a client) lets that session run the same kind of call, `git push` or `ssh to host`, without asking again. The rule covers only that session, other sessions still ask, and a client can take it back. Rules are kept with the approvals, so they survive a restart.
 
 ### The protected-path gate
 

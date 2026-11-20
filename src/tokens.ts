@@ -1,4 +1,4 @@
-// Tokens for /mcp: one per agent that connects (Lan, Claude Code on a machine), sent as Authorization: Bearer. A token is
+// Tokens for /mcp: one per agent that connects (Claude Code or pi on a machine), sent as Authorization: Bearer. A token is
 // shown once when it's made; only its SHA-256 is kept, in tokens.sqlite in the data directory, beside the database and
 // the search index. Each has a scope: "read" gets the reading tools, "write" also the ones that start, message and
 // stop sessions, and only while the settings file's mcp.write is on (src/mcp.ts). `aludra token add|list|revoke` makes

@@ -1,6 +1,6 @@
 # Using aludra
 
-Each machine's host keeps its sessions. amyrlin (the optional macOS client), the CLI and anything else on the [API](api.md) are all windows onto the same sessions, so one started from amyrlin can be steered and stopped from a terminal. aludra has no web app. A session keeps running when every client is closed, and picks up where it left off after the host restarts.
+Each machine's host keeps its sessions. loial (the desktop client), the CLI and anything else on the [API](api.md) are all windows onto the same sessions, so one started from loial can be steered and stopped from a terminal. aludra has no web app. A session keeps running when every client is closed, and picks up where it left off after the host restarts.
 
 ## Sessions
 
@@ -19,7 +19,7 @@ A session's state is one of:
 
 ### Starting one
 
-Start one in amyrlin, from a terminal, or with `POST /api/sessions`. A no-project session isn't about one repository: it works in a scratch directory of its own and reads anything else by absolute path. Its prompt tells it where your workspaces and agent histories are on this machine. It has no changes view and can't hold ideas.
+Start one in loial, from a terminal, or with `POST /api/sessions`. A no-project session isn't about one repository: it works in a scratch directory of its own and reads anything else by absolute path. Its prompt tells it where your workspaces and agent histories are on this machine. It has no changes view and can't hold ideas.
 
 From a terminal:
 
@@ -27,7 +27,7 @@ From a terminal:
 aludra ask --project site "Why does the build fail on main?"
 ```
 
-A session is titled from its first message: at first its first line, then, a second or two later, a short title a model writes, such as "Feature backlog: shortcuts, editable ideas". The smallest model on hand writes it (Claude Haiku through Claude Code, or the cheapest OpenAI model you offer), as a one-off request on your plan. If no model answers, the first line stays. A title you set yourself is never replaced on its own. When a session has moved on, have the title written again from the whole conversation: `aludra retitle --session ID`, `POST /api/sessions/:id/retitle` or amyrlin's `conversations.retitle`. That replaces any title, yours too. Rename it from amyrlin's session menu or by double-clicking its header there, or with `POST /api/sessions/:id/title`.
+A session is titled from its first message: at first its first line, then, a second or two later, a short title a model writes, such as "Feature backlog: shortcuts, editable ideas". The smallest model on hand writes it (Claude Haiku through Claude Code, or the cheapest OpenAI model you offer), as a one-off request on your plan. If no model answers, the first line stays. A title you set yourself is never replaced on its own. When a session has moved on, have the title written again from the whole conversation: `aludra retitle --session ID`, `POST /api/sessions/:id/retitle` or `conversations.retitle` on `/amyrlin`. That replaces any title, yours too. Rename it from a client's session menu or by double-clicking its header there, or with `POST /api/sessions/:id/title`.
 
 ### The transcript
 
@@ -62,19 +62,19 @@ Each session has a model and thinking level; a change applies from the next requ
 
 A session can hand a self-contained task to a subagent with its `agent` tool: exploring a codebase, reading many files, or a separate piece of the work. The subagent is a fresh agent with the session's tools, directory and rules, on the model `subagents.model` names (Sonnet by default), and only its final answer comes back to the session, so the detail doesn't fill the session's context. The model decides when to use one, and it can start several at once. You can ask for it too ("use subagents to survey each package").
 
-A subagent can't start subagents of its own. Its approvals are the session's: a `git push` it makes waits for you as the session's would, and stopping the session stops it. Subagents aren't sessions, so they're not in the lists. amyrlin shows the agent call in the session's transcript, and opens the subagent's own transcript from it. Each subagent's spending counts toward its session's.
+A subagent can't start subagents of its own. Its approvals are the session's: a `git push` it makes waits for you as the session's would, and stopping the session stops it. Subagents aren't sessions, so they're not in the lists. A client can show the agent call in the session's transcript, and open the subagent's own transcript from it. Each subagent's spending counts toward its session's.
 
 ### Pages
 
-Ask for a chart, a table, a diagram or a mockup ("show the build times as a chart") and the agent can publish a page: a self-contained HTML document that amyrlin shows in the session, above the written answer. Local images the page names are copied into it, so it keeps working after the files move. A page can run scripts but can't load anything from the network, so charts are drawn inline. Pages are kept with their session. From a terminal, `aludra page --session ID N` writes page N to a file and prints its path, to open in a browser.
+Ask for a chart, a table, a diagram or a mockup ("show the build times as a chart") and the agent can publish a page: a self-contained HTML document that loial shows in the session, above the written answer. Local images the page names are copied into it, so it keeps working after the files move. A page can run scripts but can't load anything from the network, so charts are drawn inline. Pages are kept with their session. From a terminal, `aludra page --session ID N` writes page N to a file and prints its path, to open in a browser.
 
 ### Images
 
-A message takes up to 8 images: PNG, JPEG, GIF or WebP, at most 5 MB each. amyrlin scales them down before sending. Images a tool returns, such as a screenshot the agent read, stay in the transcript with that call.
+A message takes up to 8 images: PNG, JPEG, GIF or WebP, at most 5 MB each. Clients scale them down before sending. Images a tool returns, such as a screenshot the agent read, stay in the transcript with that call.
 
 ### Videos
 
-amyrlin sends a short video, such as a screen recording of a bug, as a 720p MP4 of at most 40 MB, with a few frames from it. The model sees the frames straight away; the video is saved on the host, and the message tells the agent where, so it can pull more frames with ffmpeg if the host has it (`aludra doctor` says). The host keeps a video for 14 days, then deletes it. The frames stay in the transcript.
+A client can send a short video, such as a screen recording of a bug, as a 720p MP4 of at most 40 MB, with a few frames from it. The model sees the frames straight away; the video is saved on the host, and the message tells the agent where, so it can pull more frames with ffmpeg if the host has it (`aludra doctor` says). The host keeps a video for 14 days, then deletes it. The frames stay in the transcript.
 
 ### Files and long messages
 
@@ -82,9 +82,9 @@ A message can carry files of any kind: a log, a PDF, a CSV, a zip, at most 20 an
 
 ### Archiving
 
-A session you're done with can be archived: it leaves the lists, and unarchiving brings it back. Nothing is deleted, and a run that's going carries on. A session whose project folder has gone away stays under the old project name until you archive it. In amyrlin, archive from a session's menu; on the command line, `aludra archive --session ID`.
+A session you're done with can be archived: it leaves the lists, and unarchiving brings it back. Nothing is deleted, and a run that's going carries on. A session whose project folder has gone away stays under the old project name until you archive it. In loial, archive from a conversation's ⋯ menu; on the command line, `aludra archive --session ID`.
 
-A project can be archived too, to take it out of amyrlin's sidebar and `aludra projects` without touching its folder or sessions: `aludra archive --project NAME`, and `aludra unarchive --project NAME` to bring it back.
+A project can be archived too, to take it out of clients' lists and `aludra projects` without touching its folder or sessions: `aludra archive --project NAME`, and `aludra unarchive --project NAME` to bring it back.
 
 The host also archives sessions on its own once they've been idle for `archive.afterDays` (default 3) with nothing waiting for your approval. It checks a minute after start and hourly, whether or not any client is open. A session you bring back from the archive is kept: it stays in the lists however long it sits, until you archive it again. Set `archive.afterDays` to 0 to turn it off.
 
@@ -98,13 +98,13 @@ Two kinds of shell command wait for you: `git push`, and `ssh`, `scp`, `rsync`, 
 
 You can answer from:
 
-- amyrlin;
+- loial;
 - a terminal: `aludra approvals` lists them with their IDs, then `aludra approve ID` or `aludra deny ID`;
 - `POST /api/approvals/:id` with `{ allow }`.
 
 An agent on `/mcp` asking to make a project (`create_project` or `promote_session`, with `mcp.allowNewProjects` on) waits the same way, listed as `[mcp]` by `aludra approvals`, and a push notification says it waits. Approving makes the project then, folder and private GitHub repository, and `aludra approve` prints its directory or why it couldn't be made; denying makes nothing. The agent learns the answer when it asks again.
 
-amyrlin can also allow one always: that session then runs the same kind of call (`git push`, or `ssh` to that host) without asking. Other sessions still ask. amyrlin's inspector lists a session's rules, and any can be taken back.
+A client can also allow one always: that session then runs the same kind of call (`git push`, or `ssh` to that host) without asking. Other sessions still ask. A session's summary lists its rules (`alwaysAllowed`), and `approval.forget` takes one back.
 
 A request expires after `approvals.waitHours` (default 24), and the call is refused. Stopping the run or sending a new message cancels it. A restart doesn't: the call waits on the same request when the host comes back.
 
@@ -116,7 +116,7 @@ The changes are the project's files now against a snapshot taken when the sessio
 
 ### Searching
 
-`aludra search WORDS...`, `GET /api/search?q=` and amyrlin's `messages.search` find messages and answers with every word you give, across every session (archived ones too) or in one. The index holds what you and the agent said, not tool calls or command output, and keeps up as sessions run.
+`aludra search WORDS...`, `GET /api/search?q=` and `messages.search` on `/amyrlin` find messages and answers with every word you give, across every session (archived ones too) or in one. The index holds what you and the agent said, not tool calls or command output, and keeps up as sessions run.
 
 ### Checkpoints
 
@@ -128,25 +128,25 @@ From a terminal: `aludra restore --session ID CHECKPOINT`.
 
 ## Project colors
 
-Each project has a color hashed from its name, the same in amyrlin and the CLI. When two clash, pick another in amyrlin (a Color menu on the project's row) or with `POST /api/projects/color`.
+Each project has a color hashed from its name, the same in every client and the CLI. When two clash, pick another with `POST /api/projects/color`.
 
 ## Settings
 
-`aludra config set`, amyrlin's `settings.set` and `POST /api/settings` change the host's settings: workspaces and their roots, the default model and thinking, pinned models, approval hosts and backups. Most apply at once, so a new root's projects are there straight away; any that need a restart say so. The Tailscale logins, the port, Claude Code's path and the data directory change only in the settings file. [configuration.md](configuration.md#changing-settings-while-the-host-runs) has the details.
+`aludra config set`, `settings.set` on `/amyrlin` and `POST /api/settings` change the host's settings: workspaces and their roots, the default model and thinking, pinned models, approval hosts and backups. Most apply at once, so a new root's projects are there straight away; any that need a restart say so. The Tailscale logins, the port, Claude Code's path and the data directory change only in the settings file. [configuration.md](configuration.md#changing-settings-while-the-host-runs) has the details.
 
 ## Notifications
 
 The host notifies your devices when a call waits for approval (after 2 seconds, if it still waits), and when a run ends done or failed. Nothing is sent about a session a client on `/api/live` says it has on screen. Each carries the session's path (`/s/ID`) for the client to open.
 
-They go by Web Push, to devices signed up with `POST /api/push/subscribe`, through the browser maker's push service (Apple's, Google's or Mozilla's), encrypted to the device. aludra serves no page or service worker to sign a device up, so this takes a client of your own; `POST /api/push/test` sends a test five seconds later. amyrlin gets its updates over its own connection instead.
+They go by Web Push, to devices signed up with `POST /api/push/subscribe`, through the browser maker's push service (Apple's, Google's or Mozilla's), encrypted to the device. aludra serves no page or service worker to sign a device up, so this takes a client of your own; `POST /api/push/test` sends a test five seconds later. loial gets its updates over its own connection instead.
 
 ## Other agents (MCP)
 
 `/mcp` lets an agent aludra didn't start, such as Claude Code in a terminal on your Mac, list this machine's projects and sessions, read a session's transcript and search what was said. With `mcp.write` on in the settings file, it can also start a session with a task, send one a message and stop it (with no project, the session is a scratch one in a sandbox, for an idea that has no project yet), and with `mcp.allowNewProjects` ask to make a new project or make a scratch session's work one, each waiting for your approval, and archive or unarchive sandbox sessions, so work can be handed from one machine to another: "start a session in site on egwene to fix the build, then check on it." With `mcp.sandboxOnly` too, those sessions all run in sandboxes, and the agent can message or stop only sandbox sessions. With `mcp.worktreeOnly` instead, each works in a git worktree of its own on a `worktree/N` branch that can't push, and always in a project; you merge the branch when you're happy with it. `start_session` and `send_message` take an optional `model` and `effort` (thinking level) for that turn on. An agent that watches sessions, rather than being asked, can poll `check_sessions`: it says whether any session finished, failed, stopped, started waiting or was made since the agent last called `mark_sessions_handled`, with each one's last line, and moves nothing until it's marked. Each token keeps its own place. [setup.md](setup.md#connect-a-client) has the command to add it.
 
-## amyrlin
+## loial
 
-[amyrlin](https://github.com/brad-j/amyrlin) is an optional native macOS client. It connects to every machine you add and shows all their sessions together. It reaches the same sessions, approvals, settings and project colors as the API. Its README covers installing it. Forking sessions isn't an aludra feature; amyrlin gets "unsupported" for it.
+loial is the desktop client, for Mac and Linux. It connects to every machine you add and shows all their sessions together, as tasks (in a sandbox or a git worktree) and read-only chats, and ships a task's work. It speaks the `/amyrlin` endpoint and uses only what its `docs/protocol.md` lists. Forking sessions isn't an aludra feature.
 
 ## The CLI
 

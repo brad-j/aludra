@@ -1,6 +1,6 @@
 // A project's plan, docs/plan.md, read from its working copy for read_plan over MCP (src/mcp.ts) and projects.plan on
 // /amyrlin (its items, for an app's list of what to start), so an agent on
-// another machine (Verin's Plans) sees the plan as it is on this one, unpushed edits included. Only that one file: a
+// another machine sees the plan as it is on this one, unpushed edits included. Only that one file: a
 // docs or docs/plan.md that's a symbolic link, or resolves outside the project, isn't followed, and a plan over
 // MAX_PLAN bytes is refused rather than cut, since half a plan reads as a whole one.
 //
@@ -188,7 +188,7 @@ export function checkPlan(text: string, previous?: string): string[] {
 	}
 	if (previous !== undefined) {
 		const gone = planItems(previous).map((i) => i.id).filter((id, i, all) => all.indexOf(id) === i && !ids.has(id));
-		if (gone.length > 0) problems.push(`${gone.length === 1 ? "item" : "items"} ${gone.join(", ")} ${gone.length === 1 ? "is" : "are"} missing; an id is never removed, since other repos and Verin link to <repo>/<id>. Move a dropped item to Done with a line saying why`);
+		if (gone.length > 0) problems.push(`${gone.length === 1 ? "item" : "items"} ${gone.join(", ")} ${gone.length === 1 ? "is" : "are"} missing; an id is never removed, since other repos link to <repo>/<id>. Move a dropped item to Done with a line saying why`);
 	}
 	return problems;
 }
