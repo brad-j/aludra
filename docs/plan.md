@@ -13,10 +13,6 @@ Kind: request · From: pi-desktop/ideas-make-project
 
 ## Questions
 
-### retire-agent-mcp: Which MCP pieces go now that Lan and Verin are retired?
-Kind: question
-Lan and Verin were the MCP clients for most of `/mcp`'s write side: the `check_sessions` and `mark_sessions_handled` gate (`src/session-changes.ts`), `write_plan` (`mcp.writePlans`), `ship_session` with `mcp.ship` and `mcp.shipWorktrees`, `create_project` and `promote_session` (`mcp.allowNewProjects`, `project-requests.sqlite`), and scratch `start_session`. The read tools (`list_sessions`, `read_session`, `search`, `read_plan`) still serve Claude Code and pi. Remove the write side, keep it off, or keep it for another agent later? Removing it is an API change, and the tokens made for Lan and Verin should be revoked either way (`aludra token`).
-
 ## Later
 
 ### landed-branch-cleanup: Delete a sandbox branch once its work has landed
@@ -76,6 +72,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### retire-agent-mcp: Which MCP pieces go now that Lan and Verin are retired?
+Kind: question · Done: 2026-11-20
+Removed: the check_sessions gate, write_plan (`mcp.writePlans`), ship_session (`mcp.ship`, `mcp.shipWorktrees`), create_project and promote_session (`mcp.allowNewProjects`), and scratch start_session. Kept: the read tools, start/send/stop/archive/unarchive under `mcp.write`, `mcp.sandboxOnly`, `mcp.worktreeOnly` and tokens. See decisions.md, "MCP write side trimmed". Lan's and Verin's tokens still need revoking (`aludra token`).
 
 ### write-plan-amyrlin: write_plan over /amyrlin for Verin and loial
 Kind: step · Needs: write-plan · Done: 2026-11-20

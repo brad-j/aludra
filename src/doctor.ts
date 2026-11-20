@@ -187,12 +187,9 @@ async function mcp(config: Config): Promise<Check[]> {
 	}
 	if (live.length === 0) return [{ status: "skip", area: "mcp", detail: "no tokens, so no agent can use /mcp; aludra token add NAME makes one" }];
 	const writers = live.filter((t) => t.scope === "write");
-	const checks: Check[] = [{ status: "ok", area: "mcp", detail: `${live.length} token${live.length === 1 ? "" : "s"}: ${live.map((t) => `${t.name} (${t.scope})`).join(", ")}; mcp.write ${config.mcp.write ? "on" : "off"}${config.mcp.sandboxOnly ? ", sandbox-only" : ""}${config.mcp.worktreeOnly ? ", worktree-only" : ""}${config.mcp.write && config.mcp.ship ? ", ships sandboxes" : ""}${config.mcp.write && config.mcp.shipWorktrees ? ", ships worktrees" : ""}${config.mcp.write && config.mcp.writePlans ? ", writes plans" : ""}` }];
+	const checks: Check[] = [{ status: "ok", area: "mcp", detail: `${live.length} token${live.length === 1 ? "" : "s"}: ${live.map((t) => `${t.name} (${t.scope})`).join(", ")}; mcp.write ${config.mcp.write ? "on" : "off"}${config.mcp.sandboxOnly ? ", sandbox-only" : ""}${config.mcp.worktreeOnly ? ", worktree-only" : ""}` }];
 	if (config.mcp.sandboxOnly && config.sandboxes === undefined) checks.push({ status: "fail", area: "mcp", detail: "mcp.sandboxOnly is on but the settings name no sandbox host, so every MCP write tool refuses; add sandboxes or turn sandboxOnly off" });
 	if (config.mcp.sandboxOnly && config.sandboxes?.afterRun === "merge") checks.push({ status: "warn", area: "mcp", detail: "mcp.sandboxOnly is on with sandboxes.afterRun merge, so a run an MCP agent started fast-forwards the checked-out branch when it ends; fetch keeps its work on sandbox/N" });
-	if (config.mcp.allowNewProjects && !config.mcp.write) checks.push({ status: "warn", area: "mcp", detail: "mcp.allowNewProjects is on but mcp.write is off, so no agent gets create_project or promote_session" });
-	if (config.mcp.writePlans && !config.mcp.write) checks.push({ status: "warn", area: "mcp", detail: "mcp.writePlans is on but mcp.write is off, so no agent gets write_plan" });
-	if (config.mcp.allowNewProjects && config.newProjects === undefined) checks.push({ status: "warn", area: "mcp", detail: "mcp.allowNewProjects is on but newProjects isn't set, so create_project and promote_session refuse every call" });
 	if (writers.length > 0 && !config.mcp.write) checks.push({ status: "warn", area: "mcp", detail: `mcp.write is off, so ${writers.map((t) => t.name).join(", ")} can only read; set it in the settings file to let write tokens start sessions` });
 	return checks;
 }

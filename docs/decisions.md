@@ -58,6 +58,18 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
+## MCP write side trimmed (2026-11-20)
+
+Lan and Verin, the only callers of most of `/mcp`'s write side, are retired, so Brad approved removing what only they used (plan: `retire-agent-mcp`):
+
+- **The gate**: `check_sessions` and `mark_sessions_handled`, `src/session-changes.ts` and its `session-changes.sqlite`.
+- **`write_plan`** and `mcp.writePlans`, with `writePlan`, `checkPlan`, `planChanges` and the busy-checkout guard. `read_plan` stays, and `projects.plan` on `/amyrlin` keeps `readPlan` and `planItems`.
+- **`ship_session`**, `mcp.ship` and `mcp.shipWorktrees`, and `scripts/worktree-ship-check.ts`, which drove it. Shipping itself (`src/ship.ts`) stays: loial ships sandbox and worktree tasks with `sandbox.ship`, the CLI with `aludra ship`, and `list_sessions` and `read_session` still report a session's ship.
+- **`create_project` and `promote_session`**, `mcp.allowNewProjects`, `src/project-requests.ts` and its `project-requests.sqlite`, and the project-request branch of approvals (`aludra approvals`, `aludra approve`/`deny`, `POST /api/approvals/:id`), which now answer only tool-call approvals. `projects.create` and `sandbox.promote` on `/amyrlin` stay for loial.
+- **Scratch `start_session`**: `project` is required again. Scratch sandboxes stay on `/amyrlin`.
+
+What's left on `/mcp` is reading (`list_projects`, `read_plan`, `list_sessions`, `read_session`, `search_messages`, `read_subscription`) and, with `mcp.write`, `start_session`, `send_message`, `stop_session`, `archive_session` and `unarchive_session`, under `mcp.sandboxOnly` or `mcp.worktreeOnly`. A settings file that still has a removed key loads; the parser ignores fields it doesn't know. `session-changes.sqlite` and `project-requests.sqlite` are left in a data directory that has them; nothing opens them now.
+
 ## write_plan over MCP (2026-11-19)
 
 Plan item `write-plan`, for Pi Desktop's planning chat, the first client.

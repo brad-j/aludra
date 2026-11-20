@@ -44,8 +44,6 @@ import { type Json, ParseError } from "./parse.ts";
 import { changeSettings, describeSettings, SettingsError, writeSettings } from "./settings.ts";
 import { messagesOf, openSearch } from "./search.ts";
 import { openTokens } from "./tokens.ts";
-import { openProjectRequests, type ProjectRequest } from "./project-requests.ts";
-import { openSessionChanges } from "./session-changes.ts";
 import { type Exchange, excerptOf, modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
 import { mergeSubscription, type Subscription, subscriptionIn, subscriptionNow } from "./subscription.ts";
@@ -649,21 +647,6 @@ export async function openHost(options: HostOptions) {
 		return () => void projectListeners.delete(listener);
 	}
 
-	/**
-	 * The owner's answer to a request from /mcp to make a project (src/project-requests.ts). Approved, the project is made
-	 * now, and the request keeps its directory or the error; the agent learns either by asking again. Undefined when no
-	 * request with that ID waits. It answers once the project is made or has failed.
-	 */
-	async function decideProjectRequest(id: string, allow: boolean): Promise<ProjectRequest | undefined> {
-		const decided = projectRequests.decide(id, allow);
-		if (decided?.status !== "approved") return decided;
-		try {
-			const made = decided.kind === "create" ? await createProject(decided.name, decided.description) : await promote(decided.session!, decided.name, decided.description);
-			return projectRequests.finish(id, { dir: made.dir });
-		} catch (error) {
-			return projectRequests.finish(id, { error: error instanceof Error ? error.message : String(error) });
-		}
-	}
 	/** Where no-project sessions keep the files they make, one directory per session. */
 	const scratchRoot = resolve(config.dataDir, "scratch");
 	/** Where videos sent with messages are kept, one directory per session, until sweepUploads takes them. */
@@ -681,10 +664,6 @@ export async function openHost(options: HostOptions) {
 	const searchIndex = openSearch(resolve(config.dataDir, "search.sqlite"));
 	// The tokens agents send to /mcp (src/tokens.ts).
 	const tokens = openTokens(resolve(config.dataDir, "tokens.sqlite"));
-	// What agents on /mcp were last told of each session, and how far each token has handled (src/session-changes.ts).
-	const sessionChanges = openSessionChanges(resolve(config.dataDir, "session-changes.sqlite"));
-	// Requests from /mcp to make projects, waiting for the owner's approval (src/project-requests.ts).
-	const projectRequests = openProjectRequests(resolve(config.dataDir, "project-requests.sqlite"), () => config.approvals.waitHours * 3_600_000);
 	// The subscription's windows, from each answer's rate-limit diagnostic (src/subscription.ts), children's included,
 	// since they spend the same windows. Saved after each change, so a restart shows them before the next answer.
 	let subscription = (await harness.snapshot(SubscriptionDoc, context))?.subscription;
@@ -1822,18 +1801,8 @@ export async function openHost(options: HostOptions) {
 		mcpSandboxOnly: () => config.mcp.sandboxOnly,
 		/** Whether the MCP endpoint's write tools start and act on worktree sessions only (the settings file's mcp.worktreeOnly). */
 		mcpWorktreeOnly: () => config.mcp.worktreeOnly,
-		/** Whether a write token on the MCP endpoint may ship a sandbox session's work (the settings file's mcp.ship). */
-		mcpShip: () => config.mcp.write && config.mcp.ship,
-		/** Whether a write token on the MCP endpoint may ship a worktree session's work (the settings file's mcp.shipWorktrees). */
-		mcpShipWorktrees: () => config.mcp.write && config.mcp.shipWorktrees,
-		/** Whether write tokens on /mcp may ask to make projects, each waiting for approval (the settings file's mcp.allowNewProjects). */
-		mcpAllowNewProjects: () => config.mcp.allowNewProjects,
-		/** Whether write tokens on /mcp may replace a project's docs/plan.md in its checkout (mcp.write and mcp.writePlans). */
-		mcpWritePlans: () => config.mcp.write && config.mcp.writePlans,
 		/** The tokens agents send to /mcp. */
 		tokens,
-		/** Session changes agents on /mcp wake on, with a cursor per token (src/session-changes.ts). */
-		sessionChanges,
 		/** Where a ship lands by default (src/ship.ts). */
 		shipMode: (): "main" | "branch" => config.sandboxes?.shipTo ?? "main",
 		/** Ships started from clients (src/ship.ts). */
@@ -1933,8 +1902,6 @@ export async function openHost(options: HostOptions) {
 		uploads,
 		/** New projects (src/new-projects.ts): where they go when this host can make them, and making one. */
 		newProjects: { info: newProjectsInfo, create: createProject, promote, onMade: onProjectMade },
-		/** Requests from /mcp to make projects, and the owner's answer to one, which makes it (src/project-requests.ts). */
-		projectRequests: { list: () => projectRequests.pending(), get: projectRequests.get, find: projectRequests.find, open: projectRequests.open, spent: projectRequests.spent, report: projectRequests.report, decide: decideProjectRequest, onChange: projectRequests.onChange },
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },
 		/** The Claude subscription's windows as last heard, those that reset since left out; undefined before any answer said. */
@@ -1981,8 +1948,6 @@ export async function openHost(options: HostOptions) {
 			await harness.close(context);
 			searchIndex.close();
 			tokens.close();
-			sessionChanges.close();
-			projectRequests.close();
 			sandboxes.close();
 		},
 	};
