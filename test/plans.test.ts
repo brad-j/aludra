@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { checkPlan, MAX_PLAN, PlanConflict, PlanInvalid, planChanges, planItems, planSha256, readPlan, writePlan } from "../src/plans.ts";
+import { checkPlan, MAX_PLAN, PlanBusy, PlanConflict, PlanInvalid, planChanges, planItems, planSha256, readPlan, writePlan } from "../src/plans.ts";
 import { makeProject, tempDir } from "./helpers.ts";
 
 test("read_plan reads docs/plan.md from the working copy as it is now", async (t) => {
@@ -188,4 +188,17 @@ test("writePlan doesn't follow a symbolic docs or docs/plan.md", async (t) => {
 	symlinkSync(join(root, "elsewhere/plan.md"), join(linked.dir, "docs/plan.md"));
 	await assert.rejects(writePlan(linked, VALID, planSha256(VALID)), /docs\/plan.md is a symbolic link/);
 	assert.equal(readFileSync(join(root, "elsewhere/plan.md"), "utf8"), VALID, "the file outside is untouched");
+});
+
+test("writePlan asks its guard before writing and again just before the rename, and writes nothing when it refuses", async (t) => {
+	const project = makeProject(tempDir(t), "site", { "docs/plan.md": VALID });
+	const base = planSha256(VALID);
+	let asked = 0;
+	await assert.rejects(writePlan(project, VALID.replace("Prose.", "x"), base, async () => "session 3 (Busy) is running"), (e: unknown) => e instanceof PlanBusy && /session 3 \(Busy\) is running\. Nothing was written/.test(e.message));
+	await assert.rejects(writePlan(project, VALID.replace("Prose.", "x"), base, async () => (++asked === 2 ? "a session started meanwhile" : undefined)), PlanBusy);
+	assert.equal(asked, 2);
+	assert.equal(readFileSync(join(project.dir, "docs/plan.md"), "utf8"), VALID);
+	assert.deepEqual(readdirSync(join(project.dir, "docs")), ["plan.md"], "the temporary file is gone");
+	await writePlan(project, VALID.replace("Prose.", "x"), base, async () => undefined);
+	assert.match(readFileSync(join(project.dir, "docs/plan.md"), "utf8"), /x\n/);
 });

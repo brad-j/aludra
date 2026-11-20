@@ -47,12 +47,15 @@
 // write_plan, with mcp.writePlans as well, replaces a project's docs/plan.md in its checkout (src/plans.ts's writePlan),
 // the one write that reaches the checkout under mcp.sandboxOnly and mcp.worktreeOnly, since a plan is the file a planning
 // chat needs to change. It takes the sha256 read_plan gave as base and refuses when the file has changed since, and
-// refuses a plan that isn't in the standard format or drops an id. It stages and commits nothing.
+// refuses a plan that isn't in the standard format or drops an id. It also refuses while a session in the project's
+// checkout is running or waiting (checkoutBusy), since that session may be editing or committing the plan; sandbox,
+// worktree and chat sessions don't count, as none of them can write the checkout. It stages and commits nothing.
 //
 // check_sessions and mark_sessions_handled are a gate for an agent that wakes on sessions changing without a model
 // running (Lan's): check_sessions answers { wake, data, topic } and moves nothing, mark_sessions_handled moves the
 // calling token's cursor (src/session-changes.ts). Both are reading tools, since a cursor is only that token's.
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { isAbsolute, relative } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -69,7 +72,7 @@ import { context, isSandboxSession, isWorktreeSession, worktreeBranch } from "./
 import { itemsOf } from "./transcript.ts";
 import { shipLine, ShipRefused } from "./ship.ts";
 import type { SessionRecord } from "./host.ts";
-import { PlanConflict, PlanInvalid, readPlan, writePlan } from "./plans.ts";
+import { PlanBusy, PlanConflict, PlanInvalid, readPlan, writePlan } from "./plans.ts";
 
 const THINKING_LIST = "off, minimal, low, medium, high, xhigh";
 
@@ -123,6 +126,23 @@ export function sandboxOnlyRefusal(host: Host): string | undefined {
 	if (!host.mcpSandboxOnly()) return undefined;
 	if (host.sandboxSettings() === undefined) return "mcp.sandboxOnly is on but the settings name no sandbox host (sandboxes), so no session can be started or changed over MCP";
 	return undefined;
+}
+
+/**
+ * Why a plan in `project`'s checkout can't be written now: the sessions working in that checkout (not in a sandbox, a
+ * worktree or a chat, none of which can write it) that are running or waiting for approval, named. Undefined when none is.
+ */
+export async function checkoutBusy(host: Host, project: { name: string; dir: string }): Promise<string | undefined> {
+	const records = await host.sessions.list();
+	const states = await host.sessions.states();
+	const within = (dir: string) => {
+		const rel = relative(project.dir, dir);
+		return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+	};
+	const busy = records.filter((r) => !isSandboxSession(r) && !isWorktreeSession(r) && r.chat !== true && within(r.dir) && states.get(r.id) !== undefined && states.get(r.id) !== "idle");
+	if (busy.length === 0) return undefined;
+	const named = busy.map((r) => `session ${r.id} (${r.title}) is ${states.get(r.id) === "waiting" ? "waiting for approval" : "running"}`);
+	return `${named.join(", and ")} in ${project.name}'s checkout, and may be changing the plan`;
 }
 
 /** The last non-empty line of an answer's prose, without Markdown's marks, cut to 300 characters. */
@@ -567,7 +587,7 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		if (host.mcpWritePlans()) {
 			const confined = sandboxOnly ? " This writes the project's real checkout on this machine, not a sandbox, even though sessions here are sandbox-only." : worktreeOnly ? " This writes the project's real checkout on this machine, not a worktree, even though sessions here are worktree-only." : "";
 			server.registerTool("write_plan", {
-				description: `Replace a project's plan, docs/plan.md, in its checkout on ${options.machine} with text, the whole new file. Pass as base the sha256 read_plan gave for the text you edited, or null to make a plan where there's none; when the file has changed since, nothing is written and the error says to read it again. The text must be in the standard plan format: exactly the sections ## Now, ## Next, ## Questions, ## Later and ## Done in that order; each item a "### <id>: <title>" heading with a unique lowercase kebab-case id and a status line under it starting "Kind:" and one of step, question, request, chore; every bare id in Needs an item in the file. No id the file has may go: move a dropped item to Done with a line saying why. A plan that breaks a rule isn't written, and the error lists every problem. It writes the working copy only and stages and commits nothing.${confined} Answers { project, path, sha256, size, modified, items: { added, removed, moved, changed } } with item ids; the sha256 is the base for the next write.`,
+				description: `Replace a project's plan, docs/plan.md, in its checkout on ${options.machine} with text, the whole new file. Pass as base the sha256 read_plan gave for the text you edited, or null to make a plan where there's none; when the file has changed since, nothing is written and the error says to read it again. The text must be in the standard plan format: exactly the sections ## Now, ## Next, ## Questions, ## Later and ## Done in that order; each item a "### <id>: <title>" heading with a unique lowercase kebab-case id and a status line under it starting "Kind:" and one of step, question, request, chore; every bare id in Needs an item in the file. No id the file has may go: move a dropped item to Done with a line saying why. A plan that breaks a rule isn't written, and the error lists every problem. While a session in the project's checkout is running or waiting for approval, nothing is written and the error names it; sandbox, worktree and chat sessions don't count. It writes the working copy only and stages and commits nothing.${confined} Answers { project, path, sha256, size, modified, items: { added, removed, moved, changed } } with item ids; the sha256 is the base for the next write.`,
 				inputSchema: {
 					project: z.string().describe("A name from list_projects"),
 					text: z.string().describe("The whole new docs/plan.md"),
@@ -576,9 +596,10 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 				annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
 			}, async ({ project, text, base }) => {
 				try {
-					return answer(await writePlan(findProject(host.projects(), project), text, base));
+					const found = findProject(host.projects(), project);
+					return answer(await writePlan(found, text, base, () => checkoutBusy(host, found)));
 				} catch (error) {
-					if (error instanceof PlanConflict || error instanceof PlanInvalid) return failure(error.message);
+					if (error instanceof PlanConflict || error instanceof PlanInvalid || error instanceof PlanBusy) return failure(error.message);
 					return failure(error instanceof Error ? error.message : String(error));
 				}
 			});

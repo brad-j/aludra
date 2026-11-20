@@ -174,6 +174,47 @@ test("write_plan makes a plan where there's none, edits it from read_plan's sha2
 	assert.match(text(invalid), /sections[\s\S]*first, second are missing/);
 });
 
+test("write_plan refuses while a session in the checkout runs or waits, naming it, and not for a sandbox session", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { writePlans: true, sandboxes: true, approvals: "ask", responses: SCRIPTED });
+	const client = await connect();
+	mkdirSync(join(project.dir, "docs"), { recursive: true });
+	writeFileSync(join(project.dir, "docs/plan.md"), PLAN);
+	const base = JSON.parse(text(await client.callTool({ name: "read_plan", arguments: { project: "site" } }))).sha256;
+	const edited = PLAN.replace("Do it.", "Do it now.");
+	const write = () => client.callTool({ name: "write_plan", arguments: { project: "site", text: edited, base } });
+
+	const boxed = await host.sessions.createSandbox(project, "Boxed");
+	void host.submit(boxed.id, "sleep");
+	await until(async () => (await host.sessions.states()).get(boxed.id) === "running", "the sandbox run");
+
+	const sleeping = await host.sessions.create(project, "Sleep here");
+	void host.submit(sleeping.id, "sleep");
+	await until(async () => (await host.sessions.states()).get(sleeping.id) === "running", "the run");
+	const running = await write();
+	assert.equal(running.isError, true);
+	assert.match(text(running), new RegExp(`session ${sleeping.id} \\(Sleep here\\) is running in site's checkout.*Nothing was written`, "s"));
+	assert.doesNotMatch(text(running), new RegExp(`session ${boxed.id}\\b`), "a sandbox session doesn't count");
+	await host.stop(sleeping.id);
+	await idle(host, sleeping.id);
+
+	const pushing = await host.sessions.create(project, "Push it");
+	void host.submit(pushing.id, "push it");
+	await until(async () => (await host.approvals.pending()).some((r) => r.conversationId === pushing.id), "the approval");
+	const waiting = await write();
+	assert.equal(waiting.isError, true);
+	assert.match(text(waiting), new RegExp(`session ${pushing.id} \\(Push it\\) is waiting for approval`));
+	assert.equal(readFileSync(join(project.dir, "docs/plan.md"), "utf8"), PLAN);
+	await host.stop(pushing.id);
+	await idle(host, pushing.id);
+
+	// With only the sandbox session still running, it's written.
+	assert.equal((await host.sessions.states()).get(boxed.id), "running");
+	const wrote = await write();
+	assert.equal(wrote.isError, undefined, text(wrote));
+	assert.equal(readFileSync(join(project.dir, "docs/plan.md"), "utf8"), edited);
+	await host.stop(boxed.id);
+});
+
 test("a read token can't write even with mcp.write on", async (t) => {
 	const { host, connect, reader, bearer } = await mcp(t, true);
 	const client = await connect(bearer(reader.secret));

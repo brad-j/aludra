@@ -16,10 +16,6 @@ Add `risk?: "push" | "destructive"` to the `Approval` in `approval.requested` an
 
 ## Questions
 
-### write-plan-busy-session: Should write_plan refuse while a session runs in the project?
-Kind: question
-write_plan relies on `base` alone: a write from a stale read is refused, whoever made the edit in between. A session running in the project's checkout (not a sandbox or worktree) could be partway through its own edit of `docs/plan.md`, or about to commit it, when a planning chat writes. Refusing while one runs would close that window at the cost of blocking planning whenever a local session is busy. Brad decides.
-
 ## Later
 
 ### write-plan-amyrlin: write_plan over /amyrlin for Verin and loial
@@ -98,6 +94,10 @@ Kind: step
 aludra's side is done (usage-meter): `host.info` and `host.snapshot` carry `subscription`, `host.watch` sends `host.subscription` on each change, and MCP has `read_subscription`. Verin and loial draw the five-hour and seven-day use and resets. Check against a real answer on the Mac that `unifiedWindows` arrives, so both windows show from the first answer rather than one at a time.
 
 ## Done
+
+### write-plan-busy-session: Should write_plan refuse while a session runs in the project?
+Kind: question · Done: 2026-11-19
+Yes: it refuses while a session in the project's checkout is running or waiting, naming it; sandbox, worktree and chat sessions don't count. decisions.md, "write_plan over MCP".
 
 ### write-plan: write_plan over MCP
 Kind: step · Done: 2026-11-19

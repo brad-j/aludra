@@ -66,7 +66,7 @@ Plan item `write-plan`, for Pi Desktop's planning chat, the first client.
 - **Only plans in the standard format.** `checkPlan` (`src/plans.ts`, pure, for the amyrlin endpoint later) enforces the `plan` skill's checks and refuses dropping an id, since other repos and Verin link to `<repo>/<id>`. Every problem goes in one error, so a model fixes them in one retry.
 - **The checkout, under every mode.** It writes the project's real checkout even under `mcp.sandboxOnly` and `mcp.worktreeOnly`, since the plan is the one file a planning chat needs to change; the description, configuration.md and security.md say so. It's behind its own file-only `mcp.writePlans`.
 - **No git.** It writes the working copy only. A commit step is `write-plan-commit`, for Brad to decide.
-- **Open:** whether to refuse while a local session runs in the project (`write-plan-busy-session`). For now `base` alone guards it.
+- **Refused while a checkout session is busy.** Brad chose (`write-plan-busy-session`) that it refuses while a session in the project's checkout is running or waiting for approval, naming each, since one may be partway through editing or committing the plan, a race `base` alone can't see before the rename. Sandbox, worktree and chat sessions don't count, since none can write the checkout. Checked before the write and again before the rename; a session that starts in between is still possible, and `base` covers its edit if it lands first.
 
 ## Usage meter (2026-11-19)
 

@@ -6,8 +6,9 @@
 //
 // writePlan replaces it for write_plan, under the same rules: only a plan in the standard format (checkPlan) that keeps
 // every id the file had, only when the caller's `base` is the sha256 of the file as it is, and atomically, a temporary
-// file in docs/ renamed over it. Writes to one project are serialized here, so two calls can't interleave. It writes
-// the working copy only, never the index or a commit.
+// file in docs/ renamed over it. Writes to one project are serialized here, so two calls can't interleave. A caller's
+// guard can refuse it, as write_plan's does while a session runs in the checkout. It writes the working copy only,
+// never the index or a commit.
 import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
@@ -228,6 +229,11 @@ export function planChanges(previous: string, next: string): { added: string[]; 
 
 /** A write refused because the plan isn't the one the caller read: nothing was written. */
 export class PlanConflict extends Error {}
+/** A write refused because something else may be changing the plan now, such as a session running in the checkout. */
+export class PlanBusy extends Error {}
+
+/** Why the plan can't be written now, or undefined when it can: asked before the write and again just before the rename. */
+export type PlanGuard = () => Promise<string | undefined>;
 /** A write refused because the new text breaks the format's rules, every problem listed: nothing was written. */
 export class PlanInvalid extends Error {
 	readonly problems: string[];
@@ -245,13 +251,14 @@ const writing = new Map<string, Promise<unknown>>();
 /**
  * Replaces `project`'s docs/plan.md with `text` when `base` is the sha256 of the file now, or `base` is null and there
  * is none. Throws PlanConflict when it isn't, PlanInvalid when checkPlan finds problems, and an Error for a plan it
- * won't touch: a symbolic link, outside the project, not a file. Makes docs/ when it's missing, keeps the file's mode,
- * and never writes the index or a commit.
+ * won't touch: a symbolic link, outside the project, not a file. Throws PlanBusy when `busy` gives a reason, asked first
+ * and again just before the rename. Makes docs/ when it's missing, keeps the file's mode, and never writes the index or
+ * a commit.
  */
-export async function writePlan(project: Pick<Project, "name" | "dir">, text: string, base: string | null): Promise<PlanWrite> {
+export async function writePlan(project: Pick<Project, "name" | "dir">, text: string, base: string | null, busy?: PlanGuard): Promise<PlanWrite> {
 	const root = await realpath(project.dir);
 	const prior = writing.get(root) ?? Promise.resolve();
-	const run = prior.catch(() => undefined).then(() => writeNow(project, root, text, base));
+	const run = prior.catch(() => undefined).then(() => writeNow(project, root, text, base, busy));
 	writing.set(root, run);
 	try {
 		return await run;
@@ -274,9 +281,14 @@ const inside = (root: string, path: string) => {
 	return !rel.startsWith("..") && !isAbsolute(rel);
 };
 
-async function writeNow(project: Pick<Project, "name" | "dir">, root: string, text: string, base: string | null): Promise<PlanWrite> {
+async function writeNow(project: Pick<Project, "name" | "dir">, root: string, text: string, base: string | null, busy: PlanGuard | undefined): Promise<PlanWrite> {
 	const docs = join(project.dir, "docs");
 	const file = join(project.dir, PLAN_PATH);
+	const refuse = async () => {
+		const reason = await busy?.();
+		if (reason !== undefined) throw new PlanBusy(`${reason}. Nothing was written: call again once it has come to rest, reading the plan first, since it may have changed it`);
+	};
+	await refuse();
 	const before = await current(project, base);
 	const problems = checkPlan(text, before.exists ? before.text : undefined);
 	if (problems.length > 0) throw new PlanInvalid(problems);
@@ -307,6 +319,7 @@ async function writeNow(project: Pick<Project, "name" | "dir">, root: string, te
 		}
 		// Again just before the rename, for an edit made outside the host meanwhile, and a docs swapped for a link.
 		await current(project, base);
+		await refuse();
 		const again = await lstat(docs);
 		if (again.isSymbolicLink() || again.ino !== docsStat.ino) throw new Error(`${project.name}'s docs changed while the plan was written; nothing was written`);
 		await rename(temp, file);
