@@ -320,5 +320,3 @@ Decisions:
   - `scripts/install.sh` builds, packs and installs globally with npm, then reinstalls the service if there is one. A README.
   - The launchd agent and the systemd unit were each installed under a test name, served the API, and uninstalled cleanly.
 - **Egwene moved, 2026-10-13:** `~/.config/aludra/config.json` with the old defaults written out (workspace `egwene` with both roots, Brad's login, approval hosts think-1, think-2 and monitor-01); `scripts/install.sh` run with the user manager's PATH (`systemctl --user show-environment`), which has more than an SSH shell's (rustup, perl); the unit linked from `deploy/` replaced by the written one, with all sessions idle. The checkout stays for development; the host runs the installed package. Data directory unchanged.
-
-[Showing lines 1-188 of 195 (50.0KB limit). Use offset=189 to continue.]
