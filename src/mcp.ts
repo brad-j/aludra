@@ -44,6 +44,11 @@
 // repositories, and promote_session a session that isn't a scratch sandbox or isn't at rest. Under mcp.worktreeOnly
 // promote_session isn't registered, since that mode has no scratch sandbox sessions to act on; create_project is.
 //
+// write_plan, with mcp.writePlans as well, replaces a project's docs/plan.md in its checkout (src/plans.ts's writePlan),
+// the one write that reaches the checkout under mcp.sandboxOnly and mcp.worktreeOnly, since a plan is the file a planning
+// chat needs to change. It takes the sha256 read_plan gave as base and refuses when the file has changed since, and
+// refuses a plan that isn't in the standard format or drops an id. It stages and commits nothing.
+//
 // check_sessions and mark_sessions_handled are a gate for an agent that wakes on sessions changing without a model
 // running (Lan's): check_sessions answers { wake, data, topic } and moves nothing, mark_sessions_handled moves the
 // calling token's cursor (src/session-changes.ts). Both are reading tools, since a cursor is only that token's.
@@ -64,7 +69,7 @@ import { context, isSandboxSession, isWorktreeSession, worktreeBranch } from "./
 import { itemsOf } from "./transcript.ts";
 import { shipLine, ShipRefused } from "./ship.ts";
 import type { SessionRecord } from "./host.ts";
-import { readPlan } from "./plans.ts";
+import { PlanConflict, PlanInvalid, readPlan, writePlan } from "./plans.ts";
 
 const THINKING_LIST = "off, minimal, low, medium, high, xhigh";
 
@@ -306,7 +311,7 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 	);
 
 	server.registerTool("read_plan", {
-		description: `A project's plan on ${options.machine}: the text of its docs/plan.md as the working copy has it now, uncommitted edits included, and when it was last changed. A project with no plan answers exists: false.`,
+		description: `A project's plan on ${options.machine}: the text of its docs/plan.md as the working copy has it now, uncommitted edits included, its sha256, and when it was last changed. A project with no plan answers exists: false.`,
 		inputSchema: { project: z.string().describe("A name from list_projects") },
 		annotations: readOnly,
 	}, async ({ project }) => {
@@ -558,6 +563,26 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 				return failure(error instanceof Error ? error.message : String(error));
 			}
 		});
+
+		if (host.mcpWritePlans()) {
+			const confined = sandboxOnly ? " This writes the project's real checkout on this machine, not a sandbox, even though sessions here are sandbox-only." : worktreeOnly ? " This writes the project's real checkout on this machine, not a worktree, even though sessions here are worktree-only." : "";
+			server.registerTool("write_plan", {
+				description: `Replace a project's plan, docs/plan.md, in its checkout on ${options.machine} with text, the whole new file. Pass as base the sha256 read_plan gave for the text you edited, or null to make a plan where there's none; when the file has changed since, nothing is written and the error says to read it again. The text must be in the standard plan format: exactly the sections ## Now, ## Next, ## Questions, ## Later and ## Done in that order; each item a "### <id>: <title>" heading with a unique lowercase kebab-case id and a status line under it starting "Kind:" and one of step, question, request, chore; every bare id in Needs an item in the file. No id the file has may go: move a dropped item to Done with a line saying why. A plan that breaks a rule isn't written, and the error lists every problem. It writes the working copy only and stages and commits nothing.${confined} Answers { project, path, sha256, size, modified, items: { added, removed, moved, changed } } with item ids; the sha256 is the base for the next write.`,
+				inputSchema: {
+					project: z.string().describe("A name from list_projects"),
+					text: z.string().describe("The whole new docs/plan.md"),
+					base: z.string().regex(/^[0-9a-f]{64}$/).nullable().describe("read_plan's sha256 for the text this edits, or null when the project has no plan"),
+				},
+				annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+			}, async ({ project, text, base }) => {
+				try {
+					return answer(await writePlan(findProject(host.projects(), project), text, base));
+				} catch (error) {
+					if (error instanceof PlanConflict || error instanceof PlanInvalid) return failure(error.message);
+					return failure(error instanceof Error ? error.message : String(error));
+				}
+			});
+		}
 
 		if (host.mcpAllowNewProjects()) {
 			/** Why no project can be asked for now, or undefined: newProjects missing, or gh not signed in. */

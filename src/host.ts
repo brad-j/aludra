@@ -1828,6 +1828,8 @@ export async function openHost(options: HostOptions) {
 		mcpShipWorktrees: () => config.mcp.write && config.mcp.shipWorktrees,
 		/** Whether write tokens on /mcp may ask to make projects, each waiting for approval (the settings file's mcp.allowNewProjects). */
 		mcpAllowNewProjects: () => config.mcp.allowNewProjects,
+		/** Whether write tokens on /mcp may replace a project's docs/plan.md in its checkout (mcp.write and mcp.writePlans). */
+		mcpWritePlans: () => config.mcp.write && config.mcp.writePlans,
 		/** The tokens agents send to /mcp. */
 		tokens,
 		/** Session changes agents on /mcp wake on, with a cursor per token (src/session-changes.ts). */

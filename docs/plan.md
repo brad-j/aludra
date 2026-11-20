@@ -16,7 +16,19 @@ Add `risk?: "push" | "destructive"` to the `Approval` in `approval.requested` an
 
 ## Questions
 
+### write-plan-busy-session: Should write_plan refuse while a session runs in the project?
+Kind: question
+write_plan relies on `base` alone: a write from a stale read is refused, whoever made the edit in between. A session running in the project's checkout (not a sandbox or worktree) could be partway through its own edit of `docs/plan.md`, or about to commit it, when a planning chat writes. Refusing while one runs would close that window at the cost of blocking planning whenever a local session is busy. Brad decides.
+
 ## Later
+
+### write-plan-amyrlin: write_plan over /amyrlin for Verin and loial
+Kind: step · Needs: write-plan
+The same write as MCP's `write_plan`, as a `projects.writePlan` request on `/amyrlin`, sharing `writePlan` and `checkPlan` in `src/plans.ts`, so Verin's Plans and loial can edit a plan without an MCP token.
+
+### write-plan-commit: Optionally commit docs/plan.md after a write
+Kind: step · Needs: write-plan
+write_plan writes the working copy only. An option to commit just `docs/plan.md` after a write, without touching anything else staged, so plan edits land in history on their own. Ask Brad before adding any git step.
 
 ### subagents-clients: Show subagents under their call in Verin and loial
 Kind: step
@@ -86,6 +98,10 @@ Kind: step
 aludra's side is done (usage-meter): `host.info` and `host.snapshot` carry `subscription`, `host.watch` sends `host.subscription` on each change, and MCP has `read_subscription`. Verin and loial draw the five-hour and seven-day use and resets. Check against a real answer on the Mac that `unifiedWindows` arrives, so both windows show from the first answer rather than one at a time.
 
 ## Done
+
+### write-plan: write_plan over MCP
+Kind: step · Done: 2026-11-19
+Behind the file-only `mcp.writePlans` with `mcp.write`, a write token replaces a project's `docs/plan.md` in its checkout from `read_plan`'s new `sha256`, refused when the file changed since. `checkPlan` in `src/plans.ts` enforces the format and keeps every id; the write is atomic, serialized per project and never follows a link. It writes the checkout under `mcp.sandboxOnly` and `mcp.worktreeOnly` too, and stages nothing. Over `/amyrlin` is write-plan-amyrlin; committing is write-plan-commit.
 
 ### idle-pausing: Pause sandboxes on agent idle and human idle
 Kind: step · Done: 2026-11-19

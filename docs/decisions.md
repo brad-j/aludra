@@ -58,6 +58,16 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
+## write_plan over MCP (2026-11-19)
+
+Plan item `write-plan`, for Pi Desktop's planning chat, the first client.
+
+- **The whole file, from a base.** `write_plan` takes the new `docs/plan.md` whole and the `sha256` of the text the caller read (`read_plan` now answers it), or `null` to make one. A mismatch writes nothing and says to read again, so an edit made between a read and a write is never overwritten. Whole-file writes keep the tool simple and let the caller use its own editing; the base makes them safe to call often.
+- **Only plans in the standard format.** `checkPlan` (`src/plans.ts`, pure, for the amyrlin endpoint later) enforces the `plan` skill's checks and refuses dropping an id, since other repos and Verin link to `<repo>/<id>`. Every problem goes in one error, so a model fixes them in one retry.
+- **The checkout, under every mode.** It writes the project's real checkout even under `mcp.sandboxOnly` and `mcp.worktreeOnly`, since the plan is the one file a planning chat needs to change; the description, configuration.md and security.md say so. It's behind its own file-only `mcp.writePlans`.
+- **No git.** It writes the working copy only. A commit step is `write-plan-commit`, for Brad to decide.
+- **Open:** whether to refuse while a local session runs in the project (`write-plan-busy-session`). For now `base` alone guards it.
+
 ## Usage meter (2026-11-19)
 
 Plan item `usage-meter`. The data was already on every answer: pi-claude-code attaches Claude Code's last `rate_limit_event` of the turn as the `claude-code.rate-limit` diagnostic.

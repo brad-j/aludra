@@ -19,7 +19,7 @@ const USER = "you@example.com";
 
 /** A faux host with its API on a free port and a read token and a write token for /mcp. `write` turns on mcp.write;
  * `connect` uses the write token unless given other headers. */
-async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; worktreeOnly?: boolean; ship?: boolean; shipWorktrees?: boolean; git?: boolean; remote?: boolean; sandboxes?: boolean; approvals?: "ask" | "off"; responses?: FauxResponseStep[]; allowNewProjects?: boolean; newProjects?: boolean } = {}) {
+async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: boolean; worktreeOnly?: boolean; ship?: boolean; shipWorktrees?: boolean; git?: boolean; remote?: boolean; sandboxes?: boolean; approvals?: "ask" | "off"; responses?: FauxResponseStep[]; allowNewProjects?: boolean; newProjects?: boolean; writePlans?: boolean } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }, { id: "faux-think", reasoning: true }] });
 	faux.setResponses(options.responses ?? Array.from({ length: 20 }, () => fauxAssistantMessage(fauxText("The build passes now."))));
 	const models = createModels();
@@ -40,6 +40,7 @@ async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: bool
 	config.mcp.ship = options.ship === true;
 	config.mcp.shipWorktrees = options.shipWorktrees === true;
 	config.mcp.allowNewProjects = options.allowNewProjects === true;
+	config.mcp.writePlans = options.writePlans === true;
 	const made = fake === undefined && options.git !== true ? { project: makeProject(dir, "site"), remote: undefined } : gitProject(dir, "site", undefined, { remote: options.remote === true });
 	const { project } = made;
 	const server = createApi(host, { users: [USER], name: "egwene" });
@@ -121,6 +122,56 @@ test("read_plan gives a read token a project's plan, says when there's none, and
 	const unknown = await client.callTool({ name: "read_plan", arguments: { project: "nope" } });
 	assert.equal(unknown.isError, true);
 	assert.match(text(unknown), /no project nope/);
+});
+
+const PLAN = "# Plan\n\n## Now\n\n### first: The first step\nKind: step\nDo it.\n\n## Next\n\n## Questions\n\n## Later\n\n## Done\n";
+
+test("write_plan is offered only to a write token while mcp.write and mcp.writePlans are both on", async (t) => {
+	const has = async (write: boolean, writePlans: boolean, read = false) => {
+		const { connect, reader, bearer } = await mcp(t, write, { writePlans });
+		const client = await connect(read ? bearer(reader.secret) : undefined);
+		return (await client.listTools()).tools.some((tool) => tool.name === "write_plan");
+	};
+	assert.equal(await has(true, false), false, "mcp.writePlans off");
+	assert.equal(await has(false, true), false, "mcp.write off");
+	assert.equal(await has(true, true, true), false, "a read token");
+	assert.equal(await has(true, true), true);
+});
+
+test("write_plan makes a plan where there's none, edits it from read_plan's sha256, and refuses a stale base", async (t) => {
+	const { project, connect } = await mcp(t, true, { writePlans: true, worktreeOnly: true });
+	const client = await connect();
+	const tool = (await client.listTools()).tools.find((t) => t.name === "write_plan")!;
+	assert.match(tool.description ?? "", /real checkout on this machine, not a worktree/);
+	const call = (args: Record<string, unknown>) => client.callTool({ name: "write_plan", arguments: { project: "site", ...args } });
+
+	const made = await call({ text: PLAN, base: null });
+	assert.equal(made.isError, undefined, text(made));
+	const first = JSON.parse(text(made));
+	assert.equal(first.path, "docs/plan.md");
+	assert.deepEqual(first.items, { added: ["first"], removed: [], moved: [], changed: [] });
+	assert.equal(readFileSync(join(project.dir, "docs/plan.md"), "utf8"), PLAN);
+
+	const again = await call({ text: PLAN, base: null });
+	assert.equal(again.isError, true);
+	assert.match(text(again), /has a docs\/plan.md now.*Nothing was written/s);
+
+	const read = JSON.parse(text(await client.callTool({ name: "read_plan", arguments: { project: "site" } })));
+	assert.equal(read.sha256, first.sha256);
+	const edited = PLAN.replace("## Next\n", "## Next\n\n### second: Then this\nKind: chore · Needs: first\n").replace("Do it.", "Do it well.");
+	const wrote = JSON.parse(text(await call({ text: edited, base: read.sha256 })));
+	assert.deepEqual(wrote.items, { added: ["second"], removed: [], moved: [], changed: ["first"] });
+
+	// Someone edits the file between a read and a write: the stale base is refused and nothing is written.
+	writeFileSync(join(project.dir, "docs/plan.md"), edited.replace("Then this", "Then that"));
+	const stale = await call({ text: edited, base: wrote.sha256 });
+	assert.equal(stale.isError, true);
+	assert.match(text(stale), /changed since it was read.*read_plan it again/s);
+	assert.match(readFileSync(join(project.dir, "docs/plan.md"), "utf8"), /Then that/);
+
+	const invalid = await call({ text: "# Plan\n\n## Now\n", base: JSON.parse(text(await client.callTool({ name: "read_plan", arguments: { project: "site" } }))).sha256 });
+	assert.equal(invalid.isError, true);
+	assert.match(text(invalid), /sections[\s\S]*first, second are missing/);
 });
 
 test("a read token can't write even with mcp.write on", async (t) => {
@@ -333,12 +384,14 @@ test("the API still wants a listed Tailscale login, and a token isn't one", asyn
 
 test("mcp.write, mcp.sandboxOnly, mcp.worktreeOnly, mcp.ship and mcp.shipWorktrees come from the settings file, are off by default, and sandboxOnly and worktreeOnly can't both be on", () => {
 	const workspaces = [{ name: "a", roots: [] }];
-	assert.deepEqual(configFor(JSON.stringify({ workspaces }), {}).config.mcp, { write: false, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, worktreeOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: true, ship: false, shipWorktrees: false, allowNewProjects: false });
-	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true, ship: true, shipWorktrees: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: true, shipWorktrees: true, allowNewProjects: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces }), {}).config.mcp, { write: false, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false, writePlans: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false, writePlans: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false, writePlans: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, worktreeOnly: true } }), {}).config.mcp, { write: true, sandboxOnly: false, worktreeOnly: true, ship: false, shipWorktrees: false, allowNewProjects: false, writePlans: false });
+	assert.deepEqual(configFor(JSON.stringify({ workspaces, mcp: { write: true, sandboxOnly: true, ship: true, shipWorktrees: true } }), {}).config.mcp, { write: true, sandboxOnly: true, worktreeOnly: false, ship: true, shipWorktrees: true, allowNewProjects: false, writePlans: false });
 	assert.equal(configFor(JSON.stringify({ workspaces, mcp: { write: true, allowNewProjects: true } }), {}).config.mcp.allowNewProjects, true);
+	assert.equal(configFor(JSON.stringify({ workspaces, mcp: { write: true, writePlans: true } }), {}).config.mcp.writePlans, true);
+	assert.match(configFor(JSON.stringify({ workspaces, mcp: { writePlans: "yes" } }), {}).errors.join("\n"), /writePlans/);
 	assert.match(configFor(JSON.stringify({ workspaces, mcp: { allowNewProjects: "yes" } }), {}).errors.join("\n"), /allowNewProjects/);
 	assert.match(configFor(JSON.stringify({ workspaces, mcp: { sandboxOnly: "yes" } }), {}).errors.join("\n"), /sandboxOnly/);
 	assert.match(configFor(JSON.stringify({ workspaces, mcp: { sandboxOnly: true, worktreeOnly: true } }), {}).errors.join("\n"), /both on/);
