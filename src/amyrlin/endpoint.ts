@@ -347,6 +347,12 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 	/** A summary's `cost`: dollars charged by providers that bill each request, present only when it used one. */
 	const costOf = (cost: number | undefined): Json => (cost === undefined ? {} : { cost });
 
+	/** The host's `subscription`: the Claude windows as last heard (src/subscription.ts), present once any answer said. */
+	function subscriptionOf(): Json {
+		const known = host.subscription.get();
+		return known === undefined ? {} : { subscription: known };
+	}
+
 	/** The host's `monthCost`: this calendar month's charged dollars, present only when any session was charged. */
 	async function monthCostOf(): Promise<Json> {
 		await ready;
@@ -724,6 +730,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			// Where new projects go, on a host that can make them now (protocol section 10 item 20).
 			...(await host.newProjects.info().then((info) => ("reason" in info ? {} : { newProjects: info }))),
 			...(await monthCostOf()),
+			...subscriptionOf(),
 		};
 	}
 
@@ -753,6 +760,11 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			? { type: "sandbox.shipped", conversationId: id, shipped: true, to: result.mode, pushed: result.pushed, head: result.head, commits: result.commits, ...(result.pr === undefined ? {} : { pr: result.pr }), ...checkedOf(result) }
 			: { type: "sandbox.shipped", conversationId: id, shipped: false, kind: result.kind, reason: result.reason };
 	}
+	// Each answer that changes what's known of the Claude subscription's windows reaches every host watcher.
+	const stopSubscription = host.subscription.onChange(() => {
+		const event = { type: "host.subscription", ...subscriptionOf() };
+		for (const listener of hostListeners) listener(event);
+	});
 	const stopShipped = host.ships.onShipped((id, result) => {
 		markDirty(id);
 		const event = shippedEvent(id, result);
@@ -931,7 +943,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 							stopCheckouts();
 						});
 						respond({ subscription: id });
-						await send([{ type: "host.snapshot", host: await identity(), spend: await hostSpend(), ...(await monthCostOf()), conversations: listSummaries(), projectColors: await host.colors.list() }]);
+						await send([{ type: "host.snapshot", host: await identity(), spend: await hostSpend(), ...(await monthCostOf()), ...subscriptionOf(), conversations: listSummaries(), projectColors: await host.colors.list() }]);
 						summaryListeners.add(onSummary);
 						hostListeners.add(onHostEvent);
 						if (subscriptions.has(id)) stopCheckouts = checkouts.onChange((found) => void send([{ type: "host.projects", projects: projectsOf(found) }]));
@@ -1241,6 +1253,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			clearInterval(statePoll);
 			checkouts.close();
 			stopShipped();
+			stopSubscription();
 			stopApprovals();
 			stopCommits();
 			stopCreated();

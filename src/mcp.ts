@@ -364,6 +364,22 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		annotations: readOnly,
 	}, async () => answer(await checkSessions(host, options.token)));
 
+	server.registerTool("read_subscription", {
+		description: `The Claude subscription's usage on ${options.machine}, as the latest answer reported it: status (allowed, allowed_warning, rejected), and each window (five_hour, seven_day, and per-model weekly ones when the account has them) with used, the fraction used, and resetsAt; overage when usage credit was in play. Every session here, and any other Claude client on the same account, spends the same windows. known: false until a Claude answer has come back.`,
+		annotations: readOnly,
+	}, async () => {
+		const known = host.subscription.get();
+		if (known === undefined) return answer({ known: false });
+		const iso = (at: number) => new Date(at).toISOString();
+		return answer({
+			known: true,
+			heard: iso(known.at),
+			status: known.status,
+			windows: Object.fromEntries(Object.entries(known.windows).map(([name, w]) => [name, { used: w.used, resetsAt: iso(w.resetsAt), ...(w.status === undefined ? {} : { status: w.status }) }])),
+			...(known.overage === undefined ? {} : { overage: { ...known.overage, ...(known.overage.resetsAt === undefined ? {} : { resetsAt: iso(known.overage.resetsAt) }) } }),
+		});
+	});
+
 	server.registerTool("mark_sessions_handled", {
 		description: "Marks the session changes check_sessions gave up to and including change `through` handled, for this token only; other clients keep their own place. It never moves back.",
 		inputSchema: { through: z.number().int().min(0).describe("A change number from check_sessions, usually the largest") },

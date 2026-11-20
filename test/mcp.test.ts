@@ -58,7 +58,7 @@ async function mcp(t: TestContext, write: boolean, options: { sandboxOnly?: bool
 	return { host, project, remote: made.remote, url, connect, reader, writer, bearer, fake, dir, gh, config };
 }
 
-const READ_TOOLS = ["check_sessions", "list_projects", "list_sessions", "mark_sessions_handled", "read_plan", "read_session", "search_messages"];
+const READ_TOOLS = ["check_sessions", "list_projects", "list_sessions", "mark_sessions_handled", "read_plan", "read_session", "read_subscription", "search_messages"];
 const WRITE_TOOLS = [...READ_TOOLS, "archive_session", "send_message", "start_session", "stop_session", "unarchive_session"].sort();
 
 const text = (result: unknown) => ((result as { content: { text: string }[] }).content[0]!.text);
@@ -90,6 +90,21 @@ test("read-only: an agent lists projects and sessions, reads a transcript and se
 	assert.match(text(refused), /start_session not found/);
 	assert.equal((await host.sessions.list()).length, 1, "no session was started");
 	assert.ok(host.tokens.list().find((tok) => tok.id === writer.token.id)?.lastSeenAt, "the token's use is noted");
+});
+
+test("read_subscription says nothing is known until a Claude answer reports the windows, then gives each with its reset", async (t) => {
+	const resets = Math.round(Date.now() / 1000) + 3600;
+	const limited = { ...fauxAssistantMessage(fauxText("Done.")), diagnostics: [{ type: "claude-code.rate-limit", timestamp: Date.now(), details: { status: "allowed_warning", rateLimitType: "seven_day", utilization: 0.9, resetsAt: resets, overageStatus: "allowed", isUsingOverage: false } }] };
+	const { host, project, connect, reader, bearer } = await mcp(t, false, { responses: [limited] });
+	const client = await connect(bearer(reader.secret));
+	assert.deepEqual(JSON.parse(text(await client.callTool({ name: "read_subscription", arguments: {} }))), { known: false });
+	const session = await host.sessions.create(project, "x");
+	await (await host.submit(session.id, "x")).wait(context);
+	const known = JSON.parse(text(await client.callTool({ name: "read_subscription", arguments: {} })));
+	assert.equal(known.known, true);
+	assert.equal(known.status, "allowed_warning");
+	assert.deepEqual(known.windows, { seven_day: { used: 0.9, resetsAt: new Date(resets * 1000).toISOString(), status: "allowed_warning" } });
+	assert.deepEqual(known.overage, { status: "allowed", inUse: false });
 });
 
 test("read_plan gives a read token a project's plan, says when there's none, and fails for an unknown project", async (t) => {

@@ -14,10 +14,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 Kind: step
 aludra's side is done (subagents): an `agent` tool item's `details.conversationId` names the child, and `conversation.watch` on it streams the child's transcript with `parent` set. Verin and loial draw the child's activity under the call, folded by default, and open it full size. Nothing to do in aludra unless they need more, such as the child's state in the call's details while it runs.
 
-### usage-meter: Show the subscription's windows
-Kind: step
-Each answer carries the `claude-code.rate-limit` diagnostic (five-hour and seven-day use, resets, overage). Nothing in aludra reads it yet; Verin shows it.
-
 ### setup-only-secrets: Secrets for setup scripts only
 Kind: step
 After Codex: `.agents/setup` gets a credential, such as a private registry token, and it's removed before the agent's turns start. A smaller step than stedding's placeholder-secrets proxy.
@@ -81,7 +77,15 @@ The Flame of Tar Valon is a Wheel of Time symbol. Both repositories are private,
 Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Verin now covers voice and the apps, so these may not be needed.
 
+### usage-meter-clients: Show the subscription's windows in Verin and loial
+Kind: step
+aludra's side is done (usage-meter): `host.info` and `host.snapshot` carry `subscription`, `host.watch` sends `host.subscription` on each change, and MCP has `read_subscription`. Verin and loial draw the five-hour and seven-day use and resets. Check against a real answer on the Mac that `unifiedWindows` arrives, so both windows show from the first answer rather than one at a time.
+
 ## Done
+
+### usage-meter: Show the subscription's windows
+Kind: step · Done: 2026-11-19
+The host reads each answer's `claude-code.rate-limit` diagnostic (`src/subscription.ts`), children's included, and keeps the latest of each window, saved across restarts. `host.info`, `host.snapshot` and a `host.subscription` event carry it over `/amyrlin`, MCP's `read_subscription` answers it, and `aludra sessions` shows it at its foot. Drawing it in Verin and loial is usage-meter-clients.
 
 ### subagents: An agent tool with children shown under the call
 Kind: step · Done: 2026-11-19

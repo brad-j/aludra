@@ -31,6 +31,9 @@ test("the translation matches amyrlin's expected frames for every recorded scena
 	}
 });
 
+/** When the faux model's "limits" answer says the five-hour window resets, in seconds. */
+const LIMITS_RESET = Math.round(Date.now() / 1000) + 3 * 3600;
+
 /** The faux model's answer to "report NAME": prose, a done plan and a result block that asks something. */
 const REPORTED = [
 	"I wrote the file.",
@@ -75,6 +78,8 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 		const name = /commit (\w+)/.exec(user)?.[1];
 		if (name !== undefined) return fauxAssistantMessage(fauxToolCall("bash", { command: `echo ${name} > ${name}.txt && git add ${name}.txt && git -c user.name=t -c user.email=t@example.com commit -q -m ${name} && git log -1 --format=%s` }), { stopReason: "toolUse" });
 		if (/push/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "git push --dry-run 2>&1 || true" }), { stopReason: "toolUse" });
+		// "limits" answers as Claude Code does, with the subscription's windows in a rate-limit diagnostic.
+		if (/limits/.test(user)) return { ...fauxAssistantMessage(fauxText("Within limits.")), diagnostics: [{ type: "claude-code.rate-limit", timestamp: Date.now(), details: { status: "allowed", rateLimitType: "five_hour", utilization: 0.5, resetsAt: LIMITS_RESET, unifiedWindows: { five_hour: { utilization: 0.5, resetsAt: LIMITS_RESET }, seven_day: { utilization: 0.25, resetsAt: LIMITS_RESET + 86_400 } } } }] };
 		return fauxAssistantMessage(fauxText("Hello from the faux model."));
 	}));
 	const models = createModels();
@@ -488,6 +493,22 @@ test("a summary's cost is what billed providers charged, and the host has the mo
 	assert.equal(summary.cost, 0.25);
 	assert.ok(summary.spend.byModel["faux/faux-1"] !== undefined, "spend still has every model");
 	assert.equal(typeof (await mac.request("host.info")).monthCost, "number");
+});
+
+test("host.info and host.snapshot carry the Claude subscription's windows once an answer reports them, and host.watch hears each change", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	assert.equal((await mac.request("host.info")).subscription, undefined);
+	const list = (await mac.request("host.watch")).subscription;
+	const snapshot = (await mac.event(list, type("host.snapshot"), "the snapshot")).find(type("host.snapshot"));
+	assert.equal(snapshot.subscription, undefined);
+	await mac.request("conversations.create", { requestId: "limits-1", project: project.dir, text: "check the limits" });
+	const heard = (await mac.event(list, type("host.subscription"), "the windows")).find(type("host.subscription"));
+	assert.equal(heard.subscription.status, "allowed");
+	assert.deepEqual(heard.subscription.windows, { five_hour: { used: 0.5, resetsAt: LIMITS_RESET * 1000 }, seven_day: { used: 0.25, resetsAt: (LIMITS_RESET + 86_400) * 1000 } });
+	assert.deepEqual((await mac.request("host.info")).subscription, heard.subscription);
+	const again = (await mac.request("host.watch")).subscription;
+	assert.deepEqual((await mac.event(again, type("host.snapshot"), "a new snapshot")).find(type("host.snapshot")).subscription, heard.subscription);
 });
 
 test("an image sent from the Mac is in the transcript as a block, and conversation.image gives its bytes", async (t) => {

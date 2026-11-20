@@ -76,6 +76,9 @@ try {
 	const last = (await (await host.conversation(a.id)).context(context)).messages.at(-1);
 	const limit = last?.role === "assistant" ? last.diagnostics?.find((d) => d.type === "claude-code.rate-limit")?.details as { status?: string; rateLimitType?: string; isUsingOverage?: boolean } | undefined : undefined;
 	check("on the plan's limits", limit !== undefined && limit.isUsingOverage !== true, JSON.stringify(limit) ?? "no rate-limit diagnostic");
+	// The host keeps the windows the answers reported (src/subscription.ts), for host.info and read_subscription.
+	const windows = host.subscription.get();
+	check("the subscription's windows", windows !== undefined && Object.keys(windows.windows).length > 0, JSON.stringify(windows) ?? "none kept");
 
 	// 2
 	await ask(host, a.id, "Remember this for later: the backup on nas failed at 03:10 with exit code 23. Reply with just 'noted'.");

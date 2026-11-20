@@ -107,7 +107,7 @@ Lists sessions grouped by project, the project that most needs you first, and wi
 | `✓` | Done. |
 | `·` | Not started. |
 
-A session that used OpenRouter shows what it cost before its age, and the month's OpenRouter total is at the foot.
+A session that used OpenRouter shows what it cost before its age, and the month's OpenRouter total is at the foot. Above it, once a Claude answer has reported them, are the Claude subscription's windows: each one's use and when it resets (`Claude: 5h 42% until 3:10 PM · 7d 18% until Mon 9:00 AM`), amber past a warning threshold and red with "limit reached" when requests are refused. A window that has reset since drops out until the next answer reports it.
 
 In a terminal, project names are in their project color (the same one amyrlin shows, including a picked one), waiting is amber, running violet and failed red, and long titles are cut to the terminal's width. Piped, the output is plain text at 100 columns. `NO_COLOR` turns color off, and `FORCE_COLOR` turns it on when piped.
 

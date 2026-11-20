@@ -4,6 +4,7 @@
 import { stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { SessionState, SessionSummary } from "./api-types.ts";
 import { hueOf } from "./project-colors.ts";
+import { type Subscription, subscriptionLine } from "./subscription.ts";
 
 /** The project name of no-project sessions (src/host.ts NO_PROJECT); they're gray, under one heading. */
 export const NO_PROJECT = "no project";
@@ -123,9 +124,10 @@ export function money(dollars: number): string {
 
 /**
  * The sessions as lines for a terminal of `style`'s width and colors. `colors` are the projects' picked hues, and
- * `spend` this month's spend on billed providers, shown at the foot when there's any.
+ * `spend` this month's spend on billed providers, shown at the foot when there's any, as is `subscription`, the Claude
+ * subscription's windows.
  */
-export function renderSessions(sessions: readonly SessionSummary[], colors: Readonly<Record<string, number>>, style: ListingStyle, now = Date.now(), spend?: { month: number }): string[] {
+export function renderSessions(sessions: readonly SessionSummary[], colors: Readonly<Record<string, number>>, style: ListingStyle, now = Date.now(), spend?: { month: number }, subscription?: Subscription): string[] {
 	const hidden = sessions.filter((s) => s.archived === true).length;
 	sessions = sessions.filter((s) => s.archived !== true);
 	const paint = pen(style.depth);
@@ -160,6 +162,10 @@ export function renderSessions(sessions: readonly SessionSummary[], colors: Read
 		}
 	}
 	if (hidden > 0) lines.push("", paint.ink("dim", `${hidden} archived; aludra unarchive --session ID brings one back`));
-	if (spend !== undefined) lines.push(...(hidden > 0 ? [] : [""]), paint.ink("dim", `OpenRouter this month: ${money(spend.month)}`));
+	const foot: string[] = [];
+	const windows = subscriptionLine(subscription, now);
+	if (windows !== undefined) foot.push(paint.ink(subscription?.status === "rejected" ? "bad" : subscription?.status === "allowed_warning" ? "wait" : "dim", cut(windows, width)));
+	if (spend !== undefined) foot.push(paint.ink("dim", `OpenRouter this month: ${money(spend.month)}`));
+	if (foot.length > 0) lines.push(...(hidden > 0 ? [] : [""]), ...foot);
 	return lines;
 }

@@ -48,6 +48,7 @@ import { openProjectRequests, type ProjectRequest } from "./project-requests.ts"
 import { openSessionChanges } from "./session-changes.ts";
 import { type Exchange, excerptOf, modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
+import { mergeSubscription, type Subscription, subscriptionIn, subscriptionNow } from "./subscription.ts";
 import { fileBlocks, type FileInput, isLong, preview, saveFiles, withoutFileNotes } from "./files.ts";
 import { saveVideos, sweepUploads, type VideoInput, videoBlocks, withoutVideoNotes } from "./videos.ts";
 
@@ -183,6 +184,14 @@ export const ArchivedProjects = defineDoc<{ dirs: Record<string, number> }>({
 	version: 1,
 	scope: "session",
 	initial: () => ({ dirs: {} }),
+});
+
+/** The Claude subscription's windows as last heard from an answer (src/subscription.ts), kept across restarts. */
+export const SubscriptionDoc = defineDoc<{ subscription?: Subscription }>({
+	kind: "aludra.subscription",
+	version: 1,
+	scope: "session",
+	initial: () => ({}),
 });
 
 /** Messages a sandbox session got while its sandbox was being made, by session, each its content's JSON; sent in order once it's ready. */
@@ -668,6 +677,34 @@ export async function openHost(options: HostOptions) {
 	const sessionChanges = openSessionChanges(resolve(config.dataDir, "session-changes.sqlite"));
 	// Requests from /mcp to make projects, waiting for the owner's approval (src/project-requests.ts).
 	const projectRequests = openProjectRequests(resolve(config.dataDir, "project-requests.sqlite"), () => config.approvals.waitHours * 3_600_000);
+	// The subscription's windows, from each answer's rate-limit diagnostic (src/subscription.ts), children's included,
+	// since they spend the same windows. Saved after each change, so a restart shows them before the next answer.
+	let subscription = (await harness.snapshot(SubscriptionDoc, context))?.subscription;
+	const subscriptionListeners = new Set<(subscription: Subscription) => void>();
+	let savingSubscription = Promise.resolve();
+	const stopSubscription = harness.subscribeCommits((publication) => {
+		let next = subscription;
+		for (const change of publication.changes) {
+			if (change.type !== "entry" || change.value.kind !== "pi.assistant") continue;
+			for (const message of change.value.model ?? []) {
+				const heard = subscriptionIn(message);
+				if (heard !== undefined) next = mergeSubscription(next, heard);
+			}
+		}
+		if (next === subscription || next === undefined) return;
+		subscription = next;
+		const saved = next;
+		// A listener mustn't call Session APIs, so the save waits for the commit to finish.
+		savingSubscription = savingSubscription.then(() => {
+			if (closing) return;
+			return root.commit(async (tx) => {
+				const doc = await tx.doc(SubscriptionDoc);
+				if (doc.subscription === undefined || doc.subscription.at <= saved.at) doc.subscription = saved;
+			}, context).then(() => undefined);
+		}).catch((error) => console.error(`[subscription] saving: ${error instanceof Error ? error.message : String(error)}`));
+		for (const listener of subscriptionListeners) listener(saved);
+	});
+
 	const stopIndexing = harness.subscribeCommits((publication) => {
 		const found = publication.changes.flatMap((change) => (change.type === "entry" ? messagesOf({ ...change.value, id: Number(change.value.id), conversationId: Number(change.value.conversationId) }) : []));
 		if (found.length === 0) return;
@@ -1880,6 +1917,14 @@ export async function openHost(options: HostOptions) {
 		projectRequests: { list: () => projectRequests.pending(), get: projectRequests.get, find: projectRequests.find, open: projectRequests.open, spent: projectRequests.spent, report: projectRequests.report, decide: decideProjectRequest, onChange: projectRequests.onChange },
 		ideas: { list: listIdeas, add: addIdea, remove: removeIdea, start: startIdea, onChange: onIdeas },
 		colors: { list: listColors, set: setColor, onChange: onColors },
+		/** The Claude subscription's windows as last heard, those that reset since left out; undefined before any answer said. */
+		subscription: {
+			get: (now = Date.now()) => subscriptionNow(subscription, now),
+			onChange(listener: (subscription: Subscription) => void): () => void {
+				subscriptionListeners.add(listener);
+				return () => void subscriptionListeners.delete(listener);
+			},
+		},
 		/** Projects hidden from the lists (aludra.archivedProjects), by directory. */
 		projectArchive: { list: archivedProjects, set: archiveProject, onChange: onProjectArchive },
 		conversation,
@@ -1910,6 +1955,8 @@ export async function openHost(options: HostOptions) {
 			closing = true;
 			clearInterval(sweeper);
 			stopIndexing();
+			stopSubscription();
+			await savingSubscription;
 			await caughtUp;
 			await harness.close(context);
 			searchIndex.close();

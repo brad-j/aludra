@@ -58,11 +58,21 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
+## Usage meter (2026-11-19)
+
+Plan item `usage-meter`. The data was already on every answer: pi-claude-code attaches Claude Code's last `rate_limit_event` of the turn as the `claude-code.rate-limit` diagnostic.
+
+- **What the event holds.** Read from Claude Code 2.1.329's schema and the Agent SDK's `SDKRateLimitInfo`: the top-level `utilization`, `resetsAt` (epoch seconds) and `status` describe one window, named by `rateLimitType` (`five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet`, `seven_day_overage_included`, or `overage` for the credit pool). Newer Claude Code adds `unifiedWindows`, every window it read from the `anthropic-ratelimit-unified-*` headers. pi-claude-code passes the object through whole, so both reach aludra.
+- **Keep the latest of each window.** An older Claude Code reports one window per turn, so the host merges each report over the last, and a window drops out once its `resetsAt` passes. A report older than the one kept changes nothing. It lives in an `aludra.subscription` document, so a restart has it before the next answer. Children's answers count: they spend the same account.
+- **Exposed, not drawn.** `host.info`, `host.snapshot` and a `host.subscription` event over `/amyrlin`, `read_subscription` on MCP for Verin's agent, and a line at the foot of `aludra sessions`. Times are ms on `/amyrlin` as elsewhere there, ISO strings on MCP as its other tools give them. Drawing it is Verin's and loial's work (`usage-meter-clients`).
+- **What it can't see.** Only what Claude Code reports on answers from this host. Use from other clients on the account (Verin's own sessions, claude.ai) shows up only at the next answer here, and nothing polls between answers: a probe would spend a request, and Claude Code's own quota probe appears to skip non-interactive sessions.
+- **Checked:** `pnpm check` (301 tests), with a fake Claude Code answer carrying the diagnostic through the host, `/amyrlin` and MCP. Not checked: the live check against real Claude Code (none in the sandbox this was built in), so whether 2.1.3xx sends `unifiedWindows` on a real answer, as its schema says, is unconfirmed.
+
 ## Subagents (2026-11-19)
 
 Brad picked subagents up from the plan and chose, out of the options put to him:
 
-- **Children on Sonnet 5.5, not the parent's model.** A `subagents.model` setting, live and editable, default `claude-sonnet-5-5`. Every child spends the same five-hour Claude window the parent and every Verin session share, which aludra doesn't show yet (`usage-meter`), and exploring and summarizing rarely need Opus. The tool takes no model argument, so the model can't spend Opus on children. A setting naming a model this host doesn't have falls back to the session's model rather than failing the call.
+- **Children on Sonnet 5.5, not the parent's model.** A `subagents.model` setting, live and editable, default `claude-sonnet-5-5`. Every child spends the same five-hour Claude window the parent and every Verin session share, which aludra didn't show then (`usage-meter`, done the same day), and exploring and summarizing rarely need Opus. The tool takes no model argument, so the model can't spend Opus on children. A setting naming a model this host doesn't have falls back to the session's model rather than failing the call.
 - **One level deep.** A child goes without the `agent` tool (and is refused if it somehow has it), so the cost of one call is bounded and the UI has one level to draw. That's also Pi Durable's example.
 - **Display: aludra exposes, clients draw.** The call's details name the child; `/amyrlin`'s `conversation.watch` and `conversation.history` open it with `parent` set; children stay out of `conversations.list`, `host.watch` and search. Drawing them under the call is Verin's and loial's work (`subagents-clients`).
 

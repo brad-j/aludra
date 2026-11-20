@@ -29,6 +29,7 @@ import { createApi } from "./api.ts";
 import { removeSandboxesOnArchive } from "./sandbox-cleanup.ts";
 import { removeWorktreesOnArchive } from "./worktree-cleanup.ts";
 import type { ShipResult } from "./ship.ts";
+import type { Subscription } from "./subscription.ts";
 import { sandboxSyncAfterRuns } from "./sandbox-sync.ts";
 import { createLive, monthSpend, readSummary } from "./live.ts";
 import { scheduleArchive } from "./archive.ts";
@@ -70,7 +71,7 @@ export type ClientMessage =
 
 export type ServerMessage =
 	| { type: "line"; text: string }
-	| { type: "sessions"; sessions: SessionSummary[]; colors: Record<string, number>; spend?: { month: number } }
+	| { type: "sessions"; sessions: SessionSummary[]; colors: Record<string, number>; spend?: { month: number }; subscription?: Subscription }
 	| { type: "settings"; settings: Settings }
 	| { type: "done"; status: string };
 
@@ -118,6 +119,7 @@ const serverMessage = object({
 	sessions: optional(array(summary)),
 	colors: optional(dictionary(integer)),
 	spend: optional(object({ month: number })),
+	subscription: optional(jsonObject),
 });
 
 export function parseClientMessage(line: string): ClientMessage {
@@ -171,7 +173,7 @@ export function parseServerMessage(line: string): ServerMessage {
 	const m = parseJson(line, serverMessage, "the server's message");
 	// SAFETY: the host on our own socket sends the Settings src/settings.ts makes.
 	if (m.type === "settings") return { type: "settings", settings: m.settings as unknown as Settings };
-	if (m.type === "sessions") return { type: "sessions", sessions: m.sessions ?? [], colors: Object.fromEntries(m.colors ?? []), ...(m.spend === undefined ? {} : { spend: m.spend }) };
+	if (m.type === "sessions") return { type: "sessions", sessions: m.sessions ?? [], colors: Object.fromEntries(m.colors ?? []), ...(m.spend === undefined ? {} : { spend: m.spend }), ...(m.subscription === undefined ? {} : { subscription: m.subscription as unknown as Subscription }) };
 	return m.type === "line" ? { type: "line", text: m.text ?? "" } : { type: "done", status: m.status ?? "" };
 }
 
@@ -420,7 +422,8 @@ export function listen(host: Host, socketPath: string, watchers = new Set<Socket
 				// This calendar month's spend on billed providers, from sessions that ever used one.
 				const billed = sessions.filter((s) => s.cost !== undefined).map((s) => s.id);
 				const spend = billed.length === 0 ? {} : { spend: { month: await monthSpend(host, billed) } };
-				send(socket, { type: "sessions", sessions, colors: await host.colors.list(), ...spend });
+				const subscription = host.subscription.get();
+				send(socket, { type: "sessions", sessions, colors: await host.colors.list(), ...spend, ...(subscription === undefined ? {} : { subscription }) });
 				return finish([]);
 			}
 			case "stop":
