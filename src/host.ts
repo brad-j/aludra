@@ -27,6 +27,7 @@ import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
 import { createCheckpoints, restoreNoteText } from "./checkpoints.ts";
 import { pagesExtension } from "./pages.ts";
+import { subagentOf, subagentsExtension } from "./subagents.ts";
 import { claudeConfigDir, type Config, expandHome, THINKING, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
 import { invisibleNote, stripInvisible } from "./invisible.ts";
@@ -269,6 +270,18 @@ export const Sessions = defineDoc<{ sessions: Record<string, SessionRecord> }>({
 	initial: () => ({ sessions: {} }),
 });
 
+/**
+ * The session conversation `id` belongs to: its own record, or for a subagent (src/subagents.ts), its session's, so a
+ * child runs where its session runs and under the same rules.
+ */
+export async function recordOf(read: DocumentReader, id: ConversationId | number, ctx: Context = BACKGROUND_CONTEXT): Promise<SessionRecord | undefined> {
+	const sessions = (await read.snapshot(Sessions, ctx))?.sessions;
+	const own = sessions?.[String(id)];
+	if (own !== undefined) return own;
+	const child = await subagentOf(read, id, ctx);
+	return child === undefined ? undefined : sessions?.[String(child.session)];
+}
+
 export function conversationId(id: number): ConversationId {
 	// SAFETY: a session's id is the id Pi Durable gave its conversation, or a number from the user that's only looked up.
 	return id as ConversationId;
@@ -390,7 +403,7 @@ export async function openHost(options: HostOptions) {
 		{ path: resolve(config.dataDir, "aludra.sqlite"), what: "aludra's own sessions (Pi Durable on SQLite)" },
 	];
 	const sandboxOf = async ({ conversationId: id, read }: { conversationId: ConversationId; read: DocumentReader }, ctx: Context = context): Promise<{ sandbox: number; dir: string; branch: string; local?: string; scratch?: true; removed?: true; skills?: SkillInfo[] } | { sandbox: undefined; dir: string } | undefined> => {
-		const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
+		const record = await recordOf(read, id, ctx);
 		if (record === undefined || !isSandboxSession(record)) return undefined;
 		// Being made: nothing may run anywhere yet, here least of all.
 		if (record.sandbox === undefined) return { sandbox: undefined, dir: record.dir };
@@ -456,13 +469,25 @@ export async function openHost(options: HostOptions) {
 	registry.install(checkpoints.extension);
 	const pages = pagesExtension({ harness: () => opened!, context });
 	registry.install(pages.extension);
+	// The agent tool (src/subagents.ts). Children go without it and without publish_page, whose pages are filed by session.
+	const subagents = subagentsExtension({
+		harness: () => opened!,
+		model: () => {
+			const { provider, id } = config.subagents.model;
+			return models.getModel(provider, id) === undefined ? undefined : { provider, modelId: id };
+		},
+		without: () => [pages.extension],
+		context,
+	});
+	registry.install(subagents.extension);
+	registry.install(subagents.childContext);
 	// A ship's commands get a timeout, so a check that hangs in the sandbox can't hold the task (src/ship.ts).
 	registry.install(defineExtension({
 		name: "aludra-ship-timeout",
 		hooks: [hook(ToolTask, {
 			beforeTool: async (call, api, ctx) => {
 				if (call.name !== "bash") return undefined;
-				const record = (await api.snapshot(Sessions, ctx))?.sessions[String(api.conversationId)];
+				const record = await recordOf(api, api.conversationId, ctx);
 				if (record?.shipping === undefined) return undefined;
 				const args = shipTimeout(call);
 				// SAFETY: the call's own arguments, which are JSON, with a number added.
@@ -479,7 +504,7 @@ export async function openHost(options: HostOptions) {
 		hooks: [hook(ToolTask, {
 			beforeTool: async (call, api, ctx) => {
 				if (call.name !== "write" && call.name !== "edit") return undefined;
-				const record = (await api.snapshot(Sessions, ctx))?.sessions[String(api.conversationId)];
+				const record = await recordOf(api, api.conversationId, ctx);
 				if (record?.chat !== true || record.chatDir === undefined || typeof call.arguments.path !== "string") return undefined;
 				// The tools resolve a relative path against the chat's working directory, which is where it starts.
 				const target = realOrParent(resolve(record.dir, expandHome(call.arguments.path)));
@@ -488,8 +513,8 @@ export async function openHost(options: HostOptions) {
 				return { block: `${target} is outside this chat's own directory, ${record.chatDir}. ${CHAT_REFUSAL} Describe the change instead, so the user can start a task for it.` };
 			},
 		})],
-		sections: [section("linked", async ({ conversationId, read }) => (await read.snapshot(Sessions, context))?.sessions[String(conversationId)]?.linked), section("chat", async ({ conversationId, read }) => {
-			const record = (await read.snapshot(Sessions, context))?.sessions[String(conversationId)];
+		sections: [section("linked", async ({ conversationId, read }) => (await recordOf(read, conversationId, context))?.linked), section("chat", async ({ conversationId, read }) => {
+			const record = await recordOf(read, conversationId, context);
 			if (record?.chat !== true || record.chatDir === undefined) return undefined;
 			return [
 				"This is a chat: the user is thinking something through with you, asking about their projects, or investigating.",
@@ -507,10 +532,12 @@ export async function openHost(options: HostOptions) {
 		approvals: () => approvals!,
 		hosts: () => config.approvals.hosts,
 		approvalsOff: async (id, read, ctx) => {
-			const record = (await read.snapshot(Sessions, ctx))?.sessions[String(id)];
+			const record = await recordOf(read, id, ctx);
 			return isSandboxSession(record) && sandboxApprovals(record!) === "off";
 		},
-		pushRefused: async (id, read, ctx) => isWorktreeSession((await read.snapshot(Sessions, ctx))?.sessions[String(id)]),
+		pushRefused: async (id, read, ctx) => isWorktreeSession(await recordOf(read, id, ctx)),
+		// A subagent's approvals are its session's: asked there, and what the session always allows, the child does too.
+		sessionOf: async (id, read, ctx) => (await recordOf(read, id, ctx))?.id ?? Number(id),
 	}));
 
 	const harness = await Harness.open(
@@ -526,7 +553,7 @@ export async function openHost(options: HostOptions) {
 				if (sandbox !== undefined && sandbox.sandbox === undefined) throw new Error("This session's sandbox isn't ready yet, so its tools have nowhere to run.");
 				if (sandbox?.removed === true) throw new Error(`This session's sandbox was deleted when the session was archived, so its tools have nowhere to run. Its commits were fetched to ${sandbox.branch} in the project first. Start a new sandbox session to keep going.`);
 				if (sandbox !== undefined) return sandboxes.env(sandbox.sandbox, cwd ?? sandbox.dir);
-				const record = (await target.read.snapshot(Sessions, ctx))?.sessions[String(target.conversationId)];
+				const record = await recordOf(target.read, target.conversationId, ctx);
 				if (record?.worktreeRemoved === true) throw new Error(`This session's worktree was removed when the session was archived, so its tools have nowhere to run. Its commits are on ${worktreeBranch(record)} in the project. Start a new session to keep going.`);
 				if (isWorktreeSession(record)) return new NodeExecutionEnv({ cwd: cwd ?? record!.dir, shellEnv: WORKTREE_ENV });
 				if (record?.chat === true && record.chatDir !== undefined) {
@@ -1311,6 +1338,14 @@ export async function openHost(options: HostOptions) {
 		return found;
 	}
 
+	/** Subagent `id` (src/subagents.ts) and its conversation, or undefined when `id` isn't one. */
+	async function subagent(id: number) {
+		const found = await subagentOf(harness, id, context);
+		if (found === undefined) return undefined;
+		const child = await harness.conversation(conversationId(id), context);
+		return child === undefined ? undefined : { ...found, conversation: child };
+	}
+
 	/** Sends `content` to session `id`. A busy session queues it as a follow-up, or as a steer. */
 	async function submit(id: number, content: UserMessage["content"], options: { requestId?: string; steer?: boolean } = {}) {
 		const target = await conversation(id);
@@ -1685,6 +1720,7 @@ export async function openHost(options: HostOptions) {
 		config.approvals = next.approvals;
 		config.backup = next.backup;
 		config.archive = next.archive;
+		config.subagents = next.subagents;
 		config.model.thinking = next.model.thinking;
 		if (moved && loaded(provider)) {
 			config.model.provider = provider;
@@ -1847,6 +1883,7 @@ export async function openHost(options: HostOptions) {
 		/** Projects hidden from the lists (aludra.archivedProjects), by directory. */
 		projectArchive: { list: archivedProjects, set: archiveProject, onChange: onProjectArchive },
 		conversation,
+		subagent,
 		submit,
 		image,
 		videos,

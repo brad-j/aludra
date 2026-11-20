@@ -59,6 +59,8 @@ These wait for you before they run:
 - `git push`, in any form git parses as a push (`git -C dir push`, `/usr/bin/git push`, after `&&` or in a subshell);
 - `ssh`, `scp`, `rsync`, `sftp`, `mosh` or `sshfs` naming a host in `approvals.hosts`, as `host`, `user@host`, `host:path` or `host.domain`.
 
+A subagent's request is its session's: it's opened under the session, and what the session always allows, its subagents do too. A subagent runs where its session does, under the same rules (a sandbox, a worktree that can't push, a chat's read-only confinement).
+
 The request is stored, so a restart waits on the same one rather than asking again. It expires after `approvals.waitHours`. [using.md](using.md#approvals) covers answering them.
 
 A sandbox session asks nothing by default (`sandboxes.approvals: "off"`): its tools run in a VM with no git remotes, no keys and no route to the LAN or tailnet, so a push or an SSH to an approval host can't do anything there. Shipping, which does push, happens on this machine and is approved by asking for it. Set `ask`, or make the session with `approvals: "ask"`, to have it wait like any other.

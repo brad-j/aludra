@@ -7,6 +7,7 @@
 //     "approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
 //     "backup": { "dir": "/mnt/nas/aludra", "everyHours": 24, "keep": 7 },
 //     "archive": { "afterDays": 3 },
+//     "subagents": { "model": "claude-sonnet-5-5" },
 //     "mcp": { "write": false, "sandboxOnly": false, "worktreeOnly": false, "ship": false, "shipWorktrees": false, "allowNewProjects": false },
 //     "api": { "port": 8724, "users": ["you@example.com"] },
 //     "dataDir": "~/.local/share/aludra"
@@ -24,7 +25,9 @@
 // `model.id`. OpenAI's models run on the ChatGPT sign-in `aludra login openai` keeps, OpenRouter's on the key `aludra login openrouter` gets (src/login.ts). `claude.path` is the Claude Code that runs Claude's models, the user's own install
 // and login; a bare name is looked up on PATH. `claude.configDir` is the CLAUDE_CONFIG_DIR the host sets for itself at
 // start (src/main.ts) and Claude Code inherits, which picks the login. `backup` copies the database while the host runs (src/backup.ts); its directory is
-// backups/ in the data directory unless it names another disk or a synced folder.
+// backups/ in the data directory unless it names another disk or a synced folder. `subagents.model` is the model the
+// agent tool's children run on (src/subagents.ts), named as `model.id` is; one this host doesn't have falls back to the
+// session's own.
 //
 // The apps and `aludra config` change most settings while the host runs (src/settings.ts), so the host reads them from
 // its Config each time rather than keeping copies.
@@ -80,6 +83,8 @@ export type Config = {
 	backup: { dir: string; everyHours: number; keep: number };
 	/** Sessions idle `afterDays` with nothing waiting are archived (src/archive.ts); 0 turns it off. */
 	archive: { afterDays: number };
+	/** What the agent tool's children run on (src/subagents.ts). */
+	subagents: { model: ModelSetting };
 	/**
 	 * The MCP endpoint (src/mcp.ts): read-only unless `write`, which lets agents start, message and stop sessions. With
 	 * `sandboxOnly`, the sessions it starts and the ones its tools act on are only sandbox sessions; with `worktreeOnly`,
@@ -132,6 +137,7 @@ const DEFAULTS = {
 	approvals: { hosts: [], waitHours: 24 },
 	backup: { everyHours: 24, keep: 7 },
 	archive: { afterDays: 3 },
+	subagents: { model: { provider: "claude-bridge" as const, id: "claude-sonnet-5-5" } },
 	mcp: { write: false, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false },
 } satisfies Omit<Config, "workspaces" | "dataDir" | "backup" | "sandboxes"> & { backup: Omit<Config["backup"], "dir"> };
 
@@ -145,6 +151,7 @@ const settingsFile = object({
 	approvals: optional(object({ hosts: optional(array(string)), waitHours: optional(number) })),
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	archive: optional(object({ afterDays: optional(number) })),
+	subagents: optional(object({ model: optional(string) })),
 	mcp: optional(object({ write: optional(boolean), sandboxOnly: optional(boolean), worktreeOnly: optional(boolean), ship: optional(boolean), shipWorktrees: optional(boolean), allowNewProjects: optional(boolean) })),
 	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")), approvals: optional(literal("ask", "off")) })),
 	newProjects: optional(object({ root: string, owner: string })),
@@ -200,6 +207,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 		api: { ...DEFAULTS.api, ...file.api },
 		approvals: { ...DEFAULTS.approvals, ...file.approvals },
 		archive: { ...DEFAULTS.archive, ...file.archive },
+		subagents: { model: { ...DEFAULTS.subagents.model } },
 		mcp: { ...DEFAULTS.mcp, ...file.mcp },
 		...(file.sandboxes === undefined ? {} : { sandboxes: {
 			ssh: file.sandboxes.ssh,
@@ -222,6 +230,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 	if (file.model?.provider !== undefined && chosen.provider !== file.model.provider) errors.push(`model.id ${file.model.id} isn't a ${file.model.provider} model, as model.provider says`);
 	config.model.provider = chosen.provider;
 	config.model.id = chosen.id;
+	if (file.subagents?.model !== undefined) config.subagents.model = modelSetting(file.subagents.model, fallback, errors);
 	if (file.model?.choices !== undefined) config.model.choices = file.model.choices.map((choice) => modelSetting(choice, fallback, errors));
 	if (env.ALUDRA_MODEL === "faux") config.model = { ...config.model, provider: "faux", id: "faux-1", choices: [{ provider: "faux", id: "faux-1" }] };
 	if (env.ALUDRA_SANDBOXES !== undefined && env.ALUDRA_SANDBOXES !== "") {

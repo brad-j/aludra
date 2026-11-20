@@ -685,7 +685,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 	}
 
 	async function history(p: Json): Promise<Json> {
-		const { conversation } = await session(p.conversationId);
+		const { conversation } = await watchable(p.conversationId);
 		const before = typeof p.before === "number" ? p.before : Number.MAX_SAFE_INTEGER;
 		return itemsBefore(conversation, before, Math.min(Math.max(1, Number(p.limit ?? 100)), 500));
 	}
@@ -715,6 +715,9 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			// Messages take files, and long text becomes one (src/files.ts); a host from before them leaves this out.
 			// Sessions can publish pages (src/pages.ts); conversation.page fetches one.
 			pages: true,
+			// Sessions can hand tasks to subagents (src/subagents.ts): an agent call's details name the child, which
+			// conversation.watch opens.
+			subagents: true,
 			files: { maxFiles: MAX_FILES, maxBytes: MAX_FILE_BYTES, pasteBytes: PASTE_BYTES, keepDays: UPLOAD_DAYS, maxMessageBytes: MAX_MESSAGE_BYTES },
 			// Sessions may run in sandboxes (protocol section 10 item 19); a host without a sandbox host leaves this out.
 			...sandboxInfo(),
@@ -758,8 +761,21 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 
 	// Watching one session (sections 6.1 and 7)
 
+	/**
+	 * A session, or a subagent (src/subagents.ts) of one: its conversation, and for the snapshot its title, its session as
+	 * `parent`, and its session's project. Only watching and history open a subagent; every other method takes sessions.
+	 */
+	async function watchable(id: unknown) {
+		if (typeof id === "number" && (await host.sessions.get(id)) === undefined) {
+			const child = await host.subagent(id);
+			const record = child === undefined ? undefined : await host.sessions.get(child.session);
+			if (child !== undefined && record !== undefined) return { record, conversation: child.conversation, child: { title: child.title, parent: child.session } };
+		}
+		return { ...(await session(id)), child: undefined };
+	}
+
 	async function watchConversation(id: number, send: (events: Json[]) => Promise<void>): Promise<() => Promise<void>> {
-		const { record, conversation } = await session(id);
+		const { record, conversation, child } = await watchable(id);
 		let settings = await settingsOf(id);
 		let inbox = new Map<number, { text?: string; kind?: string }>();
 		let pending = await pendingApprovals(id);
@@ -772,7 +788,14 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 		await readInbox();
 		const translator = new DurableTranslator({
 			conversationId: id,
-			conversation: () => ({ id, title: summaries.get(id)?.title ?? record.title, archived: summaries.get(id)?.archived ?? record.archived === true, parent: null, ...(record.scratch === true ? {} : { project: record.project }), dir: record.dir }),
+			conversation: () => ({
+				id,
+				title: child?.title ?? summaries.get(id)?.title ?? record.title,
+				archived: summaries.get(record.id)?.archived ?? record.archived === true,
+				parent: child?.parent ?? null,
+				...(record.scratch === true ? {} : { project: record.project }),
+				dir: record.dir,
+			}),
 			inboxExtra: (submission) => inbox.get(submission),
 			settings: (agent) => ({ ...settings, stored: Object.fromEntries(["model", "thinkingLevel", "cwd", "tools", "instructions"].filter((k) => agent?.[k] !== undefined).map((k) => [k, agent[k]])) }),
 			approvals: () => pending,
@@ -878,7 +901,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			try {
 				switch (frame.method) {
 					case "conversation.watch": {
-						await session(p.conversationId);
+						await watchable(p.conversationId);
 						const id = `s${nextSubscription++}`;
 						subscriptions.set(id, async () => {});
 						respond({ subscription: id });

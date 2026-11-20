@@ -58,6 +58,12 @@ Sending a message while a call waits for approval refuses that call, so the run 
 
 Each session has a model and thinking level; a change applies from the next request (`POST /api/sessions/:id/agent`). Your pinned models (`model.choices`) come first, and any model of any provider the machine is signed in to can be picked, with prices where requests are billed. `aludra sessions` shows what a session has cost if it used OpenRouter. New sessions start with `model.id` and `model.thinking` from the settings.
 
+### Subagents
+
+A session can hand a self-contained task to a subagent with its `agent` tool: exploring a codebase, reading many files, or a separate piece of the work. The subagent is a fresh agent with the session's tools, directory and rules, on the model `subagents.model` names (Sonnet by default), and only its final answer comes back to the session, so the detail doesn't fill the session's context. The model decides when to use one, and it can start several at once. You can ask for it too ("use subagents to survey each package").
+
+A subagent can't start subagents of its own. Its approvals are the session's: a `git push` it makes waits for you as the session's would, and stopping the session stops it. Subagents aren't sessions, so they're not in the lists. amyrlin shows the agent call in the session's transcript, and opens the subagent's own transcript from it. Each subagent's spending counts toward its session's.
+
 ### Pages
 
 Ask for a chart, a table, a diagram or a mockup ("show the build times as a chart") and the agent can publish a page: a self-contained HTML document that amyrlin shows in the session, above the written answer. Local images the page names are copied into it, so it keeps working after the files move. A page can run scripts but can't load anything from the network, so charts are drawn inline. Pages are kept with their session. From a terminal, `aludra page --session ID N` writes page N to a file and prints its path, to open in a browser.

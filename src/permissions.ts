@@ -336,6 +336,8 @@ export type PermissionOptions = {
 	approvalsOff?: (id: ConversationId, read: DocumentReader, context: Context) => Promise<boolean>;
 	/** Whether conversation `id` may never push (a worktree session), which refuses a push rather than asking; read at each call. */
 	pushRefused?: (id: ConversationId, read: DocumentReader, context: Context) => Promise<boolean>;
+	/** The session conversation `id` belongs to, whose approvals it uses: itself, or a subagent's session. Default: itself. */
+	sessionOf?: (id: ConversationId, read: DocumentReader, context: Context) => Promise<number>;
 };
 
 export function permissionsExtension(options: PermissionOptions) {
@@ -374,10 +376,11 @@ export function permissionsExtension(options: PermissionOptions) {
 		}
 		if ((await options.approvalsOff?.(api.conversationId, api, context)) === true) return undefined;
 		const approvals = options.approvals();
-		if ((await approvals.allowed(api.conversationId)).includes(summary)) return undefined;
+		const session = (await options.sessionOf?.(api.conversationId, api, context)) ?? Number(api.conversationId);
+		if ((await approvals.allowed(session)).includes(summary)) return undefined;
 		// The same id for every run of this call's phase, so a restart doesn't ask twice.
 		const id = await api.memo<string>("aludra.approval", randomBytes(3).toString("hex"), context);
-		const request = await approvals.open(id, { conversationId: api.conversationId, taskId: api.taskId }, summary, command);
+		const request = await approvals.open(id, { conversationId: session, taskId: api.taskId }, summary, command);
 		const done = await approvals.wait(request, signalOf(api, context));
 		if (done.status === "approved") return undefined;
 		const why = done.status === "denied" ? "the user said no"

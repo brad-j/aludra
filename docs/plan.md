@@ -10,9 +10,9 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Later
 
-### subagents: An agent tool with children shown under the call
+### subagents-clients: Show subagents under their call in Verin and loial
 Kind: step
-Deferred 2026-10-12, briefly moved up and put back 2026-11-15: not needed yet. Opus 5.5's 1M window with compaction keeps a session's context, Verin already runs several coding sessions in parallel and shows each, and every child would spend the five-hour window Verin shares. Pi Durable 1.3.0, already pinned, has what it would need (the documented subagent pattern and codemode fan-out), so it's ready to build when it pays off. Reasons to pick it up: sessions often compacting partway through a task because exploring filled the context, or one task regularly split by hand into several Verin sessions whose results are put together by hand. Before building, decide: children on a cheaper model or the parent's, one level deep or more, and how Verin and loial show them.
+aludra's side is done (subagents): an `agent` tool item's `details.conversationId` names the child, and `conversation.watch` on it streams the child's transcript with `parent` set. Verin and loial draw the child's activity under the call, folded by default, and open it full size. Nothing to do in aludra unless they need more, such as the child's state in the call's details while it runs.
 
 ### usage-meter: Show the subscription's windows
 Kind: step
@@ -82,6 +82,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Verin now covers voice and the apps, so these may not be needed.
 
 ## Done
+
+### subagents: An agent tool with children shown under the call
+Kind: step · Done: 2026-11-19
+Sessions get an `agent` tool (`src/subagents.ts`): a child conversation owned by the call, on `subagents.model` (default Sonnet 5.5, falling back to the session's model), one level deep, running where its session runs with its session's approvals. The call's details carry the child's ID; `/amyrlin`'s `conversation.watch` and `conversation.history` open a child with `parent` set, and children stay out of the lists. Drawing children under the call in Verin and loial is subagents-clients.
 
 ### loial-followups: Titles, chat refusals, worktree checks and chats on macOS
 Kind: request · From: loial · Done: 2026-11-19

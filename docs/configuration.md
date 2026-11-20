@@ -28,6 +28,7 @@ The first of these that's set:
 	"claude": { "path": "claude" },
 	"approvals": { "hosts": ["prod-db", "router"], "waitHours": 24 },
 	"backup": { "dir": "/mnt/backup/aludra", "everyHours": 24, "keep": 7 },
+	"subagents": { "model": "claude-sonnet-5-5" },
 	"dataDir": "~/aludra-data"
 }
 ```
@@ -46,6 +47,7 @@ Only `workspaces` is required. `aludra serve` and `aludra service install` refus
 | `approvals.hosts`, `approvals.waitHours` | At once, for calls made after the change. |
 | `backup.dir`, `backup.everyHours`, `backup.keep` | At the next hourly check. |
 | `archive.afterDays` | At the next hourly check. |
+| `subagents.model` | For subagents started after the change. |
 
 `api.users`, `api.port`, `claude.path`, `claude.configDir` and `dataDir` change only in the file, followed by a restart. A wrong login or port would lock every client out with no way back in from one, a new data directory would strand the database, and the `claude` settings pick the program the host runs and the account it bills.
 
@@ -119,6 +121,10 @@ aludra runs the Claude Code you installed and logged in to, as `claude -p`, for 
 ### `archive`
 
 - `afterDays`: sessions idle this many days, with nothing waiting for your approval, are archived. Checked a minute after start and hourly. A session brought back from the archive by hand isn't archived again until someone archives it. Default `3`; `0` turns it off.
+
+### `subagents`
+
+- `model`: the model the `agent` tool's subagents run on, named as `model.id` is (a bare ID of `model.provider`, or `provider/id`). Each subagent spends the same Claude plan or API account as its session, so a smaller model goes further. One this host doesn't have, such as a Claude model on a host without Claude Code, falls back to the session's own model. Default `claude-sonnet-5-5`.
 
 ### `mcp`
 

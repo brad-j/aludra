@@ -54,9 +54,27 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 3. **App.** Done 2026-10-11 (see "Milestone 3"); running on Brad's phone over Tailscale. TanStack Start on the host's API: sessions, transcript, steer, stop, follow-up, new session, model and thinking. Checked with Playwright at phone sizes and on the phone over Tailscale.
 4. **Ideas, approvals and push.** Done 2026-10-11 (see "Milestone 4"); notifications reach Brad's iPhone.
 5. **Changes view:** the session's diff since it started. Built 2026-10-11 (see "Milestone 5").
-6. **Subagents:** deferred 2026-10-12, now `subagents` in the plan. An `agent` tool on Pi Durable's documented subagent pattern (README, "Abort and Subagents"), children shown under the call. Brad's terminal pi has no subagents either, Opus 5.5 has a 1M window with compaction working, and each child spends the same five-hour window, which aludra can't show yet. Mario's durable codemode wasn't in Pi Durable 1.1.0; it arrived in 1.2.0 (`@earendil-works/pi-durable/codemode`), so script fan-out no longer waits on Pi. Before this: the systemd unit for the host, the subscription meter, and a live run of the app on the real bridge.
+6. **Subagents:** built 2026-11-19 (see "Subagents"). Deferred 2026-10-12. An `agent` tool on Pi Durable's documented subagent pattern (README, "Abort and Subagents"), children shown under the call. Brad's terminal pi has no subagents either, Opus 5.5 has a 1M window with compaction working, and each child spends the same five-hour window, which aludra can't show yet. Mario's durable codemode wasn't in Pi Durable 1.1.0; it arrived in 1.2.0 (`@earendil-works/pi-durable/codemode`), so script fan-out no longer waits on Pi. Before this: the systemd unit for the host, the subscription meter, and a live run of the app on the real bridge.
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
+
+## Subagents (2026-11-19)
+
+Brad picked subagents up from the plan and chose, out of the options put to him:
+
+- **Children on Sonnet 5.5, not the parent's model.** A `subagents.model` setting, live and editable, default `claude-sonnet-5-5`. Every child spends the same five-hour Claude window the parent and every Verin session share, which aludra doesn't show yet (`usage-meter`), and exploring and summarizing rarely need Opus. The tool takes no model argument, so the model can't spend Opus on children. A setting naming a model this host doesn't have falls back to the session's model rather than failing the call.
+- **One level deep.** A child goes without the `agent` tool (and is refused if it somehow has it), so the cost of one call is bounded and the UI has one level to draw. That's also Pi Durable's example.
+- **Display: aludra exposes, clients draw.** The call's details name the child; `/amyrlin`'s `conversation.watch` and `conversation.history` open it with `parent` set; children stay out of `conversations.list`, `host.watch` and search. Drawing them under the call is Verin's and loial's work (`subagents-clients`).
+
+Built the same day (`src/subagents.ts`):
+
+- **Foreground, on Pi Durable's documented pattern.** The child is owned by the tool task, so stopping the session stops it and the session stays busy until it's done; the tool is replay-safe, finding its child by owner task and its submission by request ID after a restart. Background subagents (Pi Durable's example 23: messaged, listed, outliving a stop) were left for later; the foreground tool covers both reasons the plan gave for building this.
+- **No session record for a child.** A child maps to its session in `aludra.subagents`, and `recordOf` resolves a child to its session's record everywhere the host decides how a conversation runs: its environment (sandbox, worktree, chat confinement), its prompt sections, the ship timeout and the permissions hook. So a child in a sandbox session runs in that sandbox, a worktree session's child can't push, and a chat's child is read-only, without each of those learning about children. Making children sessions would have put them in every list, archive pass and summary, which is what Brad didn't want.
+- **Approvals are the session's.** A child's request is opened under its session's ID, so it shows where the user is looking, puts the session in `waiting`, and what the session always allows the child does too. The request keeps the child's tool task, so it's closed when the child's call ends.
+- **No publish_page in children.** Pages are filed by session ID and shown above the session's answer; a child's would be filed under a conversation no client lists.
+- **The child's spending is the call's usage**, so the session's ledger and summary count it under the `agent` tool.
+- **A prompt section for children only**, telling them their answer goes back to another agent and to skip the plan and result blocks. It lives in its own extension, since children go without the tool's.
+- Tested with the faux model: the child's model, directory, tools and prompt, two children in one turn, a nested call refused, the fallback model, a child's push waiting as the session's and stopped with it, and `/amyrlin` opening a child. Not yet run on the real Claude Code provider.
 
 ## Worktree ships push from the Mac (2026-11-17)
 

@@ -45,6 +45,8 @@ const SPECS: readonly Spec[] = [
 		help: "The thinking level new sessions start on." },
 	{ key: "model.choices", label: "Pinned models", kind: "models", editable: true, get: (c) => c.model.choices.map((m) => `${m.provider}/${m.id}`), default: () => DEFAULT_CHOICES,
 		help: "Models at the top of the model pickers. The default model is added if it isn't listed." },
+	{ key: "subagents.model", label: "Subagent model", kind: "model", editable: true, get: (c) => `${c.subagents.model.provider}/${c.subagents.model.id}`, default: () => "claude-bridge/claude-sonnet-5-5",
+		help: "The model the agent tool's subagents run on. Each subagent spends the same plan as its session, so a smaller model goes further. One this host doesn't have falls back to the session's model." },
 	{ key: "approvals.hosts", label: "Approval hosts", kind: "list", editable: true, get: (c) => [...c.approvals.hosts], default: () => [],
 		help: "Hosts whose ssh, scp, rsync, sftp, mosh or sshfs commands wait for approval. git push always waits." },
 	{ key: "approvals.waitHours", label: "Approval wait (hours)", kind: "number", editable: true, get: (c) => c.approvals.waitHours, default: () => 24,
