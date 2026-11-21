@@ -1,6 +1,6 @@
-// Protocol v1 translation (amyrlin's docs/protocol.md, sections 4, 6.1 and 7): pi-durable watchEvents() output
-// into the frames the amyrlin Mac app reads. Ported from amyrlin's server/src/translate.mjs; test/amyrlin.test.ts checks
-// it against amyrlin's recorded fixtures and their expected translation, frame by frame.
+// Protocol v1 translation (docs/protocol.md, sections 4, 6.1 and 7): pi-durable watchEvents() output into the
+// frames a client reads. test/app.test.ts checks it against the recorded fixtures (test/fixtures/durable-1.1.0) and
+// their expected translation (test/fixtures/wire-v1), frame by frame.
 //
 // The endpoint passes hooks for what watchEvents() doesn't carry: the session's title, inbox text, resolved settings
 // and pending approvals. Without hooks, approvals come from the recorder's notes in the fixtures (12, 15 and 16).

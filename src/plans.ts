@@ -1,5 +1,5 @@
 // A project's plan, docs/plan.md, read from its working copy for read_plan over MCP (src/mcp.ts) and projects.plan on
-// /amyrlin (its items, for an app's list of what to start), so an agent on
+// /app (its items, for an app's list of what to start), so an agent on
 // another machine sees the plan as it is on this one, unpushed edits included. Only that one file: a
 // docs or docs/plan.md that's a symbolic link, or resolves outside the project, isn't followed, and a plan over
 // MAX_PLAN bytes is refused rather than cut, since half a plan reads as a whole one. Nothing here writes it.

@@ -11,7 +11,7 @@
 // A child has no session record. `Subagents` maps it to its session, and the host looks a child's session up through it
 // (recordOf in src/host.ts), so a child runs where its session runs (a sandbox, a worktree, a chat's confinement), its
 // approvals are its session's, and it gets its session's prompt sections. It's left out of the session lists; the call's
-// details carry its conversation ID, and /amyrlin's conversation.watch opens it with `parent` set.
+// details carry its conversation ID, and /app's conversation.watch opens it with `parent` set.
 import type { Context } from "@earendil-works/chord/context";
 import { type AssistantMessage, Type, type Usage } from "@earendil-works/pi-ai";
 import { type ConversationId, configure, defineDoc, defineExtension, defineTool, type DocumentReader, type Extension, type Harness, type ModelRef, section, UsageDoc } from "@earendil-works/pi-durable";

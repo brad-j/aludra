@@ -58,7 +58,17 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
-## MCP write side trimmed (2026-11-20)
+## amyrlin retired (2026-11-20)
+
+amyrlin, the macOS client the protocol was written for, is retired, and Brad decided its name comes out of aludra (plan: `retire-amyrlin`). His calls, 2026-11-20:
+
+- **The path is `/app`, the protocol "aludra's app protocol v1".** Named for what it is beside `/api` and `/mcp`, so it doesn't go stale with a client again. `src/amyrlin/` is `src/app/`, `createAmyrlinEndpoint` is `createAppEndpoint`, the tests and fixture scripts are `app.test.ts`, `app-capture.ts` and `app-export-wire.ts`, and log lines say `[app]`. Nothing on the wire changed: the frames, methods and `hello` are the same, so a client changes only its path.
+- **`/amyrlin` stays as an alias** until loial and pi-desktop have moved to `/app` on egwene and the Mac, then goes. Both paths take the same login and `Origin` checks; a test pins it.
+- **The `aludra.amyrlin` document kind stays.** It's stored data, the host's ID that clients key machines by and the `conversations.create` request IDs already handled; renaming it would need a migration, and getting one wrong changes the host's identity for every client. The code calls it `HostDoc`, with a comment saying why the kind keeps the old name.
+- **The spec and fixtures live here.** amyrlin's `docs/protocol.md` is `docs/protocol.md`, reworded where it named the app as the client and with Brad's paths and login out of the examples; its sections and the "Mac app" history in section 10 stay as written. `test/fixtures/` holds `durable-1.1.0` (with its README), `wire-v1` and now `server-v1`, and the scripts write there by default, so nothing reads `../amyrlin`. amyrlin's recorder (`scratch/recorder`) wasn't brought over: re-recording would be for a new Pi Durable, with a recorder written for it.
+- **The repository and the checkout.** brad-j/amyrlin is archived on GitHub, and `~/westwood/Projects/Software/amyrlin` is removed once nothing reads it (`~/westwood/MIGRATIONS.md`).
+- `decisions.md`'s history keeps the name where it describes what happened then.
+
 
 Lan and Verin, the only callers of most of `/mcp`'s write side, are retired, so Brad approved removing what only they used (plan: `retire-agent-mcp`):
 

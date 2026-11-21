@@ -19,7 +19,7 @@
 // data directory, which is ~/Library/Application Support/aludra on macOS and $XDG_DATA_HOME/aludra (or
 // ~/.local/share/aludra) elsewhere.
 //
-// `api.users` are the Tailscale logins the app's API and the amyrlin endpoint let in (src/api.ts); without any, the API
+// `api.users` are the Tailscale logins the API and the app endpoint let in (src/api.ts); without any, the API
 // doesn't start, since every request would be refused. Everyone listed sees and runs every session. `model.choices`
 // are the models the app offers, each `provider/id` or a bare ID of `model.provider` (claude-bridge unless set); so is
 // `model.id`. OpenAI's models run on the ChatGPT sign-in `aludra login openai` keeps, OpenRouter's on the key `aludra login openrouter` gets (src/login.ts). `claude.path` is the Claude Code that runs Claude's models, the user's own install

@@ -137,7 +137,7 @@ test("a child's git push waits for approval as its session's, and stopping the s
 	assert.ok(child !== undefined);
 });
 
-test("/amyrlin opens a child with conversation.watch and conversation.history, its session as parent; other methods don't", async (t) => {
+test("/app opens a child with conversation.watch and conversation.history, its session as parent; other methods don't", async (t) => {
 	const { models: catalog, model } = models();
 	const { host, dir } = await testHost(t, { models: catalog, model, settings: { subagents: { model: "faux/faux-2" } } });
 	const session = await host.sessions.create(makeProject(dir, "one"), "look");
@@ -146,7 +146,7 @@ test("/amyrlin opens a child with conversation.watch and conversation.history, i
 	const server = createApi(host, { users: ["you@example.com"], name: "test-host" });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
-	const ws = new WebSocket(`ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin`, { headers: { "tailscale-user-login": "you@example.com" } });
+	const ws = new WebSocket(`ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/app`, { headers: { "tailscale-user-login": "you@example.com" } });
 	t.after(() => ws.close());
 	const frames: { type: string; id?: string; result?: Record<string, unknown>; error?: { code: string }; events?: { type: string; conversation?: Record<string, unknown>; items?: unknown[] }[] }[] = [];
 	ws.on("message", (data) => frames.push(JSON.parse(String(data))));

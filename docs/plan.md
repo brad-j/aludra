@@ -6,14 +6,13 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ### retire-amyrlin: Take amyrlin's name out of aludra
 Kind: step
-amyrlin, the macOS client, is retired (2026-11-20), but aludra still carries its name in about 265 places: the `/amyrlin` WebSocket path loial and pi-desktop use, `src/amyrlin/`, `createAmyrlinEndpoint`, the `aludra.amyrlin` Durable document kind, comments and docs ("amyrlin's protocol v1"), `test/fixtures/amyrlin/`, and `scripts/amyrlin-capture.ts` and `amyrlin-export-wire.ts`, which read `../amyrlin/fixtures`. The protocol's spec is amyrlin's `docs/protocol.md` (623 lines), in the retired checkout.
+amyrlin, the macOS client, is retired (2026-11-20). Brad's calls (decisions.md, "amyrlin retired"): the path is `/app` and the protocol "aludra's app protocol v1"; the `aludra.amyrlin` document kind stays; brad-j/amyrlin is archived; the checkout is removed once nothing reads it.
 
-1. Move the spec into aludra (`docs/protocol.md`), and copy amyrlin's `fixtures/` (`durable-1.1.0`, `wire-v1`, `server-v1`) into `test/fixtures/`, so nothing reads `../amyrlin`. Point the fixture scripts at aludra's own copies, or drop the ones only amyrlin needed.
-2. Rename the code: `src/amyrlin/` and its exports, comments and docs, under the name Brad picks for the protocol.
-3. Serve the protocol at a new path (Brad picks it) and keep `/amyrlin` as an alias until loial and pi-desktop have moved (loial/retire-amyrlin, pi-desktop/retire-amyrlin), on egwene and the Mac. Then remove the alias.
-4. The `aludra.amyrlin` document kind is stored data (the host's ID and handled request IDs). Leave it, or migrate it, only with Brad's say-so.
-5. Sync aludra-site's docs (`node scripts/sync-docs.ts ../aludra` there) and rebuild.
-6. Asks for Brad: the GitHub repository `brad-j/amyrlin` is public and not archived; archive it, make it private, or delete it. Removing `~/westwood/Projects/Software/amyrlin` needs his approval and an entry in `~/westwood/MIGRATIONS.md`.
+1. Done: the spec is `docs/protocol.md` and the fixtures are in `test/fixtures/` (`durable-1.1.0`, `wire-v1`, `server-v1`); the scripts write there. The code, tests and docs say `/app`, `src/app/` and `createAppEndpoint`, and `/app` is served with `/amyrlin` as an alias.
+2. Install on egwene and the Mac (the Mac's `~/1-code/aludra` is at b6fb135, so update it first).
+3. Once loial and pi-desktop use `/app` (loial/retire-amyrlin, pi-desktop/retire-amyrlin), remove the alias from `src/api.ts` and its test, and the docs' mentions of it, and install again.
+4. Sync aludra-site's docs (`node scripts/sync-docs.ts ../aludra` there) and rebuild. Its docs list may want `protocol.md`.
+5. Archive brad-j/amyrlin, then remove `~/westwood/Projects/Software/amyrlin` with an entry in `~/westwood/MIGRATIONS.md`.
 
 ## Next
 

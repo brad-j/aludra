@@ -1,6 +1,6 @@
 // Visual replies: a page the agent makes, such as a chart, a table, a diagram or a mockup, shown in the session above
 // its written answer. The agent calls `publish_page` with a self-contained HTML document; the host seals it and keeps
-// it with the session, and amyrlin fetches it over its socket (`conversation.page`) and shows it in a web view. Nothing
+// it with the session, and a client fetches it over the app socket (`conversation.page`) and shows it in a web view. Nothing
 // serves pages over HTTP: aludra still serves no web content (docs/plan.md, "Visual replies").
 //
 // Sealing makes a page stand alone and keeps it off the network. Local images it names by path (in `src` attributes and

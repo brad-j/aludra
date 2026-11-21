@@ -172,7 +172,7 @@ async function api(config: Config): Promise<Check[]> {
 	if (!servesPort(serve.stdout, config.api.port)) return [...checks, { status: "warn", area: "api", detail: `tailscale serve isn't sending anything to port ${config.api.port}; run: ${fix}` }];
 	return [
 		...checks,
-		{ status: "ok", area: "api", detail: `https://${self.dnsName}/api is the API; the Mac app adds wss://${self.dnsName}/amyrlin` },
+		{ status: "ok", area: "api", detail: `https://${self.dnsName}/api is the API; loial adds wss://${self.dnsName}/app` },
 	];
 }
 

@@ -28,7 +28,7 @@ Runs the host in the background and at login: a launchd agent on macOS, a system
 
 ### `aludra serve`
 
-Runs the host in the foreground: the sessions, the CLI's socket, and (with `api.users` set) the API and amyrlin's endpoint on `127.0.0.1:<api.port>`. Ctrl+C stops it; running sessions continue at the next start. The service runs this command. Use it directly to watch the host's log in a terminal, or on a platform without launchd or systemd.
+Runs the host in the foreground: the sessions, the CLI's socket, and (with `api.users` set) the API and the app endpoint on `127.0.0.1:<api.port>`. Ctrl+C stops it; running sessions continue at the next start. The service runs this command. Use it directly to watch the host's log in a terminal, or on a platform without launchd or systemd.
 
 ### `aludra login openai | openrouter` and `aludra logout openai | openrouter`
 

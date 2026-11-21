@@ -27,7 +27,7 @@ From a terminal:
 aludra ask --project site "Why does the build fail on main?"
 ```
 
-A session is titled from its first message: at first its first line, then, a second or two later, a short title a model writes, such as "Feature backlog: shortcuts, editable ideas". The smallest model on hand writes it (Claude Haiku through Claude Code, or the cheapest OpenAI model you offer), as a one-off request on your plan. If no model answers, the first line stays. A title you set yourself is never replaced on its own. When a session has moved on, have the title written again from the whole conversation: `aludra retitle --session ID`, `POST /api/sessions/:id/retitle` or `conversations.retitle` on `/amyrlin`. That replaces any title, yours too. Rename it from a client's session menu or by double-clicking its header there, or with `POST /api/sessions/:id/title`.
+A session is titled from its first message: at first its first line, then, a second or two later, a short title a model writes, such as "Feature backlog: shortcuts, editable ideas". The smallest model on hand writes it (Claude Haiku through Claude Code, or the cheapest OpenAI model you offer), as a one-off request on your plan. If no model answers, the first line stays. A title you set yourself is never replaced on its own. When a session has moved on, have the title written again from the whole conversation: `aludra retitle --session ID`, `POST /api/sessions/:id/retitle` or `conversations.retitle` on `/app`. That replaces any title, yours too. Rename it from a client's session menu or by double-clicking its header there, or with `POST /api/sessions/:id/title`.
 
 ### The transcript
 
@@ -114,7 +114,7 @@ The changes are the project's files now against a snapshot taken when the sessio
 
 ### Searching
 
-`aludra search WORDS...`, `GET /api/search?q=` and `messages.search` on `/amyrlin` find messages and answers with every word you give, across every session (archived ones too) or in one. The index holds what you and the agent said, not tool calls or command output, and keeps up as sessions run.
+`aludra search WORDS...`, `GET /api/search?q=` and `messages.search` on `/app` find messages and answers with every word you give, across every session (archived ones too) or in one. The index holds what you and the agent said, not tool calls or command output, and keeps up as sessions run.
 
 ### Checkpoints
 
@@ -130,7 +130,7 @@ Each project has a color hashed from its name, the same in every client and the 
 
 ## Settings
 
-`aludra config set`, `settings.set` on `/amyrlin` and `POST /api/settings` change the host's settings: workspaces and their roots, the default model and thinking, pinned models, approval hosts and backups. Most apply at once, so a new root's projects are there straight away; any that need a restart say so. The Tailscale logins, the port, Claude Code's path and the data directory change only in the settings file. [configuration.md](configuration.md#changing-settings-while-the-host-runs) has the details.
+`aludra config set`, `settings.set` on `/app` and `POST /api/settings` change the host's settings: workspaces and their roots, the default model and thinking, pinned models, approval hosts and backups. Most apply at once, so a new root's projects are there straight away; any that need a restart say so. The Tailscale logins, the port, Claude Code's path and the data directory change only in the settings file. [configuration.md](configuration.md#changing-settings-while-the-host-runs) has the details.
 
 ## Notifications
 
@@ -144,7 +144,7 @@ They go by Web Push, to devices signed up with `POST /api/push/subscribe`, throu
 
 ## loial
 
-loial is the desktop client, for Mac and Linux. It connects to every machine you add and shows all their sessions together, as tasks (in a sandbox or a git worktree) and read-only chats, and ships a task's work. It speaks the `/amyrlin` endpoint and uses only what its `docs/protocol.md` lists. Forking sessions isn't an aludra feature.
+loial is the desktop client, for Mac and Linux. It connects to every machine you add and shows all their sessions together, as tasks (in a sandbox or a git worktree) and read-only chats, and ships a task's work. It speaks the `/app` endpoint and uses only what its `docs/protocol.md` lists. Forking sessions isn't an aludra feature.
 
 ## The CLI
 

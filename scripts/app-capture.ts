@@ -1,6 +1,6 @@
-// Records one session's /amyrlin frames from an aludra host with a faux model, for the amyrlin Mac app's tests
-// (amyrlin's fixtures/server-v1/session.jsonl, read by ServerCaptureTests). One frame's events per line.
-//   node --no-warnings scripts/amyrlin-capture.ts ../amyrlin/fixtures/server-v1/session.jsonl
+// Records one session's /app frames from an aludra host with a faux model, for clients' tests (loial reads a copy of
+// test/fixtures/server-v1/session.jsonl). One frame's events per line.
+//   node --no-warnings scripts/app-capture.ts [test/fixtures/server-v1/session.jsonl]
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -10,11 +10,11 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { WebSocket } from "ws";
 import { createApi } from "../src/api.ts";
-import type { Json } from "../src/amyrlin/translate.ts";
+import type { Json } from "../src/app/translate.ts";
 import { configFor } from "../src/config.ts";
 import { openHost } from "../src/host.ts";
 
-const out = resolve(process.argv[2] ?? "session.jsonl");
+const out = resolve(process.argv[2] ?? join(import.meta.dirname, "..", "test", "fixtures", "server-v1", "session.jsonl"));
 const USER = "you@example.com";
 const dir = mkdtempSync(join(tmpdir(), "aludra-capture-"));
 const projectDir = join(dir, "Projects", "Software", "demo");
@@ -36,7 +36,7 @@ const host = await openHost({ config, models, model: { provider: "faux", modelId
 host.resume();
 const api = createApi(host, { users: [USER], name: "capture" });
 await new Promise<void>((done) => api.listen(0, done));
-const url = `ws://127.0.0.1:${(api.server.address() as AddressInfo).port}/amyrlin`;
+const url = `ws://127.0.0.1:${(api.server.address() as AddressInfo).port}/app`;
 
 const ws = new WebSocket(url, { headers: { "tailscale-user-login": USER } });
 await new Promise((done) => ws.once("open", done));

@@ -1,6 +1,6 @@
 # aludra
 
-A coding agent Brad reaches from his Mac and the terminal: Pi Durable on egwene, Opus 5.5 through `pi-claude-code` (his own Claude Code, `claude -p`) on his Claude subscription, an HTTP API and the `/amyrlin` endpoint loial uses, over Tailscale. It has no web app.
+A coding agent Brad reaches from his Mac and the terminal: Pi Durable on egwene, Opus 5.5 through `pi-claude-code` (his own Claude Code, `claude -p`) on his Claude subscription, an HTTP API and the `/app` endpoint loial and pi-desktop use (its protocol is docs/protocol.md), over Tailscale. It has no web app.
 
 - [docs/decisions.md](docs/decisions.md) holds the decisions, architecture, milestones and spike findings, and [docs/plan.md](docs/plan.md) the open work in the plan format. Read both before starting work; record a decision in decisions.md and move a plan item to Done when it's finished.
 - The rest of `docs/` describes aludra as it is now: setup, configuration, using it, the CLI, security, operations, architecture, the API and development (the README indexes them). Update the matching doc in the same change when a setting, command, endpoint, permission rule or behavior it describes changes. Keep them general: nothing about Brad's machines, logins or homelab, which belong in decisions.md, plan.md or here.

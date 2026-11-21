@@ -260,7 +260,7 @@ export async function serve(config: Config) {
 	const watchers = new Set<Socket>();
 	const host = await openHost({ config });
 	host.resume();
-	// The live feed behind /api/live and the amyrlin endpoint.
+	// The live feed behind /api/live and the app endpoint.
 	const live = createLive(host);
 	// A sandbox session's commits come home when its run ends (src/sandbox-sync.ts).
 	const sandboxSync = sandboxSyncAfterRuns(host, () => config.sandboxes?.afterRun);

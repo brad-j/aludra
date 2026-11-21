@@ -37,7 +37,7 @@ Only `workspaces` is required. `aludra serve` and `aludra service install` refus
 
 ## Changing settings while the host runs
 
-`POST /api/settings`, `aludra config set` and `settings.set` on `/amyrlin` change these settings and save them to the file:
+`POST /api/settings`, `aludra config set` and `settings.set` on `/app` change these settings and save them to the file:
 
 | Setting | Takes effect |
 | --- | --- |
@@ -70,8 +70,8 @@ Projects are read from disk each time they're listed, so a new folder under a ro
 
 ### `api`
 
-- `users`: the Tailscale logins let in, such as `["you@example.com"]`. Default: none, and with none the API and amyrlin's endpoint stay off. Everyone listed sees and runs every session on this machine.
-- `port`: the loopback port the API and amyrlin's endpoint listen on. Default `8724`. Point `tailscale serve` at the same port.
+- `users`: the Tailscale logins let in, such as `["you@example.com"]`. Default: none, and with none the API and the app endpoint stay off. Everyone listed sees and runs every session on this machine.
+- `port`: the loopback port the API and the app endpoint listen on. Default `8724`. Point `tailscale serve` at the same port.
 
 An old single `api.user` is an error rather than being ignored, since ignoring it would quietly turn the API off.
 

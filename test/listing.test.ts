@@ -61,14 +61,14 @@ test("long titles and lines are cut to the width; ages stay at the right edge", 
 });
 
 test("colors follow the terminal: none when plain, the project's hue and the state's ink when not", () => {
-	const sessions = [session(1, "aludra", "failed", 3), session(2, "amyrlin", "done", 4)];
+	const sessions = [session(1, "aludra", "failed", 3), session(2, "pi-desktop", "done", 4)];
 	const plain = renderSessions(sessions, {}, { depth: 1, width: 80 }, now);
 	assert.ok(plain.every((line) => !line.includes("\x1b")));
 	assert.ok(renderSessions([session(3, "a", "done", 0, { title: "z".repeat(200) })], {}, { depth: 1, width: 50 }, now).every((line) => !line.includes("\x1b")), "nor when cut");
 
 	const truecolor = renderSessions(sessions, {}, { depth: 24, width: 80 }, now);
 	assert.deepEqual(truecolor.map(stripTerminalSequences), plain, "the same text under the color");
-	// amyrlin's hue is 300, the accent violet the Mac app gives it; failed is the app's red.
+	// pi-desktop's hue is 300, the accent violet; failed is loial's red.
 	assert.ok(truecolor.some((line) => line.includes(`38;2;${oklchToRgb([0.8, 0.12, 300]).join(";")}m`)));
 	assert.ok(truecolor.some((line) => line.includes(`\x1b[38;2;${oklchToRgb([0.72, 0.15, 22]).join(";")}m⊘`)));
 	// A picked hue wins over the name's.

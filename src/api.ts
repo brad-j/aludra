@@ -25,13 +25,14 @@
 //   POST /api/push/test
 //   WS   /api/live                        ServerEvent out, ClientEvent in (src/api-types.ts)
 //
-//   WS   /amyrlin                         the amyrlin Mac app's protocol (src/amyrlin/endpoint.ts)
+//   WS   /app                             aludra's app protocol (src/app/endpoint.ts, docs/protocol.md); /amyrlin is an alias
+//                                         until loial and pi-desktop have moved
 //
 // Anything else is a 404. Notifications (src/push.ts) go out when a call waits for approval, and when a run ends done or failed, except for a session a client on /api/live says it's showing on screen.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
-import { createAmyrlinEndpoint } from "./amyrlin/endpoint.ts";
+import { createAppEndpoint } from "./app/endpoint.ts";
 import type { Bootstrap, ClientEvent, PushState, ServerEvent, Thinking } from "./api-types.ts";
 import { THINKING } from "./config.ts";
 import { IMAGE_TYPES, messageContent, titleOf } from "./images.ts";
@@ -118,7 +119,7 @@ export type ApiOptions = {
 	push?: Push;
 	/** The host's name in the apps. Default: this machine's name. */
 	name?: string;
-	/** How often amyrlin's endpoint reads the checkouts while a client watches; tests shorten it. Default 5 s. */
+	/** How often the app endpoint reads the checkouts while a client watches; tests shorten it. Default 5 s. */
 	checkoutMs?: number;
 	/** Resolves once a sandbox session's commits are home after its run (src/sandbox-sync.ts), so its Done push can count them. */
 	synced?: (id: number) => Promise<void>;
@@ -412,7 +413,7 @@ export function createApi(host: Host, options: ApiOptions) {
 
 	const server = createServer((request, response) => {
 		// Agents' MCP clients (src/mcp.ts), by a token of their own (src/tokens.ts) rather than a Tailscale login, which a
-		// tagged machine doesn't have. Like /amyrlin, no Origin: a browser always sends one, so a web page can't call it.
+		// tagged machine doesn't have. Like /app, no Origin: a browser always sends one, so a web page can't call it.
 		if (new URL(request.url ?? "/", "http://host").pathname === "/mcp") {
 			if (request.headers.origin !== undefined) return reply(response, 403, "Cross-site request", "text/plain");
 			if (request.method !== "POST") return reply(response, 405, "Method not allowed", "text/plain");
@@ -444,22 +445,22 @@ export function createApi(host: Host, options: ApiOptions) {
 	});
 
 	const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
-	// The amyrlin Mac app (src/amyrlin/endpoint.ts). A native app sends no Origin, and a browser always does, so a web
+	// The app protocol (src/app/endpoint.ts). A native app sends no Origin, and a browser always does, so a web
 	// page can't open this socket with the user's Tailscale identity.
-	const amyrlin = createAmyrlinEndpoint(host, { name: machine, ...(options.checkoutMs === undefined ? {} : { checkoutMs: options.checkoutMs }) });
+	const app = createAppEndpoint(host, { name: machine, ...(options.checkoutMs === undefined ? {} : { checkoutMs: options.checkoutMs }) });
 	// Messages from the Mac carry images, scaled down there but up to 5 MB each, and up to 40 MB of video (src/videos.ts),
 	// all as base64.
-	const amyrlinSockets = new WebSocketServer({ noServer: true, maxPayload: 112 * 1024 * 1024 });
+	const appSockets = new WebSocketServer({ noServer: true, maxPayload: 112 * 1024 * 1024 });
 	server.on("upgrade", (request, socket, head) => {
 		const path = new URL(request.url ?? "/", "http://host").pathname;
-		if (path === "/amyrlin") {
+		if (path === "/app" || path === "/amyrlin") {
 			const login = loginOf(request);
 			if (login === undefined || request.headers.origin !== undefined) {
 				socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
 				return;
 			}
 			const name = request.headers["tailscale-user-name"];
-			amyrlinSockets.handleUpgrade(request, socket, head, (ws) => amyrlin.connect(ws, { login, name: typeof name === "string" ? name : login }));
+			appSockets.handleUpgrade(request, socket, head, (ws) => app.connect(ws, { login, name: typeof name === "string" ? name : login }));
 			return;
 		}
 		if (path !== "/api/live" || loginOf(request) === undefined || !sameOrigin(request, false)) {
@@ -513,9 +514,9 @@ export function createApi(host: Host, options: ApiOptions) {
 			for (const timer of timers) clearTimeout(timer);
 			for (const ws of sockets.clients) ws.terminate();
 			sockets.close();
-			amyrlin.close();
-			for (const ws of amyrlinSockets.clients) ws.terminate();
-			amyrlinSockets.close();
+			app.close();
+			for (const ws of appSockets.clients) ws.terminate();
+			appSockets.close();
 			server.closeAllConnections();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
 		},

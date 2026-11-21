@@ -1,4 +1,4 @@
-// Screenshots for a sandbox session's result (amyrlin's protocol section 10 item 19): the pages a project's dev server
+// Screenshots for a sandbox session's result (docs/protocol.md section 10 item 19): the pages a project's dev server
 // serves, before (at the commit the sandbox was made from) and after (at HEAD), taken in the sandbox once a run ends
 // with an answer. They're opt-in: the project declares its dev server and pages in `.agents/project.json`, and its
 // `.agents/setup` installs Chromium for its own Playwright. Without either, there are none, and nothing says so.

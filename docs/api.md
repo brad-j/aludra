@@ -1,6 +1,6 @@
 # API
 
-The host has four ways in: the HTTP and WebSocket API, amyrlin's protocol at `/amyrlin`, MCP at `/mcp` for other agents, and the CLI's Unix socket. All of them reach the same sessions. There's no web app. The types below are in `src/api-types.ts`, which a client in TypeScript can import.
+The host has four ways in: the HTTP and WebSocket API, the app protocol at `/app`, MCP at `/mcp` for other agents, and the CLI's Unix socket. All of them reach the same sessions. There's no web app. The types below are in `src/api-types.ts`, which a client in TypeScript can import.
 
 ## The HTTP API
 
@@ -103,9 +103,9 @@ The client sends:
 
 Transcript items are `user`, `answer`, `call`, `failure` and `compacted` (see `Item` in `src/api-types.ts`). Long call arguments and outputs are cut to 6,000 characters: arguments keep their start, outputs their end.
 
-## amyrlin's endpoint: `WS /amyrlin`
+## The app endpoint: `WS /app`
 
-amyrlin's protocol v1, named for the retired macOS client that defined it and documented in its `docs/protocol.md`; loial is the client that speaks it now (its `docs/protocol.md` lists what it uses). aludra takes the same `Tailscale-User-Login` check as the HTTP API, and refuses any upgrade with an `Origin` header, so browsers can't open it.
+aludra's app protocol v1, documented in [protocol.md](protocol.md); loial and pi-desktop speak it (loial's `docs/protocol.md` lists what it uses). `/amyrlin`, the protocol's first path, answers the same until both clients have moved to `/app`. aludra takes the same `Tailscale-User-Login` check as the HTTP API, and refuses any upgrade with an `Origin` header, so browsers can't open it.
 
 How aludra maps onto the protocol:
 
@@ -136,7 +136,7 @@ How aludra maps onto the protocol:
 
 ### Sandbox tasks
 
-aludra's own, from amyrlin's protocol section 10 item 19. A host with a sandbox host in its settings (`sandboxes`) carries `sandboxes: { shipTo, afterRun, approvals }` in `host.info`; one without leaves it out and answers `conversations.create` with `sandbox: true` as `unsupported`.
+aludra's own, from [protocol.md](protocol.md) section 10 item 19. A host with a sandbox host in its settings (`sandboxes`) carries `sandboxes: { shipTo, afterRun, approvals }` in `host.info`; one without leaves it out and answers `conversations.create` with `sandbox: true` as `unsupported`.
 
 - `conversations.create` takes `sandbox: true`, and with it `approvals: "ask" | "off"`, which overrides `sandboxes.approvals` for that session (`approvals` without `sandbox` is `bad_request`). It answers at once, and the sandbox is made after. The first message, and any `submit` before the sandbox is ready, is held in the database (so a restart doesn't lose it) and sent in order once the sandbox is ready. A held `submit` answers `{ submission: { requestId, type: "input", status: "queued" } }`, with no `id` until it's sent.
 - A sandbox session's summary carries `sandbox: { number, branch, state, approvals, base?, step?, reason?, group?, size?, skills?, shipped?, shipStopped? }` and `source`, the project's directory on the host; `dir` is the project's directory in the sandbox. `number` names the branch, `sandbox/<number>` in the project's checkout. aludra gives these out itself, one count across projects, never reused, and past any `sandbox/<n>` branch already in the checkout; the sandbox host's own numbers are reused once a sandbox is deleted, so they can't name branches. Sessions from before keep `sandbox/<sandbox host's number>`.
@@ -162,7 +162,7 @@ aludra's own, from amyrlin's protocol section 10 item 19. A host with a sandbox 
 
 ### New projects and scratch sandboxes
 
-aludra's own, from amyrlin's protocol section 10 item 20.
+aludra's own, from [protocol.md](protocol.md) section 10 item 20.
 
 - `host.info` carries `newProjects: { root, owner, ui }` when the settings name them ([configuration.md](configuration.md#newprojects)) and `gh` is signed in to github.com; otherwise it's absent. gh's sign-in is read at most once a minute.
 - `projects.create { name, description?, plan?, ui? }` makes `<root>/<name>`: `git init` on `main`, a `README.md` with the name and description, the starter files (`AGENTS.md`, a `CLAUDE.md` that points at it, and `docs/plan.md` in the plan format), a first commit, then a private `<owner>/<name>` on GitHub with `main` pushed, so `origin/main` is its upstream. It returns `{ project }`, the project as `host.info` lists it, with its `checkout`, and every `host.watch` gets `host.projects`. `name` is lowercase letters, digits and `-`, starting with a letter or digit and not ending with `-`. It's `bad_request` for a bad name, an existing folder or repository (the message says which), or a host that can't make projects (the message says why), and `internal` when git or gh fails after it started. A failure removes the folder it made; a repository gh had created is left on GitHub, and the message says so. A project made this way can take a sandbox at once: its first commit is its template's. aludra's own: `plan: { steps?, questions? }` seeds the plan, the first step in Now, the other steps in Next and the questions under Questions, each with an id made from its title (at most 40 items, titles cut at 200 characters); `ui: true` also copies `DESIGN.md` and `PRODUCT.md` from `newProjects.designSeeds`, and is `bad_request` when that isn't set or lacks either file. `newProjects.ui` in `host.info` says whether a UI project can be asked for. `sandbox.promote` adds no starter files: the session's commits are the project.
@@ -171,11 +171,11 @@ aludra's own, from amyrlin's protocol section 10 item 20.
 - `conversations.create` with `sandbox` takes `size`: `small` (2 CPUs, 4 GB), `medium` (4, 8 GB) or `large` (8, 16 GB) or `xlarge` (8, 32 GB). Without it the session takes the project's `size` from `.agents/project.json` at the commit its template is made from, else `small`. The template is made at `large` whatever the size. The summary's `sandbox` carries `size` once the sandbox is being made. `size` without `sandbox`, or another value, is `bad_request`.
 - A project's `.agents/resume`, if it's executable, runs in the sandbox each time a paused sandbox wakes for a tool call, before that call: as `user`, from the project's directory, for at most 60 s. A failure or a timeout is logged in the host's log and the call goes on.
 
-`test/amyrlin.test.ts` checks the translation against amyrlin's recorded scenarios (`test/fixtures/amyrlin/`).
+`test/app.test.ts` checks the translation against the recorded scenarios in `test/fixtures/`.
 
 ## MCP: `POST /mcp`
 
-Streamable HTTP, for agents aludra didn't start (Claude Code, pi, anything with an MCP client) to work with its sessions. It's stateless: each request stands alone, with JSON responses rather than streams. It takes a bearer token, `Authorization: Bearer <TOKEN>`, made with `aludra token add NAME` (one per agent; see [cli.md](cli.md#aludra-token-add-name---write)), not the API's `Tailscale-User-Login`, which a tagged machine doesn't have. A missing, wrong or revoked token is 401 with `WWW-Authenticate: Bearer`. A request with an `Origin` header is 403, as on `/amyrlin`, so a browser page can't call it. Only POST; other methods are 405.
+Streamable HTTP, for agents aludra didn't start (Claude Code, pi, anything with an MCP client) to work with its sessions. It's stateless: each request stands alone, with JSON responses rather than streams. It takes a bearer token, `Authorization: Bearer <TOKEN>`, made with `aludra token add NAME` (one per agent; see [cli.md](cli.md#aludra-token-add-name---write)), not the API's `Tailscale-User-Login`, which a tagged machine doesn't have. A missing, wrong or revoked token is 401 with `WWW-Authenticate: Bearer`. A request with an `Origin` header is 403, as on `/app`, so a browser page can't call it. Only POST; other methods are 405.
 
 Tools, always:
 
@@ -192,7 +192,7 @@ For a token made with `--write`, while `mcp.write` is on in the settings file, a
 
 | Tool | Arguments | Answer |
 | --- | --- | --- |
-| `start_session` | `project`, `task`, `sandbox?`, `model?`, `effort?` | `{ id, project, dir, sandbox? }`. The task is the first message; its first line is the title until a model writes one. With `sandbox`, its tools run in a sandbox of its own, `dir` is in the sandbox, and `sandbox` is its number. `project` is required: MCP doesn't make scratch sessions, which the apps and `/amyrlin` do. |
+| `start_session` | `project`, `task`, `sandbox?`, `model?`, `effort?` | `{ id, project, dir, sandbox? }`. The task is the first message; its first line is the title until a model writes one. With `sandbox`, its tools run in a sandbox of its own, `dir` is in the sandbox, and `sandbox` is its number. `project` is required: MCP doesn't make scratch sessions, which the apps do over `/app`. |
 | `send_message` | `id`, `text`, `mode?` (`followUp` or `steer`), `model?`, `effort?` | `{ submission }`. |
 | `stop_session` | `id` | Stops the run. |
 | `archive_session` | `id` | `{ id, title, archived: true, message }`. Archives the session as `POST /api/sessions/:id/archive` does. |
@@ -213,7 +213,7 @@ With `mcp.sandboxOnly` on as well:
 
 No MCP tool syncs or merges. A sandbox session's work comes home as `sandboxes.afterRun` says.
 
-No MCP tool ships a session, writes a plan or makes a project; the apps and `/amyrlin` do those. A session shipped from them carries `ship` in `list_sessions`, `{ shipping: true }`, `{ shipped: true, line, at, pushed, head, commits, pr? }` or `{ shipped: false, line, at, kind, reason }` with `kind` as `sandbox.shipped`'s, and `read_session` has a `Ship:` line.
+No MCP tool ships a session, writes a plan or makes a project; the apps do those over `/app`. A session shipped from them carries `ship` in `list_sessions`, `{ shipping: true }`, `{ shipped: true, line, at, pushed, head, commits, pr? }` or `{ shipped: false, line, at, kind, reason }` with `kind` as `sandbox.shipped`'s, and `read_session` has a `Ship:` line.
 
 A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool with a read token or while `mcp.write` is off, or an unknown model or effort. The server's instructions say which machine it is and, when it can't write, why.
 

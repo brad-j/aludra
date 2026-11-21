@@ -5,10 +5,10 @@
 | Path | What |
 | --- | --- |
 | `src/` | The host and CLI. `main.ts` is the command; [architecture.md](architecture.md) maps the rest. |
-| `src/amyrlin/` | amyrlin's endpoint and its translation to protocol v1. |
+| `src/app/` | The app endpoint and its translation to protocol v1 ([protocol.md](protocol.md)). |
 | `test/` | Node's test runner, against a faux model and real temporary git repositories. |
-| `test/fixtures/amyrlin/` | amyrlin's recorded Pi Durable streams and their expected protocol v1 frames. |
-| `scripts/` | `install.sh`, the live check, the site's terminal picture, and the amyrlin fixture scripts. |
+| `test/fixtures/` | Recorded Pi Durable streams, their expected protocol v1 frames, and a whole session's frames. |
+| `scripts/` | `install.sh`, the live check, the site's terminal picture, and the fixture scripts. |
 | `deploy/` | The optional Tailscale node unit for Linux. |
 | `spike/` | The scripts that proved pi-claude-bridge, aludra's original Claude provider, in the Pi SDK and in Pi Durable. References, not app code; their paths need adjusting to run again. |
 | `docs/` | These docs, [plan.md](plan.md) (open work) and [decisions.md](decisions.md) (decisions and history). |
@@ -47,23 +47,23 @@ It replaces the settings' sandbox host with a fake one (`src/fake-sandboxes.ts`,
 
 ## Tests
 
-- **Unit and integration** (`test/*.test.ts`): config, projects, setup's guesses, permissions and the protected-path rules, the Claude Code provider's wrapper and loading, the API over HTTP and WebSocket, amyrlin's endpoint and translation, changes against real git repositories, images, push encryption and signing, backups, and the CLI. They use the faux model, alone or standing in for Claude Code, and never reach the network.
+- **Unit and integration** (`test/*.test.ts`): config, projects, setup's guesses, permissions and the protected-path rules, the Claude Code provider's wrapper and loading, the API over HTTP and WebSocket, the app endpoint and translation, changes against real git repositories, images, push encryption and signing, backups, and the CLI. They use the faux model, alone or standing in for Claude Code, and never reach the network.
 - **Live** (`scripts/live-check.ts`, by hand): the real pi-claude-code and your Claude Code login. Two sessions at once on the plan's limits, a compaction, and `kill -9` mid tool call with recovery. Run it after upgrading Pi Durable or pi-claude-code. It spends a little of the subscription.
 
-## The amyrlin fixtures
+## The protocol fixtures
 
-amyrlin records Pi Durable event streams and keeps them in its `fixtures/`. aludra keeps a copy and checks that `src/amyrlin/translate.ts` turns each into exactly the expected frames. After amyrlin re-records, from an aludra checkout with amyrlin's beside it:
+`test/fixtures/durable-1.1.0/` holds recorded Pi Durable event streams, and `test/fixtures/wire-v1/` their expected protocol v1 frames; `test/app.test.ts` checks that `src/app/translate.ts` turns each into exactly those. After a deliberate change to the translation:
 
 ```sh
-cp -R ../amyrlin/fixtures/durable-1.1.0 test/fixtures/amyrlin/
-node --no-warnings scripts/amyrlin-export-wire.ts ../amyrlin/fixtures   # writes amyrlin's fixtures/wire-v1
-cp -R ../amyrlin/fixtures/wire-v1 test/fixtures/amyrlin/
+node --no-warnings scripts/app-export-wire.ts   # rewrites test/fixtures/wire-v1
 pnpm test
 ```
 
+Then copy `wire-v1` into loial's `app/test/fixtures/`. [test/fixtures/README.md](../test/fixtures/README.md) says where they came from.
+
 `scripts/site-images.ts ../aludra-site` makes the site's picture, `aludra sessions` as HTML, from sample sessions and a scripted model. It puts the sample projects in `~/code` for the run and refuses if that exists.
 
-`scripts/amyrlin-capture.ts ../amyrlin/fixtures/server-v1/session.jsonl` records a whole session from the endpoint with a faux model, for amyrlin's own server test.
+`scripts/app-capture.ts` records a whole session from the endpoint with a faux model into `test/fixtures/server-v1/session.jsonl`, which loial's tests read a copy of.
 
 ## Dependencies
 

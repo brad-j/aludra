@@ -2,7 +2,7 @@
 // video, so the host saves each to the data directory and the message carries a note saying where it is, followed by
 // the frames the app pulled from it as image blocks. An agent that needs more of it pulls frames with ffmpeg.
 //
-// The note is a text block `<video name="…" seconds="…" path="…" until="…">…</video>`; amyrlin's transcript reads it
+// The note is a text block `<video name="…" seconds="…" path="…" until="…">…</video>`; a client's transcript reads it
 // back to show the video as a chip. Uploads go UPLOAD_DAYS after they arrive (sweepUploads); the frames stay.
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";

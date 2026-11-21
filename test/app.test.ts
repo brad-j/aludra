@@ -10,7 +10,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { UsageDoc } from "@earendil-works/pi-durable";
 import { WebSocket } from "ws";
 import { createApi } from "../src/api.ts";
-import { type Json, translateFixture } from "../src/amyrlin/translate.ts";
+import { type Json, translateFixture } from "../src/app/translate.ts";
 import { configFor } from "../src/config.ts";
 import { context, conversationId, type HostOptions, openHost } from "../src/host.ts";
 import { PAGE_CSP, Pages } from "../src/pages.ts";
@@ -19,9 +19,9 @@ import type { Sandboxes } from "../src/sandboxes.ts";
 import { fakeGh, fakeSandboxes, git, gitProject, makeProject, PNG, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
 
 const USER = "you@example.com";
-const FIXTURES = join(import.meta.dirname, "fixtures", "amyrlin");
+const FIXTURES = join(import.meta.dirname, "fixtures");
 
-test("the translation matches amyrlin's expected frames for every recorded scenario", () => {
+test("the translation matches the expected frames for every recorded scenario", () => {
 	const names = readdirSync(join(FIXTURES, "durable-1.1.0")).filter((f) => f.endsWith(".jsonl"));
 	assert.equal(names.length, 23);
 	for (const name of names) {
@@ -89,7 +89,7 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 	const server = createApi(host, { users: [USER], name: "test-host", checkoutMs: 100 });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
-	return { host, project, prompts, writes, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin` };
+	return { host, project, prompts, writes, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/app` };
 }
 
 /** A protocol v1 client: requests, and each subscription's events in order with `seq` checked. */
@@ -154,6 +154,16 @@ test("the endpoint refuses connections without a listed login, and any from a we
 		const status = await new Promise<number>((resolve) => ws.once("unexpected-response", (_request, response) => resolve(response.statusCode ?? 0)));
 		assert.equal(status, 403, JSON.stringify(headers));
 	}
+});
+
+test("/amyrlin is an alias for /app until the clients have moved, with the same checks", async (t) => {
+	const { url } = await api(t);
+	const old = url.replace(/\/app$/, "/amyrlin");
+	const mac = await client(t, old);
+	assert.equal(mac.welcome.protocol, 1);
+	const ws = new WebSocket(old, { headers: { "tailscale-user-login": USER, origin: "https://evil.example" } });
+	const status = await new Promise<number>((resolve) => ws.once("unexpected-response", (_request, response) => resolve(response.statusCode ?? 0)));
+	assert.equal(status, 403);
 });
 
 test("a session made from the Mac runs, shows in the host's list with its project, and pages its history", async (t) => {
@@ -391,7 +401,7 @@ test("conversations.retitle writes the title again from the conversation, or say
 	await assert.rejects(mac.request("conversations.retitle", { conversationId: 999 }), { code: "not_found" });
 });
 
-test("checkpoints over /amyrlin: listed, read and restored, with errors for what isn't there", async (t) => {
+test("checkpoints over /app: listed, read and restored, with errors for what isn't there", async (t) => {
 	const { url, project } = await api(t);
 	const mac = await client(t, url);
 	const { conversation } = await mac.request("conversations.create", { requestId: "cp-1", project: project.dir, text: "hello" });
@@ -994,7 +1004,7 @@ test("with ALUDRA_SANDBOXES=fake the host serves local sandboxes, and the faux m
 	const server = createApi(host, { users: [USER], name: "test-host", checkoutMs: 100 });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
-	const mac = await client(t, `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin`);
+	const mac = await client(t, `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/app`);
 	const info = await mac.request("host.info");
 	assert.deepEqual(info.sandboxes, { shipTo: "main", afterRun: "fetch", approvals: "off" });
 	assert.equal(info.projects[0].checkout.sandboxes, true);

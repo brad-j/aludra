@@ -1,4 +1,4 @@
-// A project's checkout as the Mac app's project table shows it (amyrlin's protocol section 10 item 19): the branch,
+// A project's checkout as a client's project table shows it (docs/protocol.md section 10 item 19): the branch,
 // how many paths are uncommitted, how far it is ahead of and behind its upstream as last fetched, and whether a sandbox
 // can start from it. Read with one `git status`, which never fetches and, with --no-optional-locks, never writes the
 // index, so reading every project every few seconds leaves the checkouts as they were. Its last commit also says what

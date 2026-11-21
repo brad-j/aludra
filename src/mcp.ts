@@ -9,13 +9,13 @@
 //
 // Reading: list_projects, read_plan (a project's docs/plan.md as its working copy has it, src/plans.ts), list_sessions,
 // read_session, search_messages and read_subscription. Nothing here writes a plan, ships a session or makes a project;
-// those are the apps' and /amyrlin's.
+// those are the apps' over /app.
 //
 // Writing is off unless the token's scope is write and the settings' mcp.write is true. Writing lets an agent start
 // sessions, which run with every permission a session has (only git push and remote commands to approval hosts wait),
 // so tokens are read-only and mcp.write is off by default; mcp.write turns writing off for every token at once. The
 // write tools are start_session, send_message, stop_session, archive_session and unarchive_session. start_session
-// always takes a project; scratch sessions are made from the apps and /amyrlin.
+// always takes a project; scratch sessions are made from the apps over /app.
 //
 // mcp.sandboxOnly narrows writing to sandboxes: start_session makes only sandbox sessions, refusing a call that asks for
 // a local one rather than quietly giving it a sandbox, and send_message and stop_session refuse any session that isn't

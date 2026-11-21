@@ -26,7 +26,7 @@ aludra service install     # runs the host now and at login (launchd on macOS, s
 tailscale serve --bg 8724  # puts it on your tailnet over HTTPS
 ```
 
-Then, in loial, add the machine by its tailnet name or as `wss://<machine>.<tailnet>.ts.net/amyrlin`. The API is at
+Then, in loial, add the machine by its tailnet name or as `wss://<machine>.<tailnet>.ts.net/app`. The API is at
 `https://<machine>.<tailnet>.ts.net/api/`. `aludra init` and `aludra doctor` print the exact addresses.
 
 To update, pull and run `sh scripts/install.sh` again; it restarts the service. `aludra service uninstall` stops it and
@@ -68,7 +68,8 @@ determined agent. [docs/security.md](docs/security.md) has the details.
 - [Security](docs/security.md): who gets in, the permissions, what's stored.
 - [Running aludra](docs/operations.md): logs, doctor, backups and restoring, upgrades, troubleshooting.
 - [Architecture](docs/architecture.md): how the host, the Claude Code provider and the clients fit together.
-- [API](docs/api.md): the HTTP API, the `/amyrlin` endpoint, MCP, the CLI socket.
+- [API](docs/api.md): the HTTP API, the `/app` endpoint, MCP, the CLI socket.
+- [Protocol](docs/protocol.md): the app protocol v1 that `/app` speaks.
 - [Development](docs/development.md): commands, tests, the faux model, dependencies.
 - [Plan](docs/plan.md): open work.
 - [Decisions](docs/decisions.md): decisions, milestones and their reasons.

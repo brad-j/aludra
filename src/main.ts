@@ -31,7 +31,7 @@ const USAGE = `usage: aludra [--config FILE] COMMAND
   archive --session ID | unarchive --session ID
                                          hide a session from the lists, or bring it back
   archive --project NAME | unarchive --project NAME
-                                         hide a project from the lists (amyrlin's sidebar, aludra projects), or
+                                         hide a project from the lists (loial's sidebar, aludra projects), or
                                          bring it back; its files and sessions stay as they are
   retitle [--session ID]                 have a model title sessions that still have their first line, or
                                          write one session's title again from its whole conversation

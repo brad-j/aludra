@@ -1,4 +1,4 @@
-// New projects, made here so every task after the first commit can run in a sandbox (amyrlin's protocol section 10
+// New projects, made here so every task after the first commit can run in a sandbox (docs/protocol.md section 10
 // item 20): a folder in `newProjects.root`, `git init` on main, a README and the starter files (src/starters.ts) in a
 // first commit with this machine's git identity, then a private GitHub repository under `newProjects.owner` through gh, pushed, so origin/main is the
 // upstream a ship lands on. A scratch sandbox's work becomes a project the same way, its commits in place of the first.

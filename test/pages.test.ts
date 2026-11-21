@@ -43,7 +43,7 @@ test("local images are inlined by relative or absolute path; URLs, missing files
 	assert.ok(sealed.html.startsWith("<!doctype html>"));
 });
 
-test("the agent publishes a page: it's sealed and stored with the session, numbered, and fetched over /amyrlin's method", async (t) => {
+test("the agent publishes a page: it's sealed and stored with the session, numbered, and fetched over /app's method", async (t) => {
 	let calls = 0;
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
 	faux.setResponses(Array.from({ length: 10 }, () => (ctx: TranscriptContext) => {

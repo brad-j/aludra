@@ -5,7 +5,7 @@ aludra gives whoever reaches it an agent that runs commands as you, on a machine
 ## Who gets in
 
 - **Loopback only.** The host listens on `127.0.0.1`. Nothing on the network reaches it directly. `tailscale serve` is the way in.
-- **Tailscale identity.** `tailscale serve` adds a `Tailscale-User-Login` header to each request from a person's device. aludra lets in only the logins in `api.users`; anything else, including tagged devices and requests with no header, gets 403. There are no passwords or tokens. Without `api.users`, the API and amyrlin's endpoint don't start.
+- **Tailscale identity.** `tailscale serve` adds a `Tailscale-User-Login` header to each request from a person's device. aludra lets in only the logins in `api.users`; anything else, including tagged devices and requests with no header, gets 403. There are no passwords or tokens. Without `api.users`, the API and the app endpoint don't start.
 - **Everyone listed is equal.** Every listed login sees and runs every session on the machine, and can change the settings clients can change, approval hosts included. There are no per-user permissions.
 - **Some settings are file-only.** Clients can't change `api.users`, `api.port`, `claude.path`, `mcp.write`, `mcp.sandboxOnly`, `mcp.worktreeOnly` or `dataDir`. The first two decide who gets in, the third is the program the host runs, the next three decide what agents on `/mcp` may do, and the last is where its data is. Only someone who can edit the settings file changes them.
 - **The CLI socket** is `aludra.sock` in the data directory, readable and writable by you only. Anyone who can use it is already you.
@@ -20,13 +20,13 @@ aludra serves no web app, but a page from another site, open in your browser on 
 - The `/api/live` WebSocket upgrade must come from the same origin, or carry none.
 - Every response's Content-Security-Policy is `default-src 'none'`, so a browser runs nothing from one, and none can be framed (`frame-ancestors 'none'`, `X-Frame-Options: DENY`). No referrer is sent.
 
-## amyrlin's endpoint
+## The app endpoint
 
-`/amyrlin` takes the same identity check, and also refuses any upgrade that carries an `Origin` header. A native app sends none and a browser always does, so a web page can't open it with your identity.
+`/app` (and `/amyrlin`, its old path, until the clients have moved) takes the same identity check, and also refuses any upgrade that carries an `Origin` header. A native app sends none and a browser always does, so a web page can't open it with your identity.
 
 ## MCP
 
-`/mcp` takes a bearer token instead of the Tailscale login: one per agent, made with `aludra token add`, shown once, and kept only as a SHA-256 in `tokens.sqlite` in the data directory. `aludra token revoke` stops one at once. A tagged machine has no Tailscale login, and a login names you rather than which agent is calling, which is why it's a token. Reaching `/mcp` still takes the tailnet, since `tailscale serve` is the only way in. It refuses any request with an `Origin` header, as `/amyrlin` does. By default its tools only read: projects, plans, session lists, transcripts, search and the subscription's usage. Transcripts can hold anything a session read or printed, such as a value from a file, so an agent with the URL can see that.
+`/mcp` takes a bearer token instead of the Tailscale login: one per agent, made with `aludra token add`, shown once, and kept only as a SHA-256 in `tokens.sqlite` in the data directory. `aludra token revoke` stops one at once. A tagged machine has no Tailscale login, and a login names you rather than which agent is calling, which is why it's a token. Reaching `/mcp` still takes the tailnet, since `tailscale serve` is the only way in. It refuses any request with an `Origin` header, as `/app` does. By default its tools only read: projects, plans, session lists, transcripts, search and the subscription's usage. Transcripts can hold anything a session read or printed, such as a value from a file, so an agent with the URL can see that.
 
 A token made with `--write`, while `mcp.write` is on, adds tools that start, message and stop sessions in a project, and that archive and unarchive sandbox sessions. Archiving a sandbox session deletes its sandbox once its commits are fetched, as archiving from the apps does, so those tools refuse local sessions, running or waiting ones, and ones whose branch was discarded. Turning `mcp.write` off takes them from every token at once. A session an agent starts has every permission a session has: it edits, builds, installs and commits in its project without asking, and only `git push` and remote commands to approval hosts wait for you. So with it on, any agent holding a write token can run commands on this machine as you. Tokens are read-only unless made with `--write`, and `mcp.write` is file-only, so neither an agent nor a client can turn it on, and it's off by default.
 

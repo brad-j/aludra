@@ -197,12 +197,12 @@ test("the API serves and saves the settings, refuses what only the file changes,
 	assert.equal((await fetch(`${base}/api/settings`, { method: "POST", headers: { "tailscale-user-login": USER, "content-type": "application/json", origin: "https://evil.example" }, body: '{"changes":{"backup.keep":2}}' })).status, 403);
 });
 
-test("amyrlin's endpoint has settings.get and settings.set, and a refused change is invalid_settings with every reason", async (t) => {
+test("the app endpoint has settings.get and settings.set, and a refused change is invalid_settings with every reason", async (t) => {
 	const { host } = await testHost(t, { ...oneCommand("true"), settingsFile: true });
 	const server = createApi(host, { users: [USER], name: "test-host" });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
-	const ws = new WebSocket(`ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/amyrlin`, { headers: { "tailscale-user-login": USER } });
+	const ws = new WebSocket(`ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/app`, { headers: { "tailscale-user-login": USER } });
 	t.after(() => ws.close());
 	const frames: { type: string; id?: string; result?: { settings: Settings }; error?: { code: string; data?: { errors: string[] } } }[] = [];
 	ws.on("message", (data) => frames.push(JSON.parse(String(data))));

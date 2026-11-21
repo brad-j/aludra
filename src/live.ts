@@ -1,6 +1,6 @@
 // What's live, for the apps' sockets: every session's summary, ideas and picked colors, kept current, and the transcript
 // and meta of the session a client follows. API clients get it over /api/live (src/api.ts), in ServerEvent and
-// ClientEvent (src/api-types.ts); the amyrlin endpoint translates its own (src/amyrlin/).
+// ClientEvent (src/api-types.ts); the app endpoint translates its own (src/app/).
 import type { ConversationView, UsageState } from "@earendil-works/pi-durable";
 import type { Item, ServerEvent, SessionMeta, SessionSummary, Thinking } from "./api-types.ts";
 import { context, type Host, type SessionRecord } from "./host.ts";

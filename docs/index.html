@@ -191,7 +191,7 @@ footer.foot a { color: var(--color-text-secondary); }
 <section id="overview" aria-labelledby="overview-h">
 
 <h1 id="overview-h">aludra</h1>
-<p class="lede">A coding agent host for your own machines. Install it on each macOS or Linux computer whose projects you want to reach, then use those projects over Tailscale from the amyrlin macOS app, from the command line on the machine, or through its HTTP API.</p>
+<p class="lede">A coding agent host for your own machines. Install it on each macOS or Linux computer whose projects you want to reach, then use those projects over Tailscale from loial (Mac and Linux), from the command line on the machine, or through its HTTP API.</p>
 <p>Sessions run on the machine that has the code, keep going when every client is closed, and survive restarts. aludra runs the Claude Code you installed and logged in to on that machine; it never asks for or stores Claude credentials. It can also run OpenAI models on a ChatGPT plan, and OpenRouter models billed per request. There's no web app.</p>
 <div class="code"><pre><code>git clone git@github.com:brad-j/aludra.git &amp;&amp; cd aludra
 sh scripts/install.sh
@@ -255,8 +255,8 @@ npm uninstall -g aludra                            <span class="c"># removes the
 <section id="clients" aria-labelledby="clients-h">
 <h2 id="clients-h"><a class="anchor" href="#clients">Connecting a client</a></h2>
 
-<h3 id="amyrlin"><a class="anchor" href="#amyrlin">amyrlin</a></h3>
-<p><a href="https://github.com/brad-j/amyrlin">amyrlin</a> is an optional native macOS client that connects to every machine you add and shows all their sessions together. Add a machine as <code>wss://&lt;machine&gt;.&lt;tailnet&gt;.ts.net/amyrlin</code>, or just its tailnet name. A 403 means your login isn't in <code>api.users</code>; a 502 means nothing is behind <code>tailscale serve</code>.</p>
+<h3 id="loial"><a class="anchor" href="#loial">loial</a></h3>
+<p>loial is the desktop client, for Mac and Linux, that connects to every machine you add and shows all their sessions together. Add a machine as <code>wss://&lt;machine&gt;.&lt;tailnet&gt;.ts.net/app</code>, or just its tailnet name. A 403 means your login isn't in <code>api.users</code>; a 502 means nothing is behind <code>tailscale serve</code>.</p>
 <h3 id="terminal"><a class="anchor" href="#terminal">The terminal</a></h3>
 <div class="code"><pre><code>aludra                                  <span class="c"># every session and its transcript, live, read-only</span>
 aludra sessions                         <span class="c"># every session by project, with its state</span>
@@ -275,11 +275,11 @@ claude mcp add --transport http aludra-devbox https://devbox.example.ts.net/mcp 
 <section id="sessions" aria-labelledby="sessions-h">
 <h2 id="sessions-h"><a class="anchor" href="#sessions">Sessions</a></h2>
 
-<p>A session is one conversation with the agent, working in one project directory. It runs with aludra's tools (read, write, edit and bash), the project's <code>AGENTS.md</code> or <code>CLAUDE.md</code>, and your skills. Inside the project it works without asking; <code>git push</code> and remote commands to listed hosts wait for you. amyrlin, the CLI and the API are all windows onto the same sessions, so one started from amyrlin can be steered and stopped from a terminal.</p>
+<p>A session is one conversation with the agent, working in one project directory. It runs with aludra's tools (read, write, edit and bash), the project's <code>AGENTS.md</code> or <code>CLAUDE.md</code>, and your skills. Inside the project it works without asking; <code>git push</code> and remote commands to listed hosts wait for you. loial, the CLI and the API are all windows onto the same sessions, so one started from loial can be steered and stopped from a terminal.</p>
 <div class="table"><table><thead><tr><th>State</th><th>Meaning</th><th>CLI mark</th></tr></thead><tbody><tr><td>waiting</td><td>A call waits for your approval.</td><td><code>◆</code></td></tr><tr><td>running</td><td>A request or tool call is in progress.</td><td><code>◐</code></td></tr><tr><td>failed</td><td>The last run ended in an error or a refusal.</td><td><code>⊘</code></td></tr><tr><td>stopped</td><td>You stopped the last run.</td><td><code>□</code></td></tr><tr><td>done</td><td>The last run finished with an answer.</td><td><code>✓</code></td></tr><tr><td>idle</td><td>Nothing has run yet, or nothing is happening.</td><td><code>·</code></td></tr></tbody></table></div>
 <h3 id="starting"><a class="anchor" href="#starting">Starting one</a></h3>
 <div class="code"><pre><code>aludra ask --project site "Why does the build fail on main?"</code></pre><button class="copy" type="button">Copy</button></div>
-<p>Or from amyrlin, or <code>POST /api/sessions</code>. A session without a project works in a scratch directory of its own and reads anything else by absolute path. Sessions are titled from the first message, then a second or two later by a short title the smallest available model writes. <code>aludra retitle --session ID</code> writes it again from the whole conversation.</p>
+<p>Or from loial, or <code>POST /api/sessions</code>. A session without a project works in a scratch directory of its own and reads anything else by absolute path. Sessions are titled from the first message, then a second or two later by a short title the smallest available model writes. <code>aludra retitle --session ID</code> writes it again from the whole conversation.</p>
 <h3 id="steering"><a class="anchor" href="#steering">Steering, queueing and stopping</a></h3>
 <ul>
 <li><strong>Steer</strong> goes in at the next tool boundary, so the run changes course without stopping (<code>--steer</code>).</li>
@@ -292,11 +292,11 @@ claude mcp add --transport http aludra-devbox https://devbox.example.ts.net/mcp 
 <h3 id="attachments"><a class="anchor" href="#attachments">Images, videos and files</a></h3>
 <ul>
 <li><strong>Images:</strong> up to 8 per message, PNG, JPEG, GIF or WebP, 5 MB each.</li>
-<li><strong>Videos</strong> (from amyrlin): a 720p MP4 of at most 40 MB with a few frames. The model sees the frames; the video is saved on the host for 14 days so the agent can pull more frames with ffmpeg.</li>
+<li><strong>Videos</strong> (from a client that sends them): a 720p MP4 of at most 40 MB with a few frames. The model sees the frames; the video is saved on the host for 14 days so the agent can pull more frames with ffmpeg.</li>
 <li><strong>Files:</strong> any kind, at most 20 and 25 MB together, saved on the host for the agent to open. Text over 32 KB, such as a pasted log, is saved the same way.</li>
 </ul>
 <h3 id="pages"><a class="anchor" href="#pages">Pages</a></h3>
-<p>Ask for a chart, table, diagram or mockup and the agent can publish a page: a self-contained HTML document that amyrlin shows above the answer. Pages can run scripts but can't load anything from the network. <code>aludra page --session ID N</code> writes one to a file.</p>
+<p>Ask for a chart, table, diagram or mockup and the agent can publish a page: a self-contained HTML document that loial shows above the answer. Pages can run scripts but can't load anything from the network. <code>aludra page --session ID N</code> writes one to a file.</p>
 <h3 id="archiving"><a class="anchor" href="#archiving">Archiving and ideas</a></h3>
 <p>Archiving hides a session from the lists without deleting anything; a running session keeps running. The host archives sessions idle for <code>archive.afterDays</code> (default 3) on its own, and one you bring back stays. Projects can be archived too. Ideas are first messages saved for later under a project, started through the API when you're ready.</p>
 <p class="more">Full reference: <a href="https://github.com/brad-j/aludra/blob/main/docs/using.md">using.md</a></p>
@@ -306,11 +306,11 @@ claude mcp add --transport http aludra-devbox https://devbox.example.ts.net/mcp 
 <section id="approvals" aria-labelledby="approvals-h">
 <h2 id="approvals-h"><a class="anchor" href="#approvals">Approvals and permissions</a></h2>
 
-<p>Two kinds of shell command wait for you: <code>git push</code> in any form git parses as a push, and <code>ssh</code>, <code>scp</code>, <code>rsync</code>, <code>sftp</code>, <code>mosh</code> or <code>sshfs</code> to a host in <code>approvals.hosts</code>. Answer from amyrlin or the terminal:</p>
+<p>Two kinds of shell command wait for you: <code>git push</code> in any form git parses as a push, and <code>ssh</code>, <code>scp</code>, <code>rsync</code>, <code>sftp</code>, <code>mosh</code> or <code>sshfs</code> to a host in <code>approvals.hosts</code>. Answer from loial or the terminal:</p>
 <div class="code"><pre><code>aludra approvals          <span class="c"># what waits, oldest first, with IDs</span>
 aludra approve 3f9a1c
 aludra deny 3f9a1c</code></pre><button class="copy" type="button">Copy</button></div>
-<p>amyrlin can also allow one always, for that session only; other sessions still ask, and the rule can be taken back. A request expires after <code>approvals.waitHours</code> (default 24). A restart doesn't cancel it.</p>
+<p>loial can also allow one always, for that session only; other sessions still ask, and the rule can be taken back. A request expires after <code>approvals.waitHours</code> (default 24). A restart doesn't cancel it.</p>
 <h3 id="gate"><a class="anchor" href="#gate">The protected-path gate</a></h3>
 <p>Credentials, keys and agent logins are off limits to <code>read</code>, <code>write</code>, <code>edit</code> and shell commands naming them: <code>auth.json</code>, <code>.env*</code>, <code>.netrc</code>, <code>.npmrc</code>, credentials and secrets files, anything under <code>.ssh</code> or <code>.gnupg</code>, private keys and <code>.pem</code>/<code>.key</code>/<code>.p12</code> files. Paths are checked as written and through symlinks. The first block in a run tells the agent not to try another way; a second ends the run.</p>
 <div class="note"><strong>Limits.</strong> Both checks read shell commands as text. A script that pushes, a variable holding a host name or a program that reads a key file itself gets past them. They stop mistakes; they don't contain a determined agent. Sessions run as you.</div>
@@ -366,7 +366,7 @@ aludra ship --session 14 [--to main|branch]</code></pre><button class="copy" typ
   "backup": { "dir": "/mnt/backup/aludra", "everyHours": 24, "keep": 7 }
 }</code></pre><button class="copy" type="button">Copy</button></div>
 <div class="table"><table><thead><tr><th>Setting</th><th>What it does</th><th>Live?</th></tr></thead><tbody><tr><td><code>workspaces</code></td><td>Machine name and path patterns; every matched directory is a project.</td><td>Yes</td></tr><tr><td><code>api.users</code>, <code>api.port</code></td><td>Tailscale logins let in (none means the API stays off), and the loopback port.</td><td>File only</td></tr><tr><td><code>model.id</code>, <code>.thinking</code>, <code>.choices</code></td><td>Default model and thinking level for new sessions, and models pinned in pickers.</td><td>Yes</td></tr><tr><td><code>claude.path</code>, <code>.configDir</code></td><td>The Claude Code binary, and which login it uses.</td><td>File only</td></tr><tr><td><code>approvals.hosts</code>, <code>.waitHours</code></td><td>Hosts whose remote commands wait for you, and how long a request waits.</td><td>Yes</td></tr><tr><td><code>backup.dir</code>, <code>.everyHours</code>, <code>.keep</code></td><td>Where database copies go, how often, how many.</td><td>Yes</td></tr><tr><td><code>archive.afterDays</code></td><td>Idle days before a session is archived. <code>0</code> turns it off.</td><td>Yes</td></tr><tr><td><code>mcp.write</code>, <code>.sandboxOnly</code></td><td>Whether write tokens may start sessions, and whether those must run in sandboxes.</td><td>File only</td></tr><tr><td><code>sandboxes</code></td><td>The sandbox host and its keys, <code>afterRun</code>, <code>approvals</code>, <code>shipTo</code>.</td><td>File only</td></tr><tr><td><code>newProjects</code></td><td>Where the apps' New project creates repositories, and the GitHub owner.</td><td>File only</td></tr><tr><td><code>dataDir</code></td><td>Database, keys, scratch directories and uploads.</td><td>File only</td></tr></tbody></table></div>
-<p>Live settings change through <code>aludra config set</code>, amyrlin or <code>POST /api/settings</code> and take effect at once. File-only ones need a restart (<code>aludra service install</code>).</p>
+<p>Live settings change through <code>aludra config set</code>, loial or <code>POST /api/settings</code> and take effect at once. File-only ones need a restart (<code>aludra service install</code>).</p>
 <div class="code"><pre><code>aludra config                                   <span class="c"># every setting and where it came from</span>
 aludra config set approvals.hosts db router
 aludra config set model.thinking medium
@@ -391,7 +391,7 @@ aludra config unset backup.dir</code></pre><button class="copy" type="button">Co
 <section id="api" aria-labelledby="api-h">
 <h2 id="api-h"><a class="anchor" href="#api">API</a></h2>
 
-<p>Four ways in, all reaching the same sessions: the HTTP and WebSocket API, amyrlin's protocol at <code>/amyrlin</code>, MCP at <code>/mcp</code>, and the CLI's Unix socket. TypeScript types are in <code>src/api-types.ts</code>.</p>
+<p>Four ways in, all reaching the same sessions: the HTTP and WebSocket API, the app protocol at <code>/app</code>, MCP at <code>/mcp</code>, and the CLI's Unix socket. TypeScript types are in <code>src/api-types.ts</code>.</p>
 <h3 id="http"><a class="anchor" href="#http">HTTP</a></h3>
 <p>Every request needs a <code>Tailscale-User-Login</code> header naming a login in <code>api.users</code>, which <code>tailscale serve</code> adds. POSTs send <code>Content-Type: application/json</code>. Errors are plain text: 400 bad value, 403 identity or origin, 404 missing, 409 approval not waiting, 413 too large.</p>
 <div class="table"><table><thead><tr><th>Endpoint</th><th>Does</th></tr></thead><tbody><tr><td><code>GET /api/bootstrap</code></td><td>Login, machine, projects, models, thinking levels, defaults.</td></tr><tr><td><code>POST /api/sessions</code></td><td>Starts a session: <code>{ project, text, images?, files?, model?, thinking?, sandbox? }</code>.</td></tr><tr><td><code>POST /api/sessions/:id/messages</code></td><td>Sends <code>{ text, mode: "steer" | "followUp" }</code>.</td></tr><tr><td><code>POST /api/sessions/:id/stop</code></td><td>Stops the run.</td></tr><tr><td><code>POST /api/sessions/:id/agent</code></td><td>Changes model or thinking.</td></tr><tr><td><code>POST /api/sessions/:id/title</code>, <code>/retitle</code>, <code>/archive</code></td><td>Renames, retitles, archives.</td></tr><tr><td><code>GET /api/sessions/:id/changes</code></td><td>Files changed, with <code>/changes/diff?path=</code>.</td></tr><tr><td><code>GET /api/sessions/:id/checkpoints</code></td><td>Checkpoints, their changes, and <code>/:n/restore</code>.</td></tr><tr><td><code>GET /api/search?q=</code></td><td>Message search.</td></tr><tr><td><code>POST /api/approvals/:id</code></td><td>Answers <code>{ allow }</code>.</td></tr><tr><td><code>POST /api/ideas</code></td><td>Saves an idea; <code>/:id/start</code>, <code>/:id/delete</code>.</td></tr><tr><td><code>GET | POST /api/settings</code></td><td>Self-describing settings, and changes to them.</td></tr><tr><td><code>/api/push/*</code></td><td>Web Push sign-up and a test notification.</td></tr></tbody></table></div>
@@ -411,7 +411,7 @@ aludra config unset backup.dir</code></pre><button class="copy" type="button">Co
 <ul>
 <li><strong>Loopback only.</strong> The host listens on <code>127.0.0.1</code>; <code>tailscale serve</code> is the way in.</li>
 <li><strong>Tailscale identity.</strong> Only logins in <code>api.users</code> get through. There are no passwords. Everyone listed is equal and sees every session on the machine.</li>
-<li><strong>No browser access.</strong> POSTs need a JSON content type and a matching origin, <code>/amyrlin</code> and <code>/mcp</code> refuse any request with an <code>Origin</code>, and every response forbids scripts and framing.</li>
+<li><strong>No browser access.</strong> POSTs need a JSON content type and a matching origin, <code>/app</code> and <code>/mcp</code> refuse any request with an <code>Origin</code>, and every response forbids scripts and framing.</li>
 <li><strong>File-only settings.</strong> Clients can't change who gets in, the Claude binary, MCP write access or the data directory.</li>
 <li><strong>No Claude credentials.</strong> aludra runs your Claude Code binary and refuses to start it when the environment would move runs off your subscription.</li>
 <li><strong>Owner-only data.</strong> The data directory is <code>0700</code>, the service runs with a <code>0077</code> umask, and backups are <code>0600</code>. The database holds every transcript; treat it like the code.</li>
@@ -430,9 +430,9 @@ aludra config unset backup.dir</code></pre><button class="copy" type="button">Co
 <p>The host copies the database when the newest copy is older than <code>backup.everyHours</code>, using SQLite's online backup, and keeps the newest <code>backup.keep</code>. <code>aludra backup</code> makes one now. To restore: stop the host, copy a backup over <code>aludra.sqlite</code>, delete its <code>-wal</code> and <code>-shm</code> files and <code>search.sqlite</code>, and start the host.</p>
 <h3 id="troubleshooting"><a class="anchor" href="#troubleshooting">Troubleshooting</a></h3>
 <dl class="faq">
-<dt>amyrlin says 403, or a request gets "Forbidden".</dt><dd>Your login isn't in <code>api.users</code>, or the request didn't come through <code>tailscale serve</code>. Use the <code>ts.net</code> address, not <code>127.0.0.1</code>.</dd>
-<dt>amyrlin says 502.</dt><dd>Nothing is behind <code>tailscale serve</code>: the host isn't running or it's on another port. <code>aludra doctor</code> says which.</dd>
-<dt>A browser gets 404 at the machine's address.</dt><dd>There's no web app; only <code>/api/</code>, <code>/amyrlin</code> and <code>/mcp</code> answer.</dd>
+<dt>loial says 403, or a request gets "Forbidden".</dt><dd>Your login isn't in <code>api.users</code>, or the request didn't come through <code>tailscale serve</code>. Use the <code>ts.net</code> address, not <code>127.0.0.1</code>.</dd>
+<dt>loial says 502.</dt><dd>Nothing is behind <code>tailscale serve</code>: the host isn't running or it's on another port. <code>aludra doctor</code> says which.</dd>
+<dt>A browser gets 404 at the machine's address.</dt><dd>There's no web app; only <code>/api/</code>, <code>/app</code> and <code>/mcp</code> answer.</dd>
 <dt>A session can't find pnpm, cargo or similar.</dt><dd>The service's PATH doesn't have it. Run <code>aludra service install</code> again from a shell that finds the tool.</dd>
 <dt>The host stopped after logging out (Linux).</dt><dd><code>loginctl enable-linger "$USER"</code>.</dd>
 <dt>Sessions run on the wrong Claude account.</dt><dd>Set <code>claude.configDir</code> to the config directory with the right login, then <code>aludra service install</code>.</dd>
@@ -447,15 +447,15 @@ aludra config unset backup.dir</code></pre><button class="copy" type="button">Co
 <h2 id="architecture-h"><a class="anchor" href="#architecture">Architecture</a></h2>
 
 <p>One long-lived Node process, <code>aludra serve</code>, owns the SQLite file and runs every session. Clients hold no state that matters.</p>
-<div class="code"><pre><code>an API client                 amyrlin (macOS)             terminal
-        │ HTTPS + WS /api/live        │ WSS /amyrlin             │
+<div class="code"><pre><code>an API client                 loial (desktop)             terminal
+        │ HTTPS + WS /api/live        │ WSS /app                 │
         └──────────────┬──────────────┘                          │
                tailscale serve  (adds Tailscale-User-Login)      │
                        │                                         │
                127.0.0.1:8724                          aludra.sock (Unix socket)
                        │                                         │
  ┌─────────────────────┴─────────────── aludra serve ────────────┴──────┐
- │  src/api.ts  ── the HTTP API and the /amyrlin endpoint                │
+ │  src/api.ts  ── the HTTP API and the /app endpoint                    │
  │  src/server.ts ── the CLI's socket                                    │
  │  src/live.ts ── the live feed both sockets share                      │
  │  src/host.ts ── Pi Durable Harness over aludra.sqlite                 │

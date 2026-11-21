@@ -15,7 +15,7 @@ export type FileInput = { name: string; mimeType?: string; data: string };
 export type SavedFile = { path: string; name: string; bytes: number; until: Date; mimeType?: string; pasted?: boolean };
 
 export const MAX_FILES = 20;
-/** All of a message's files together. With the images and videos it still fits amyrlin's socket frame (src/api.ts). */
+/** All of a message's files together. With the images and videos it still fits the app socket's frame (src/api.ts). */
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 /** Message text longer than this, in UTF-8 bytes, is saved as a file instead (T3 Code's threshold for pastes). */
 export const PASTE_BYTES = 32 * 1024;

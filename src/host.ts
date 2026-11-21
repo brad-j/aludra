@@ -103,7 +103,7 @@ export type SessionRecord = {
 	shipped?: ShipLanded;
 	/** The latest ship that stopped short, cleared when the next one starts or lands. */
 	shipStopped?: ShipStopped;
-	/** Sessions made with the same group are attempts at one ask (amyrlin's ×3). */
+	/** Sessions made with the same group are attempts at one ask (a client's ×3). */
 	group?: string;
 	/** The item of its project's docs/plan.md it was started for, by id, when a client said so. */
 	planItem?: string;
@@ -166,7 +166,7 @@ export const Ideas = defineDoc<{ next: number; ideas: Record<string, IdeaRecord>
 	initial: () => ({ next: 1, ideas: {} }),
 });
 
-/** How many project hues there are (src/project-colors.ts, amyrlin's ProjectColor); a color is an index into them. */
+/** How many project hues there are (src/project-colors.ts, loial's too); a color is an index into them. */
 export const PROJECT_HUES = HUES.length;
 
 /** Projects whose color was picked rather than hashed from the name: name to hue index. */

@@ -103,7 +103,7 @@ The host listens on `127.0.0.1:8724` only. `tailscale serve` gives it an HTTPS a
 
 ## Connect a client
 
-**loial (Mac and Linux).** In loial, add the machine by its tailnet name, or as `wss://<machine>.<tailnet>.ts.net/amyrlin`. A machine that can't connect says why under its name in the sidebar: 403 means your login isn't in `api.users`, 502 means nothing is behind `tailscale serve`.
+**loial (Mac and Linux).** In loial, add the machine by its tailnet name, or as `wss://<machine>.<tailnet>.ts.net/app`. A machine that can't connect says why under its name in the sidebar: 403 means your login isn't in `api.users`, 502 means nothing is behind `tailscale serve`.
 
 **The terminal.** On the machine itself (or over SSH), `aludra sessions` prints every session, `aludra watch` follows them, and the other commands talk to the running host directly; see [cli.md](cli.md).
 

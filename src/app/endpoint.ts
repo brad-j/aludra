@@ -1,5 +1,5 @@
-// The amyrlin Mac app's way in: protocol v1 (amyrlin's docs/protocol.md) over one WebSocket at /amyrlin, next to the
-// web app's /api/live. Same host, same sessions, so a session started on the phone continues on the Mac and back.
+// The apps' way in: aludra's app protocol v1 (docs/protocol.md) over one WebSocket at /app (and /amyrlin, an alias
+// until loial and pi-desktop have moved), next to /api/live. Same host, same sessions as every other way in.
 //
 // What maps onto what:
 // - A conversation is an aludra session; its project is fixed when it's made (`conversations.create` takes a project
@@ -13,7 +13,7 @@
 //   aludra's own apps do; host.watch carries archived sessions and the client filters.
 // - `settings.get` and `settings.set` are aludra's own, not in protocol v1: the host's settings, each described for a
 //   form (src/settings.ts). A host without them answers `unknown_method`.
-// - Sandbox tasks (amyrlin's protocol section 10 item 19) are aludra's own too: `conversations.create` with `sandbox`,
+// - Sandbox tasks (docs/protocol.md section 10 item 19) are aludra's own too: `conversations.create` with `sandbox`,
 //   the summary's `sandbox` and `source`, `sandbox.sync`, `sandbox.ship` with its `sandbox.shipped` event on host.watch,
 //   `sandbox.discard` and `group.keep`, over src/sandboxes.ts, src/ship.ts and src/sandbox-cleanup.ts; the summary's `line`,
 //   `task.result` and `task.code` over src/results.ts, and `task.shot` over src/shots.ts.
@@ -45,8 +45,9 @@ const LIMITS = { maxFrameBytes: 16 * 1024 * 1024, snapshotItems: 200 };
 /** Above this much unsent data, a subscription waits, and pi-durable replaces what it falls behind on with a snapshot. */
 const BACKPRESSURE_BYTES = 8 * 1024 * 1024;
 
-/** The host's identity for the app, and `conversations.create` request IDs already handled. */
-const AmyrlinDoc = defineDoc<{ hostId?: string; created: Record<string, number> }>({
+/** The host's identity for the apps, and `conversations.create` request IDs already handled. The kind keeps the retired
+ * macOS client's name: it's stored data, and renaming it would need a migration (decisions.md, "amyrlin retired"). */
+const HostDoc = defineDoc<{ hostId?: string; created: Record<string, number> }>({
 	kind: "aludra.amyrlin",
 	version: 1,
 	scope: "session",
@@ -75,7 +76,7 @@ const DECISIONS: Record<ApprovalRequest["status"], string | undefined> = {
 	superseded: "cancelled",
 };
 
-export function createAmyrlinEndpoint(host: Host, options: { name: string; checkoutMs?: number }) {
+export function createAppEndpoint(host: Host, options: { name: string; checkoutMs?: number }) {
 	const { harness, approvals } = host;
 	let hostId: string | undefined;
 	const summaries = new Map<number, Json>();
@@ -111,7 +112,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 
 	async function identity() {
 		hostId ??= await host.root.commit(async (tx) => {
-			const doc = await tx.doc(AmyrlinDoc);
+			const doc = await tx.doc(HostDoc);
 			doc.hostId ??= randomUUID();
 			return doc.hostId;
 		}, context);
@@ -278,7 +279,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			if (record.sandbox !== undefined && before.get(record.sandbox) !== hostStates.get(record.sandbox)) markDirty(record.id);
 		}
 	}
-	const statePoll = setInterval(() => void refreshHostStates().catch((error) => console.error(`[amyrlin] sandbox states: ${error instanceof Error ? error.message : String(error)}`)), 60_000);
+	const statePoll = setInterval(() => void refreshHostStates().catch((error) => console.error(`[app] sandbox states: ${error instanceof Error ? error.message : String(error)}`)), 60_000);
 	statePoll.unref();
 
 	async function refreshAll(): Promise<void> {
@@ -288,7 +289,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 
 	function markDirty(id: number) {
 		dirty.add(id);
-		flushTimer ??= setTimeout(() => void flush().catch((error) => console.error("[amyrlin] summaries", error)), 250);
+		flushTimer ??= setTimeout(() => void flush().catch((error) => console.error("[app] summaries", error)), 250);
 	}
 
 	/** At most four summary updates a second (section 6.2). */
@@ -459,7 +460,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 
 	async function create(p: Json): Promise<Json> {
 		if (typeof p.requestId !== "string") throw new ProtocolError("bad_request", "requestId is required");
-		const doc = await harness.snapshot(AmyrlinDoc, context);
+		const doc = await harness.snapshot(HostDoc, context);
 		const existing = doc?.created[p.requestId];
 		if (existing !== undefined) {
 			const record = await host.sessions.get(existing);
@@ -509,7 +510,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			: project === undefined ? await host.sessions.createScratch(title, agent)
 			: await host.sessions.create(project, title, agent, p.planItem == null ? {} : { planItem: p.planItem });
 		await host.root.commit(async (tx) => {
-			(await tx.doc(AmyrlinDoc)).created[p.requestId] = record.id;
+			(await tx.doc(HostDoc)).created[p.requestId] = record.id;
 		}, context);
 		if (p.from != null || p.about != null) await host.sessions.link(record.id, { ...(p.from == null ? {} : { from: p.from }), ...(p.about == null ? {} : { about: p.about }) });
 		let state: "running" | "idle" = hasFirst ? "running" : "idle";
@@ -928,7 +929,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 						} catch (error) {
 							subscriptions.delete(id);
 							sendFrame({ type: "end", subscription: id, reason: "internal" });
-							console.error("[amyrlin] watch", error);
+							console.error("[app] watch", error);
 						}
 						return;
 					}
@@ -966,7 +967,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 			} catch (error) {
 				const known = error instanceof ProtocolError;
 				const missing = !known && String((error as Error)?.message).startsWith("no session");
-				if (!known && !missing) console.error(`[amyrlin] ${frame.method}`, error);
+				if (!known && !missing) console.error(`[app] ${frame.method}`, error);
 				const payload: Json = {
 					code: known ? error.code : missing ? "not_found" : "internal",
 					message: error instanceof Error ? error.message : String(error),
@@ -1199,7 +1200,7 @@ export function createAmyrlinEndpoint(host: Host, options: { name: string; check
 						await new Promise((resolve) => setTimeout(resolve, 100));
 					}
 					for (const other of others) {
-						if (isSandboxSession(other) && other.source !== undefined) await host.sandboxes.discard(other.id).catch((error) => console.error(`[amyrlin] group.keep: session ${other.id}: ${error instanceof Error ? error.message : String(error)}`));
+						if (isSandboxSession(other) && other.source !== undefined) await host.sandboxes.discard(other.id).catch((error) => console.error(`[app] group.keep: session ${other.id}: ${error instanceof Error ? error.message : String(error)}`));
 						if (other.archived !== true) await host.sessions.archive(other.id, true);
 						archived.push(other.id);
 						markDirty(other.id);

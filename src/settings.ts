@@ -1,5 +1,5 @@
 // The settings as the apps see them: GET and POST /api/settings, the CLI's settings request and `aludra config`, and
-// amyrlin's settings.get and settings.set. Each setting describes itself (src/api-types.ts, Setting), so a client draws
+// the app protocol's settings.get and settings.set. Each setting describes itself (src/api-types.ts, Setting), so a client draws
 // its form from the list rather than knowing aludra's settings.
 //
 // A change is written to the settings file, checked as the host checks it at start, and the host applies the live ones
@@ -68,7 +68,7 @@ const SPECS: readonly Spec[] = [
 	{ key: "api.users", label: "Logins", kind: "list", editable: false, get: (c) => [...c.api.users], default: () => [],
 		help: "The Tailscale logins the apps let in." },
 	{ key: "api.port", label: "Port", kind: "integer", editable: false, get: (c) => c.api.port, default: () => 8724,
-		help: "The loopback port of the API and amyrlin's endpoint; tailscale serve points at it." },
+		help: "The loopback port of the API and the app endpoint; tailscale serve points at it." },
 	{ key: "claude.path", label: "Claude Code", kind: "path", editable: false, get: (c) => c.claude.path, default: () => "claude",
 		help: "The Claude Code program Claude's models run through; a bare name is looked up on PATH." },
 	{ key: "claude.configDir", label: "Claude Code login", kind: "path", editable: false, get: (c) => claudeConfigDir(c), default: () => join(homedir(), ".claude"),
