@@ -156,12 +156,9 @@ test("the endpoint refuses connections without a listed login, and any from a we
 	}
 });
 
-test("/amyrlin is an alias for /app until the clients have moved, with the same checks", async (t) => {
+test("/amyrlin, the protocol's old path, no longer answers", async (t) => {
 	const { url } = await api(t);
-	const old = url.replace(/\/app$/, "/amyrlin");
-	const mac = await client(t, old);
-	assert.equal(mac.welcome.protocol, 1);
-	const ws = new WebSocket(old, { headers: { "tailscale-user-login": USER, origin: "https://evil.example" } });
+	const ws = new WebSocket(url.replace(/\/app$/, "/amyrlin"), { headers: { "tailscale-user-login": USER } });
 	const status = await new Promise<number>((resolve) => ws.once("unexpected-response", (_request, response) => resolve(response.statusCode ?? 0)));
 	assert.equal(status, 403);
 });

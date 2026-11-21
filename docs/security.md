@@ -22,7 +22,7 @@ aludra serves no web app, but a page from another site, open in your browser on 
 
 ## The app endpoint
 
-`/app` (and `/amyrlin`, its old path, until the clients have moved) takes the same identity check, and also refuses any upgrade that carries an `Origin` header. A native app sends none and a browser always does, so a web page can't open it with your identity.
+`/app` takes the same identity check, and also refuses any upgrade that carries an `Origin` header. A native app sends none and a browser always does, so a web page can't open it with your identity.
 
 ## MCP
 

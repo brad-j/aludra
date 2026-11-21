@@ -1,5 +1,4 @@
-// The apps' way in: aludra's app protocol v1 (docs/protocol.md) over one WebSocket at /app (and /amyrlin, an alias
-// until loial and pi-desktop have moved), next to /api/live. Same host, same sessions as every other way in.
+// The apps' way in: aludra's app protocol v1 (docs/protocol.md) over one WebSocket at /app, next to /api/live. Same host, same sessions as every other way in.
 //
 // What maps onto what:
 // - A conversation is an aludra session; its project is fixed when it's made (`conversations.create` takes a project

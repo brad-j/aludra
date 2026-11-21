@@ -4,16 +4,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
-### retire-amyrlin: Take amyrlin's name out of aludra
-Kind: step
-amyrlin, the macOS client, is retired (2026-11-20). Brad's calls (decisions.md, "amyrlin retired"): the path is `/app` and the protocol "aludra's app protocol v1"; the `aludra.amyrlin` document kind stays; brad-j/amyrlin is archived; the checkout is removed once nothing reads it.
-
-1. Done: the spec is `docs/protocol.md` and the fixtures are in `test/fixtures/` (`durable-1.1.0`, `wire-v1`, `server-v1`); the scripts write there. The code, tests and docs say `/app`, `src/app/` and `createAppEndpoint`, and `/app` is served with `/amyrlin` as an alias (1d1c7bb).
-2. Done 2026-11-21: installed on egwene and the Mac; both answer `host.info` at `/app` and `/amyrlin` over the tailnet with the same host ID.
-3. Done 2026-11-21: loial (ddb8939) and pi-desktop (0becd75) use `/app` and rewrite a saved `/amyrlin` address. Both are built on the Mac, but `/Applications/loial.app` and `Pi Desktop.app` were running, so the new builds aren't copied in yet. The Mac's `aludra.json` already says `/app` (the old one is `aludra.json.amyrlin-bak` beside it).
-4. Once the Mac's two apps are the new builds: remove the alias from `src/api.ts`, its test in `test/app.test.ts`, and the mentions in `docs/protocol.md`, api.md, operations.md, security.md and `src/app/endpoint.ts`; install on both machines again; sync aludra-site again.
-5. Done 2026-11-21: brad-j/amyrlin is archived (still public), and `~/westwood/Projects/Software/amyrlin` is removed (`~/westwood/MIGRATIONS.md`). aludra-site's docs were synced (b448bb2).
-
 ## Next
 
 ## Questions
@@ -26,7 +16,7 @@ aludra keeps `sandbox/N` after a task is archived: loial's checkout has 62 and a
 
 ### sandbox-template-flake: A sandbox template test fails now and then under the full suite
 Kind: chore
-"a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing.
+"a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run.
 
 ### setup-only-secrets: Secrets for setup scripts only
 Kind: step
@@ -77,6 +67,11 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### retire-amyrlin: Take amyrlin's name out of aludra
+Kind: step · Done: 2026-11-21
+The app protocol is at `/app`, "aludra's app protocol v1" (1d1c7bb): `src/app/`, `createAppEndpoint`, `test/app.test.ts`, `scripts/app-capture.ts` and `app-export-wire.ts`. The spec is `docs/protocol.md` and the fixtures `test/fixtures/` (`durable-1.1.0`, `wire-v1`, `server-v1`), so nothing reads `../amyrlin`. The `aludra.amyrlin` document kind stays, as stored data. loial (ddb8939) and pi-desktop (0becd75) moved to `/app` and rewrite a saved `/amyrlin` address; their new builds are in the Mac's /Applications. The `/amyrlin` alias was then removed, and a test checks it no longer answers. brad-j/amyrlin is archived and the checkout removed (`~/westwood/MIGRATIONS.md`). aludra-site's docs are synced. decisions.md, "amyrlin retired", has Brad's calls.
+
 
 ### starter-files: A new project's starter files and plan
 Kind: request · From: pi-desktop/ideas-make-project · Done: 2026-11-20

@@ -1,6 +1,6 @@
 # aludra's app protocol, v1
 
-Status: v1, reviewed 2026-10-12 (decisions in section 10). aludra serves it at `/app`; `/amyrlin`, its first path, answers too until loial and pi-desktop have moved.
+Status: v1, reviewed 2026-10-12 (decisions in section 10). aludra serves it at `/app`; until 2026-11-21 it was at `/amyrlin`, which no longer answers.
 
 The protocol was written for a native macOS client, since retired, and moved here from its repository on 2026-11-20. Where this document says "the Mac app", it means that client and describes what it did; loial's `docs/protocol.md` lists what loial uses.
 

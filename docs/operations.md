@@ -90,7 +90,7 @@ aludra loads pi-claude-code from its source files, and depends on how Pi Durable
 
 **A request gets "Forbidden".** As for 403. If you're on the right login, check you're using the `https://…ts.net/` address and not `127.0.0.1` directly, which has no Tailscale header.
 
-**A browser gets a 404 at the machine's address.** aludra has no web app; only `/api/`, `/app` (and `/amyrlin`, its old path, for now) and `/mcp` answer.
+**A browser gets a 404 at the machine's address.** aludra has no web app; only `/api/`, `/app` and `/mcp` answer.
 
 **The host stopped after I logged out (Linux).** `loginctl enable-linger "$USER"`.
 

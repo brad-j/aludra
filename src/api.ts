@@ -25,8 +25,7 @@
 //   POST /api/push/test
 //   WS   /api/live                        ServerEvent out, ClientEvent in (src/api-types.ts)
 //
-//   WS   /app                             aludra's app protocol (src/app/endpoint.ts, docs/protocol.md); /amyrlin is an alias
-//                                         until loial and pi-desktop have moved
+//   WS   /app                             aludra's app protocol (src/app/endpoint.ts, docs/protocol.md)
 //
 // Anything else is a 404. Notifications (src/push.ts) go out when a call waits for approval, and when a run ends done or failed, except for a session a client on /api/live says it's showing on screen.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -453,7 +452,7 @@ export function createApi(host: Host, options: ApiOptions) {
 	const appSockets = new WebSocketServer({ noServer: true, maxPayload: 112 * 1024 * 1024 });
 	server.on("upgrade", (request, socket, head) => {
 		const path = new URL(request.url ?? "/", "http://host").pathname;
-		if (path === "/app" || path === "/amyrlin") {
+		if (path === "/app") {
 			const login = loginOf(request);
 			if (login === undefined || request.headers.origin !== undefined) {
 				socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");

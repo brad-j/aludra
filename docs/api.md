@@ -105,7 +105,7 @@ Transcript items are `user`, `answer`, `call`, `failure` and `compacted` (see `I
 
 ## The app endpoint: `WS /app`
 
-aludra's app protocol v1, documented in [protocol.md](protocol.md); loial and pi-desktop speak it (loial's `docs/protocol.md` lists what it uses). `/amyrlin`, the protocol's first path, answers the same until both clients have moved to `/app`. aludra takes the same `Tailscale-User-Login` check as the HTTP API, and refuses any upgrade with an `Origin` header, so browsers can't open it.
+aludra's app protocol v1, documented in [protocol.md](protocol.md); loial and pi-desktop speak it (loial's `docs/protocol.md` lists what it uses). Its first path, `/amyrlin`, was removed on 2026-11-21. aludra takes the same `Tailscale-User-Login` check as the HTTP API, and refuses any upgrade with an `Origin` header, so browsers can't open it.
 
 How aludra maps onto the protocol:
 
