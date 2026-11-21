@@ -4,6 +4,17 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
+### retire-amyrlin: Take amyrlin's name out of aludra
+Kind: step
+amyrlin, the macOS client, is retired (2026-11-20), but aludra still carries its name in about 265 places: the `/amyrlin` WebSocket path loial and pi-desktop use, `src/amyrlin/`, `createAmyrlinEndpoint`, the `aludra.amyrlin` Durable document kind, comments and docs ("amyrlin's protocol v1"), `test/fixtures/amyrlin/`, and `scripts/amyrlin-capture.ts` and `amyrlin-export-wire.ts`, which read `../amyrlin/fixtures`. The protocol's spec is amyrlin's `docs/protocol.md` (623 lines), in the retired checkout.
+
+1. Move the spec into aludra (`docs/protocol.md`), and copy amyrlin's `fixtures/` (`durable-1.1.0`, `wire-v1`, `server-v1`) into `test/fixtures/`, so nothing reads `../amyrlin`. Point the fixture scripts at aludra's own copies, or drop the ones only amyrlin needed.
+2. Rename the code: `src/amyrlin/` and its exports, comments and docs, under the name Brad picks for the protocol.
+3. Serve the protocol at a new path (Brad picks it) and keep `/amyrlin` as an alias until loial and pi-desktop have moved (loial/retire-amyrlin, pi-desktop/retire-amyrlin), on egwene and the Mac. Then remove the alias.
+4. The `aludra.amyrlin` document kind is stored data (the host's ID and handled request IDs). Leave it, or migrate it, only with Brad's say-so.
+5. Sync aludra-site's docs (`node scripts/sync-docs.ts ../aludra` there) and rebuild.
+6. Asks for Brad: the GitHub repository `brad-j/amyrlin` is public and not archived; archive it, make it private, or delete it. Removing `~/westwood/Projects/Software/amyrlin` needs his approval and an entry in `~/westwood/MIGRATIONS.md`.
+
 ## Next
 
 ## Questions
