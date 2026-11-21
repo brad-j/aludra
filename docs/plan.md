@@ -8,11 +8,11 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 Kind: step
 amyrlin, the macOS client, is retired (2026-11-20). Brad's calls (decisions.md, "amyrlin retired"): the path is `/app` and the protocol "aludra's app protocol v1"; the `aludra.amyrlin` document kind stays; brad-j/amyrlin is archived; the checkout is removed once nothing reads it.
 
-1. Done: the spec is `docs/protocol.md` and the fixtures are in `test/fixtures/` (`durable-1.1.0`, `wire-v1`, `server-v1`); the scripts write there. The code, tests and docs say `/app`, `src/app/` and `createAppEndpoint`, and `/app` is served with `/amyrlin` as an alias.
-2. Install on egwene and the Mac (the Mac's `~/1-code/aludra` is at b6fb135, so update it first).
-3. Once loial and pi-desktop use `/app` (loial/retire-amyrlin, pi-desktop/retire-amyrlin), remove the alias from `src/api.ts` and its test, and the docs' mentions of it, and install again.
-4. Sync aludra-site's docs (`node scripts/sync-docs.ts ../aludra` there) and rebuild. Its docs list may want `protocol.md`.
-5. Archive brad-j/amyrlin, then remove `~/westwood/Projects/Software/amyrlin` with an entry in `~/westwood/MIGRATIONS.md`.
+1. Done: the spec is `docs/protocol.md` and the fixtures are in `test/fixtures/` (`durable-1.1.0`, `wire-v1`, `server-v1`); the scripts write there. The code, tests and docs say `/app`, `src/app/` and `createAppEndpoint`, and `/app` is served with `/amyrlin` as an alias (1d1c7bb).
+2. Done 2026-11-21: installed on egwene and the Mac; both answer `host.info` at `/app` and `/amyrlin` over the tailnet with the same host ID.
+3. Done 2026-11-21: loial (ddb8939) and pi-desktop (0becd75) use `/app` and rewrite a saved `/amyrlin` address. Both are built on the Mac, but `/Applications/loial.app` and `Pi Desktop.app` were running, so the new builds aren't copied in yet. The Mac's `aludra.json` already says `/app` (the old one is `aludra.json.amyrlin-bak` beside it).
+4. Once the Mac's two apps are the new builds: remove the alias from `src/api.ts`, its test in `test/app.test.ts`, and the mentions in `docs/protocol.md`, api.md, operations.md, security.md and `src/app/endpoint.ts`; install on both machines again; sync aludra-site again.
+5. Done 2026-11-21: brad-j/amyrlin is archived (still public), and `~/westwood/Projects/Software/amyrlin` is removed (`~/westwood/MIGRATIONS.md`). aludra-site's docs were synced (b448bb2).
 
 ## Next
 
