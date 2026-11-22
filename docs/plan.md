@@ -68,6 +68,10 @@ From the first plan's "Later, maybe". Slack would be a channel per project and a
 
 ## Done
 
+### unretire-verin: Put back the MCP write side for Verin
+Kind: step · Done: 2026-11-22
+Brad brought Verin back on 2026-11-22, so c8e3cbd is reverted: the check_sessions gate, write_plan (`mcp.writePlans`), ship_session (`mcp.ship`, `mcp.shipWorktrees`), create_project and promote_session (`mcp.allowNewProjects`) and scratch start_session are back, under `/app` naming. retire-agent-mcp's removal no longer holds. See decisions.md, "Verin back (2026-11-22)".
+
 ### retire-amyrlin: Take amyrlin's name out of aludra
 Kind: step · Done: 2026-11-21
 The app protocol is at `/app`, "aludra's app protocol v1" (1d1c7bb): `src/app/`, `createAppEndpoint`, `test/app.test.ts`, `scripts/app-capture.ts` and `app-export-wire.ts`. The spec is `docs/protocol.md` and the fixtures `test/fixtures/` (`durable-1.1.0`, `wire-v1`, `server-v1`), so nothing reads `../amyrlin`. The `aludra.amyrlin` document kind stays, as stored data. loial (ddb8939) and pi-desktop (0becd75) moved to `/app` and rewrite a saved `/amyrlin` address; their new builds are in the Mac's /Applications. The `/amyrlin` alias was then removed, and a test checks it no longer answers. brad-j/amyrlin is archived and the checkout removed (`~/westwood/MIGRATIONS.md`). aludra-site's docs are synced. decisions.md, "amyrlin retired", has Brad's calls.

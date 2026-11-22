@@ -8,7 +8,7 @@
 //     "backup": { "dir": "/mnt/nas/aludra", "everyHours": 24, "keep": 7 },
 //     "archive": { "afterDays": 3 },
 //     "subagents": { "model": "claude-sonnet-5-5" },
-//     "mcp": { "write": false, "sandboxOnly": false, "worktreeOnly": false },
+//     "mcp": { "write": false, "sandboxOnly": false, "worktreeOnly": false, "ship": false, "shipWorktrees": false, "allowNewProjects": false, "writePlans": false },
 //     "api": { "port": 8724, "users": ["you@example.com"] },
 //     "dataDir": "~/.local/share/aludra"
 //   }
@@ -88,9 +88,13 @@ export type Config = {
 	/**
 	 * The MCP endpoint (src/mcp.ts): read-only unless `write`, which lets agents start, message and stop sessions. With
 	 * `sandboxOnly`, the sessions it starts and the ones its tools act on are only sandbox sessions; with `worktreeOnly`,
-	 * only worktree sessions. Both on is an error.
+	 * only worktree sessions. Both on is an error. `ship`, with `write`, lets a write token ship a sandbox session's work,
+	 * and `shipWorktrees` a worktree session's, pushed from this machine's checkout. With `allowNewProjects`, write tokens
+	 * may ask to make projects (create_project, promote_session), each waiting for the owner's approval
+	 * (src/project-requests.ts). With `writePlans`, write tokens may replace a project's docs/plan.md in its checkout
+	 * (write_plan, src/plans.ts), whatever `sandboxOnly` and `worktreeOnly` say.
 	 */
-	mcp: { write: boolean; sandboxOnly: boolean; worktreeOnly: boolean };
+	mcp: { write: boolean; sandboxOnly: boolean; worktreeOnly: boolean; ship: boolean; shipWorktrees: boolean; allowNewProjects: boolean; writePlans: boolean };
 	/** The sandbox host (spike, src/sandboxes.ts), if sessions may run in sandboxes. */
 	sandboxes?: SandboxSetting;
 	/** ALUDRA_SANDBOXES=fake: sandboxes are local clones (src/fake-sandboxes.ts) in place of `sandboxes`' host, for development. */
@@ -135,7 +139,7 @@ const DEFAULTS = {
 	backup: { everyHours: 24, keep: 7 },
 	archive: { afterDays: 3 },
 	subagents: { model: { provider: "claude-bridge" as const, id: "claude-sonnet-5-5" } },
-	mcp: { write: false, sandboxOnly: false, worktreeOnly: false },
+	mcp: { write: false, sandboxOnly: false, worktreeOnly: false, ship: false, shipWorktrees: false, allowNewProjects: false, writePlans: false },
 } satisfies Omit<Config, "workspaces" | "dataDir" | "backup" | "sandboxes"> & { backup: Omit<Config["backup"], "dir"> };
 
 const EXAMPLE_WORKSPACE = '"workspaces": [{ "name": "code", "roots": ["~/code/*"] }]';
@@ -149,7 +153,7 @@ const settingsFile = object({
 	backup: optional(object({ dir: optional(string), everyHours: optional(number), keep: optional(integer) })),
 	archive: optional(object({ afterDays: optional(number) })),
 	subagents: optional(object({ model: optional(string) })),
-	mcp: optional(object({ write: optional(boolean), sandboxOnly: optional(boolean), worktreeOnly: optional(boolean) })),
+	mcp: optional(object({ write: optional(boolean), sandboxOnly: optional(boolean), worktreeOnly: optional(boolean), ship: optional(boolean), shipWorktrees: optional(boolean), allowNewProjects: optional(boolean), writePlans: optional(boolean) })),
 	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")), approvals: optional(literal("ask", "off")) })),
 	newProjects: optional(object({ root: string, owner: string, designSeeds: optional(string) })),
 	dataDir: optional(string),

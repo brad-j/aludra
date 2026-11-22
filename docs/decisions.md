@@ -58,6 +58,10 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
+## Verin back (2026-11-22)
+
+Brad un-retired Verin, so the MCP write side removed on 2026-11-20 (below, plan: `retire-agent-mcp`) is back by reverting c8e3cbd: the `check_sessions` gate, `write_plan`, `ship_session` with `mcp.ship` and `mcp.shipWorktrees`, `create_project` and `promote_session`, and scratch `start_session`. Its conflicts with the `/app` rename were resolved to `/app`. The entry below stays as history.
+
 ## amyrlin retired (2026-11-20)
 
 amyrlin, the macOS client the protocol was written for, is retired, and Brad decided its name comes out of aludra (plan: `retire-amyrlin`). His calls, 2026-11-20:
