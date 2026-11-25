@@ -662,7 +662,7 @@ export async function openHost(options: HostOptions) {
 		const decided = projectRequests.decide(id, allow);
 		if (decided?.status !== "approved") return decided;
 		try {
-			const made = decided.kind === "create" ? await createProject(decided.name, decided.description) : await promote(decided.session!, decided.name, decided.description);
+			const made = decided.kind === "create" ? await createProject(decided.name, decided.description, undefined, decided.plan === undefined ? {} : { plan: decided.plan }) : await promote(decided.session!, decided.name, decided.description);
 			return projectRequests.finish(id, { dir: made.dir });
 		} catch (error) {
 			return projectRequests.finish(id, { error: error instanceof Error ? error.message : String(error) });

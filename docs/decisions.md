@@ -58,6 +58,10 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
+## create_project takes a plan (2026-11-24)
+
+Verin's ideas-make-project sends an idea's drafted plan with the project it asks for, and Verin talks to aludra over MCP rather than `/app` (its 2026-11-23 decision), so `create_project` takes the same `plan: { steps?, questions? }` seed `projects.create` does (plan: `create-project-plan`). Before this, MCP's projects started with an empty plan and an extra argument would have been dropped. The seed is checked when it's asked for, so the owner approves a request that can be made, and stored with it, since the project is made later. `promote_session` takes none: a scratch session's work brings its own files, as `sandbox.promote` adds no starters. egwene's `mcp.allowNewProjects` is still off, so Verin can't use it there until Brad turns it on.
+
 ## Verin back (2026-11-22)
 
 Brad un-retired Verin, so the MCP write side removed on 2026-11-20 (below, plan: `retire-agent-mcp`) is back by reverting c8e3cbd: the `check_sessions` gate, `write_plan`, `ship_session` with `mcp.ship` and `mcp.shipWorktrees`, `create_project` and `promote_session`, and scratch `start_session`. Its conflicts with the `/app` rename were resolved to `/app`. The entry below stays as history.

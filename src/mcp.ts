@@ -67,6 +67,7 @@ import { prose, parseSaid } from "./results.ts";
 import { readSummary } from "./live.ts";
 import { findProject } from "./projects.ts";
 import { checkName } from "./new-projects.ts";
+import { checkSeed } from "./starters.ts";
 import { describeProjectRequest, type ProjectRequest } from "./project-requests.ts";
 import { context, isSandboxSession, isWorktreeSession, worktreeBranch } from "./host.ts";
 import { itemsOf } from "./transcript.ts";
@@ -644,12 +645,30 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 			const descriptionField = z.string().optional().describe("A line about the project, for its README and GitHub repository");
 
 			server.registerTool("create_project", {
-				description: `Ask to make a new, empty project on ${options.machine}: a folder in the host's new-projects root with a README and a first commit, and a private GitHub repository it's pushed to. ${approvalText} For an idea with work to keep, start_session without a project and promote_session it instead.`,
-				inputSchema: { name: nameField, description: descriptionField },
+				description: `Ask to make a new, empty project on ${options.machine}: a folder in the host's new-projects root with a README, AGENTS.md and docs/plan.md and a first commit, and a private GitHub repository it's pushed to. plan seeds docs/plan.md: the first step in Now, the rest in Next, and the questions under Questions; without it the plan has no items. ${approvalText} Asking again while it waits may leave plan out; sending a different plan then is an error. For an idea with work to keep, start_session without a project and promote_session it instead.`,
+				inputSchema: {
+					name: nameField,
+					description: descriptionField,
+					plan: z.object({
+						steps: z.array(z.string()).optional().describe("Step titles, in order: the first goes in Now, the rest in Next"),
+						questions: z.array(z.string()).optional().describe("Open questions' titles, for Questions"),
+					}).optional().describe("The project's starting plan, at most 40 items, each title at most 200 characters"),
+				},
 				annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-			}, async ({ name, description }) => {
+			}, async ({ name, description, plan }) => {
+				let seed;
+				try {
+					seed = checkSeed(plan);
+				} catch (error) {
+					return failure(error instanceof Error ? error.message : String(error));
+				}
 				const asked = standing("create", name);
-				if (asked !== undefined) return requestAnswer(asked);
+				if (asked !== undefined) {
+					if (seed !== undefined && (asked.status === "pending" || asked.status === "approved") && JSON.stringify(seed) !== JSON.stringify(asked.plan ?? {})) {
+						return failure(`request ${asked.id} for ${name} waits with a different plan; call again without plan, or with the same one, for its answer`);
+					}
+					return requestAnswer(asked);
+				}
 				try {
 					checkName(name);
 				} catch (error) {
@@ -658,7 +677,7 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 				const unready = await newProjectsRefusal();
 				if (unready !== undefined) return failure(unready);
 				if (host.projects().some((p) => p.name === name)) return failure(`there's a project named ${name} already; list_projects lists them`);
-				return requestAnswer(host.projectRequests.open(options.token.id, "create", name, description));
+				return requestAnswer(host.projectRequests.open(options.token.id, "create", name, description, undefined, seed));
 			});
 
 			// Not under worktreeOnly: it takes only a scratch sandbox session, which that mode neither makes nor acts on.

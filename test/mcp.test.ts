@@ -1080,6 +1080,32 @@ test("create_project makes nothing until it's approved, then makes the project a
 	assert.match(text(await client.callTool({ name: "create_project", arguments: { name: "site" } })), /a project named site already/);
 });
 
+test("create_project with a plan seeds the new project's docs/plan.md once it's approved", async (t) => {
+	const { host, connect, dir } = await mcp(t, true, { newProjects: true, allowNewProjects: true });
+	const client = await connect();
+	const plan = { steps: ["Draw the map", "Open the gates"], questions: ["Which portal stones first?"] };
+	const bad = await client.callTool({ name: "create_project", arguments: { name: "waygate", plan: { steps: Array.from({ length: 41 }, (_, i) => `Step ${i}`) } } });
+	assert.equal(bad.isError, true);
+	assert.match(text(bad), /more than 40 items/);
+	assert.deepEqual(host.projectRequests.list(), [], "a bad plan stores nothing");
+
+	const asked = json(await client.callTool({ name: "create_project", arguments: { name: "waygate", description: "Gates.", plan } }));
+	assert.equal(asked.status, "pending");
+	assert.deepEqual(host.projectRequests.list()[0]?.plan, plan);
+	// Asking again without the plan, or with the same one, is the same request; a different one is refused.
+	assert.equal(json(await client.callTool({ name: "create_project", arguments: { name: "waygate" } })).request, asked.request);
+	assert.equal(json(await client.callTool({ name: "create_project", arguments: { name: "waygate", plan } })).request, asked.request);
+	const other = await client.callTool({ name: "create_project", arguments: { name: "waygate", plan: { steps: ["Something else"] } } });
+	assert.equal(other.isError, true);
+	assert.match(text(other), new RegExp(`request ${asked.request} for waygate waits with a different plan`));
+
+	assert.equal((await host.projectRequests.decide(asked.request, true))?.status, "done");
+	const written = readFileSync(join(dir, "Projects", "Software", "waygate", "docs", "plan.md"), "utf8");
+	assert.match(written, /## Now\n\n### draw-the-map: Draw the map\nKind: step/);
+	assert.match(written, /## Next\n\n### open-the-gates: Open the gates\nKind: step/);
+	assert.match(written, /## Questions\n\n### which-portal-stones-first: Which portal stones first\?\nKind: question/);
+});
+
 test("create_project denied or expired makes nothing, says so once, and asking again is a new request", async (t) => {
 	const { host, connect, dir, gh, config } = await mcp(t, true, { newProjects: true, allowNewProjects: true });
 	const client = await connect();

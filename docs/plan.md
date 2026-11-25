@@ -16,7 +16,7 @@ aludra keeps `sandbox/N` after a task is archived: loial's checkout has 62 and a
 
 ### sandbox-template-flake: A sandbox template test fails now and then under the full suite
 Kind: chore
-"a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run.
+"a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run. On 2026-11-24 the first one failed in 2 of 4 runs of `test/sandboxes.test.ts` alone, again `ENOTEMPTY` on the project's `.git`, and passed in the full run.
 
 ### setup-only-secrets: Secrets for setup scripts only
 Kind: step
@@ -67,6 +67,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### create-project-plan: A starting plan on MCP create_project
+Kind: request · From: verin/ideas-make-project · Done: 2026-11-24
+`create_project` takes `plan: { steps?, questions? }`, checked with `checkSeed` when it's asked for and kept with the request (a `plan` column in `project-requests.sqlite`, added to older files when opened), then written by `writeStarters` once the owner approves, as `projects.create` does. Asking again may leave `plan` out; a different one while the request waits is an error. `aludra approvals` shows how many steps and questions it carries. See decisions.md, "create_project takes a plan (2026-11-24)".
 
 ### unretire-verin: Put back the MCP write side for Verin
 Kind: step · Done: 2026-11-22

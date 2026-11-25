@@ -13,8 +13,13 @@
 // A request is the same one when the same token asks for the same kind, name and session. Asking again while it waits,
 // or after it's made, answers with it. Once a denial, an expiry or a failure has been told to the agent, asking again
 // makes a new request, so the agent can try again without the owner having to clear anything.
+//
+// A create request may carry a starting plan (src/starters.ts PlanSeed), checked when it's asked for and written into
+// the project's docs/plan.md once it's made, as projects.create's plan is. It's kept as JSON text in `plan`, a column
+// added to older files when they're opened.
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import type { PlanSeed } from "./starters.ts";
 
 export type ProjectRequestStatus = "pending" | "approved" | "denied" | "expired" | "done" | "failed";
 
@@ -27,6 +32,8 @@ export type ProjectRequest = {
 	kind: "create" | "promote";
 	name: string;
 	description?: string;
+	/** A create request's starting plan, for the new project's docs/plan.md. */
+	plan?: PlanSeed;
 	session?: number;
 	status: ProjectRequestStatus;
 	createdAt: number;
@@ -44,13 +51,14 @@ export type ProjectRequest = {
 const ENDED: readonly ProjectRequestStatus[] = ["denied", "expired", "failed"];
 const KEEP_MS = 30 * 24 * 3_600_000;
 
-type Row = { id: string; token: number; kind: "create" | "promote"; name: string; description: string | null; session: number | null; status: ProjectRequestStatus; created_at: number; expires_at: number; decided_at: number | null; dir: string | null; error: string | null; reported: number };
+type Row = { id: string; token: number; kind: "create" | "promote"; name: string; description: string | null; plan: string | null; session: number | null; status: ProjectRequestStatus; created_at: number; expires_at: number; decided_at: number | null; dir: string | null; error: string | null; reported: number };
 const requestOf = (row: Row): ProjectRequest => ({
 	id: row.id,
 	token: row.token,
 	kind: row.kind,
 	name: row.name,
 	...(row.description === null ? {} : { description: row.description }),
+	...(row.plan === null ? {} : { plan: JSON.parse(row.plan) as PlanSeed }),
 	...(row.session === null ? {} : { session: row.session }),
 	status: row.status,
 	createdAt: row.created_at,
@@ -64,7 +72,14 @@ const requestOf = (row: Row): ProjectRequest => ({
 /** What a request is in a line, as `aludra approvals` lists it. */
 export function describeProjectRequest(request: ProjectRequest): string {
 	const what = request.kind === "create" ? `make project ${request.name}` : `make session ${request.session}'s work project ${request.name}`;
-	return `${what}${request.description === undefined ? "" : `: ${request.description}`}`;
+	return `${what}${request.description === undefined ? "" : `: ${request.description}`}${planNote(request.plan)}`;
+}
+
+/** " (plan: 3 steps, 1 question)" for a seed with items, else nothing. */
+function planNote(plan: PlanSeed | undefined): string {
+	const count = (n: number, one: string) => (n === 0 ? [] : [`${n} ${one}${n === 1 ? "" : "s"}`]);
+	const parts = [...count(plan?.steps?.length ?? 0, "step"), ...count(plan?.questions?.length ?? 0, "question")];
+	return parts.length === 0 ? "" : ` (plan: ${parts.join(", ")})`;
 }
 
 /** `waitMs` is read as each request is made: the setting can change while the host runs. */
@@ -79,6 +94,7 @@ export function openProjectRequests(file: string, waitMs: () => number) {
 			kind TEXT NOT NULL CHECK (kind IN ('create', 'promote')),
 			name TEXT NOT NULL,
 			description TEXT,
+			plan TEXT,
 			session INTEGER,
 			status TEXT NOT NULL,
 			created_at INTEGER NOT NULL,
@@ -89,8 +105,10 @@ export function openProjectRequests(file: string, waitMs: () => number) {
 			reported INTEGER NOT NULL DEFAULT 0
 		);
 	`);
+	// Files from before plans had no plan column.
+	if (!(db.prepare("PRAGMA table_info(requests)").all() as { name: string }[]).some((c) => c.name === "plan")) db.exec("ALTER TABLE requests ADD COLUMN plan TEXT");
 	db.prepare("DELETE FROM requests WHERE status != 'pending' AND COALESCE(decided_at, created_at) < ?").run(Date.now() - KEEP_MS);
-	const insert = db.prepare("INSERT INTO requests (id, token, kind, name, description, session, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING *");
+	const insert = db.prepare("INSERT INTO requests (id, token, kind, name, description, plan, session, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING *");
 	const byId = db.prepare("SELECT * FROM requests WHERE id = ?");
 	const latest = db.prepare("SELECT * FROM requests WHERE token = ? AND kind = ? AND name = ? AND session IS ? ORDER BY created_at DESC, rowid DESC LIMIT 1");
 	const waiting = db.prepare("SELECT * FROM requests WHERE status = 'pending' ORDER BY created_at");
@@ -131,12 +149,12 @@ export function openProjectRequests(file: string, waitMs: () => number) {
 		report(request: ProjectRequest): void {
 			if (ENDED.includes(request.status)) reporting.run(request.id);
 		},
-		/** Stores a new pending request and tells listeners. */
-		open(token: number, kind: "create" | "promote", name: string, description: string | undefined, session?: number): ProjectRequest {
+		/** Stores a new pending request and tells listeners. `plan` is a create request's checked starting plan. */
+		open(token: number, kind: "create" | "promote", name: string, description: string | undefined, session?: number, plan?: PlanSeed): ProjectRequest {
 			const now = Date.now();
 			let id = randomBytes(3).toString("hex");
 			while (byId.get(id) !== undefined) id = randomBytes(3).toString("hex");
-			const request = requestOf(insert.get(id, token, kind, name, description ?? null, session ?? null, now, now + waitMs()) as Row);
+			const request = requestOf(insert.get(id, token, kind, name, description ?? null, plan === undefined ? null : JSON.stringify(plan), session ?? null, now, now + waitMs()) as Row);
 			emit(request);
 			return request;
 		},
