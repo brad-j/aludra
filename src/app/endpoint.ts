@@ -1086,7 +1086,7 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 					const project = host.projects().find((candidate) => candidate.dir === p.project);
 					if (project === undefined) throw new ProtocolError("not_found", `${p.project} isn't a project aludra knows; host.info lists them`);
 					try {
-						return { write: await writePlan(project, p.text, p.base, () => checkoutBusy(host, project)) };
+						return { write: await writePlan(project, p.text, p.base, () => checkoutBusy(host, project), "projects.writePlan") };
 					} catch (error) {
 						if (error instanceof PlanConflict) throw new ProtocolError("conflict", error.message);
 						if (error instanceof PlanBusy) throw new ProtocolError("busy", error.message);

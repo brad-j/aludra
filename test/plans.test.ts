@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { checkPlan, MAX_PLAN, PlanBusy, PlanConflict, PlanInvalid, planChanges, planItems, planSha256, readPlan, writePlan } from "../src/plans.ts";
-import { makeProject, tempDir } from "./helpers.ts";
+import { checkPlan, MAX_PLAN, PlanBusy, PlanConflict, PlanInvalid, planChanges, planCommitMessage, planItems, planSha256, readPlan, writePlan } from "../src/plans.ts";
+import { git, gitProject, makeProject, tempDir } from "./helpers.ts";
 
 test("read_plan reads docs/plan.md from the working copy as it is now", async (t) => {
 	const project = makeProject(tempDir(t), "site", { "docs/plan.md": "# Plan\n\n## Now\n" });
@@ -201,4 +201,58 @@ test("writePlan asks its guard before writing and again just before the rename, 
 	assert.deepEqual(readdirSync(join(project.dir, "docs")), ["plan.md"], "the temporary file is gone");
 	await writePlan(project, VALID.replace("Prose.", "x"), base, async () => undefined);
 	assert.match(readFileSync(join(project.dir, "docs/plan.md"), "utf8"), /x\n/);
+});
+
+/** A project in git with its own identity, so commits made outside GIT_ENV, as writePlan's are, have an author. */
+function plannedProject(t: import("node:test").TestContext, files: Record<string, string> = { "a.txt": "one\n" }) {
+	const { project } = gitProject(tempDir(t), "site", files);
+	git(project.dir, "config", "user.name", "t");
+	git(project.dir, "config", "user.email", "t@example.com");
+	return project;
+}
+
+test("writePlan commits docs/plan.md alone, naming the items, and leaves other changes in the checkout as they were", async (t) => {
+	const project = plannedProject(t);
+	writeFileSync(join(project.dir, "a.txt"), "edited\n");
+	writeFileSync(join(project.dir, "new.txt"), "untracked\n");
+	const made = await writePlan(project, VALID, null, undefined, "projects.writePlan");
+	assert.equal(made.uncommitted, undefined);
+	assert.equal(made.commit, git(project.dir, "rev-parse", "HEAD"));
+	assert.equal(git(project.dir, "log", "-1", "--format=%s"), "Plan: adds pages-view, bundle-id, mail-shadow (projects.writePlan).");
+	assert.equal(git(project.dir, "show", "--name-only", "--format=", "HEAD"), "docs/plan.md");
+	assert.equal(git(project.dir, "status", "--porcelain"), "M a.txt\n?? new.txt");
+
+	const next = VALID.replace("Prose.", "More prose.");
+	const edited = await writePlan(project, next, made.sha256);
+	assert.match(git(project.dir, "log", "-1", "--format=%s"), /^Plan: changes pages-view \(write_plan\)\.$/);
+	assert.equal(edited.commit, git(project.dir, "rev-parse", "HEAD"));
+});
+
+test("writePlan leaves the plan uncommitted, saying why, when other changes are staged, outside git, or when the commit fails", async (t) => {
+	const staged = plannedProject(t);
+	writeFileSync(join(staged.dir, "a.txt"), "staged\n");
+	git(staged.dir, "add", "a.txt");
+	const head = git(staged.dir, "rev-parse", "HEAD");
+	const written = await writePlan(staged, VALID, null);
+	assert.equal(written.commit, undefined);
+	assert.match(written.uncommitted ?? "", /other changes are staged/);
+	assert.equal(git(staged.dir, "rev-parse", "HEAD"), head);
+	assert.equal(git(staged.dir, "diff", "--cached", "--name-only"), "a.txt", "the staged work is untouched and the plan isn't staged");
+
+	const plain = makeProject(tempDir(t), "plain");
+	assert.match((await writePlan(plain, VALID, null)).uncommitted ?? "", /isn't in git/);
+
+	const hooked = plannedProject(t);
+	writeFileSync(join(hooked.dir, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho refused >&2\nexit 1\n");
+	chmodSync(join(hooked.dir, ".git", "hooks", "pre-commit"), 0o755);
+	const refused = await writePlan(hooked, VALID, null);
+	assert.match(refused.uncommitted ?? "", /git commit failed: refused/);
+	assert.equal(git(hooked.dir, "diff", "--cached", "--name-only"), "", "the plan is unstaged again");
+	assert.equal(readFileSync(join(hooked.dir, "docs/plan.md"), "utf8"), VALID, "the write itself stands");
+});
+
+test("planCommitMessage names added, moved and changed items, shortening long lists", () => {
+	assert.equal(planCommitMessage({ added: ["a"], removed: [], moved: ["b"], changed: ["c"] }, "write_plan"), "Plan: adds a; moves b; changes c (write_plan).");
+	assert.equal(planCommitMessage({ added: ["a", "b", "c", "d", "e"], removed: [], moved: [], changed: [] }, "x"), "Plan: adds a, b, c and 2 more (x).");
+	assert.equal(planCommitMessage({ added: [], removed: [], moved: [], changed: [] }, "x"), "Plan: edits outside the items (x).");
 });

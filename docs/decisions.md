@@ -58,6 +58,10 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
+## Plan writes commit (2026-11-25)
+
+Brad's answer to `plan-writes-commit`: after each write, `write_plan` and `projects.writePlan` commit `docs/plan.md` alone when nothing else is staged in the checkout. With Verin's `add_plan_item` and loial's Add to plan both writing, uncommitted plan edits would otherwise sit in checkouts, where sandboxes (made from the last commit) don't see the new items and loial warns about uncommitted changes. Committing only that path, and only with an empty index, means a write never sweeps up someone's half-staged work; a merge or rebase under way, a project outside git and a refusing hook leave it uncommitted, and the answer says why (`uncommitted`). Nothing is pushed: the checkout's next push or ship carries the commits. The other options were leaving it, and committing only when the plan was clean before, which would leave a plan uncommitted for good once one write was.
+
 ## Tasks start from the plan (2026-11-24)
 
 Brad decided how aludra's two clients split the work (Verin's design.md, decision 16): loial is where tasks are reviewed and shipped, every task starts from an item in its project's `docs/plan.md`, and items come from chats in loial or from Verin. Verin sends all coding notifications. For aludra:
@@ -104,7 +108,7 @@ Plan item `write-plan`, for Pi Desktop's planning chat, the first client.
 - **The whole file, from a base.** `write_plan` takes the new `docs/plan.md` whole and the `sha256` of the text the caller read (`read_plan` now answers it), or `null` to make one. A mismatch writes nothing and says to read again, so an edit made between a read and a write is never overwritten. Whole-file writes keep the tool simple and let the caller use its own editing; the base makes them safe to call often.
 - **Only plans in the standard format.** `checkPlan` (`src/plans.ts`, pure, for the amyrlin endpoint later) enforces the `plan` skill's checks and refuses dropping an id, since other repos and Verin link to `<repo>/<id>`. Every problem goes in one error, so a model fixes them in one retry.
 - **The checkout, under every mode.** It writes the project's real checkout even under `mcp.sandboxOnly` and `mcp.worktreeOnly`, since the plan is the one file a planning chat needs to change; the description, configuration.md and security.md say so. It's behind its own file-only `mcp.writePlans`.
-- **No git.** It writes the working copy only. A commit step is `write-plan-commit`, for Brad to decide.
+- **No git.** It writes the working copy only. A commit step is `write-plan-commit`, for Brad to decide. (Superseded 2026-11-25: see "Plan writes commit".)
 - **Refused while a checkout session is busy.** Brad chose (`write-plan-busy-session`) that it refuses while a session in the project's checkout is running or waiting for approval, naming each, since one may be partway through editing or committing the plan, a race `base` alone can't see before the rename. Sandbox, worktree and chat sessions don't count, since none can write the checkout. Checked before the write and again before the rename; a session that starts in between is still possible, and `base` covers its edit if it lands first.
 
 ## Usage meter (2026-11-19)

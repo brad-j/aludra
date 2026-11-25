@@ -7,8 +7,10 @@
 // writePlan replaces it for write_plan, under the same rules: only a plan in the standard format (checkPlan) that keeps
 // every id the file had, only when the caller's `base` is the sha256 of the file as it is, and atomically, a temporary
 // file in docs/ renamed over it. Writes to one project are serialized here, so two calls can't interleave. A caller's
-// guard can refuse it, as write_plan's does while a session runs in the checkout. It writes the working copy only,
-// never the index or a commit.
+// guard can refuse it, as write_plan's does while a session runs in the checkout. Once written, docs/plan.md alone is
+// committed (commitPlan) when the project is in git and nothing else is staged there, so plan edits don't pile up
+// uncommitted in the checkout; it's never pushed.
+import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
@@ -249,7 +251,11 @@ export class PlanInvalid extends Error {
 	}
 }
 
-export type PlanWrite = { project: string; path: string; sha256: string; size: number; modified: string; items: ReturnType<typeof planChanges> };
+/**
+ * What a write did: the new file's sha256, size and time, the items it changed, and either `commit`, the commit that
+ * holds it, or `uncommitted`, why it was left uncommitted in the checkout.
+ */
+export type PlanWrite = { project: string; path: string; sha256: string; size: number; modified: string; items: ReturnType<typeof planChanges>; commit?: string; uncommitted?: string };
 
 /** Each project's latest write, by directory, so the next waits for it. */
 const writing = new Map<string, Promise<unknown>>();
@@ -258,13 +264,16 @@ const writing = new Map<string, Promise<unknown>>();
  * Replaces `project`'s docs/plan.md with `text` when `base` is the sha256 of the file now, or `base` is null and there
  * is none. Throws PlanConflict when it isn't, PlanInvalid when checkPlan finds problems, and an Error for a plan it
  * won't touch: a symbolic link, outside the project, not a file. Throws PlanBusy when `busy` gives a reason, asked first
- * and again just before the rename. Makes docs/ when it's missing, keeps the file's mode, and never writes the index or
- * a commit.
+ * and again just before the rename. Makes docs/ when it's missing and keeps the file's mode. Then commits the plan
+ * alone (commitPlan), `by` naming who wrote it in the message.
  */
-export async function writePlan(project: Pick<Project, "name" | "dir">, text: string, base: string | null, busy?: PlanGuard): Promise<PlanWrite> {
+export async function writePlan(project: Pick<Project, "name" | "dir">, text: string, base: string | null, busy?: PlanGuard, by = "write_plan"): Promise<PlanWrite> {
 	const root = await realpath(project.dir);
 	const prior = writing.get(root) ?? Promise.resolve();
-	const run = prior.catch(() => undefined).then(() => writeNow(project, root, text, base, busy));
+	const run = prior.catch(() => undefined).then(async () => {
+		const written = await writeNow(project, root, text, base, busy);
+		return { ...written, ...(await commitPlan(project.dir, written.items, by)) };
+	});
 	writing.set(root, run);
 	try {
 		return await run;
@@ -351,4 +360,51 @@ async function writeNow(project: Pick<Project, "name" | "dir">, root: string, te
 		modified: stat.mtime.toISOString(),
 		items: planChanges(before.exists ? before.text : "", text),
 	};
+}
+
+function gitIn(dir: string, args: readonly string[]): Promise<{ code: number; out: string }> {
+	return new Promise((resolve) => {
+		execFile("git", ["-C", dir, ...args], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+			const code = error === null ? 0 : typeof error.code === "number" ? error.code : -1;
+			resolve({ code, out: (error === null ? stdout : `${stderr}${stdout}` || error.message).trim() });
+		});
+	});
+}
+
+/** A commit message for a plan write: the items it changed, by id, and who wrote it. */
+export function planCommitMessage(items: PlanWrite["items"], by: string): string {
+	const list = (ids: string[]) => (ids.length > 3 ? `${ids.slice(0, 3).join(", ")} and ${ids.length - 3} more` : ids.join(", "));
+	const parts = [
+		items.added.length > 0 ? `adds ${list(items.added)}` : "",
+		items.moved.length > 0 ? `moves ${list(items.moved)}` : "",
+		items.changed.length > 0 ? `changes ${list(items.changed)}` : "",
+	].filter((part) => part !== "");
+	return `Plan: ${parts.length > 0 ? parts.join("; ") : "edits outside the items"} (${by}).`;
+}
+
+/**
+ * Commits `dir`'s docs/plan.md alone after a write, so the plan doesn't sit uncommitted in the checkout. It's left
+ * uncommitted, with the reason, when the project isn't in git or has no commits yet, when anything else is staged
+ * (so a commit never sweeps up someone's half-staged work), when a merge, rebase, cherry-pick or revert is under way,
+ * when the plan matches HEAD already, or when the commit fails, a hook refusing it say; then the plan is unstaged
+ * again. Nothing is pushed.
+ */
+export async function commitPlan(dir: string, items: PlanWrite["items"], by: string): Promise<{ commit: string } | { uncommitted: string }> {
+	if ((await gitIn(dir, ["rev-parse", "--is-inside-work-tree"])).out !== "true") return { uncommitted: "the project isn't in git" };
+	if ((await gitIn(dir, ["rev-parse", "-q", "--verify", "HEAD"])).code !== 0) return { uncommitted: "the repository has no commits yet" };
+	for (const marker of ["MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD", "REVERT_HEAD"]) {
+		const path = (await gitIn(dir, ["rev-parse", "--path-format=absolute", "--git-path", marker])).out;
+		if (path !== "" && (await lstat(path).then(() => true, () => false))) return { uncommitted: "a merge, rebase, cherry-pick or revert is under way in the checkout" };
+	}
+	const staged = await gitIn(dir, ["diff", "--cached", "--quiet"]);
+	if (staged.code !== 0) return { uncommitted: staged.code === 1 ? "other changes are staged in the checkout" : `git diff --cached failed: ${staged.out}` };
+	const added = await gitIn(dir, ["add", "--", PLAN_PATH]);
+	if (added.code !== 0) return { uncommitted: `git add failed: ${added.out}` };
+	if ((await gitIn(dir, ["diff", "--cached", "--quiet"])).code === 0) return { uncommitted: "the plan matches the last commit" };
+	const committed = await gitIn(dir, ["commit", "-q", "-m", planCommitMessage(items, by)]);
+	if (committed.code !== 0) {
+		await gitIn(dir, ["reset", "-q", "--", PLAN_PATH]);
+		return { uncommitted: `git commit failed: ${committed.out}` };
+	}
+	return { commit: (await gitIn(dir, ["rev-parse", "HEAD"])).out };
 }

@@ -8,10 +8,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Questions
 
-### plan-writes-commit: Should a plan write commit docs/plan.md?
-Kind: question
-`write_plan` leaves the file changed in the checkout and stages nothing. With Verin and loial both adding items, uncommitted plan edits will sit in checkouts until a task or Brad commits them. Options: leave it; commit just `docs/plan.md` after each write when nothing else in it is staged; or commit only when the plan was clean before. write-plan-commit was dropped on 2026-11-20 when nothing wrote plans.
-
 ## Later
 
 ### drop-web-push: Take out Web Push
@@ -79,6 +75,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### plan-writes-commit: Should a plan write commit docs/plan.md?
+Kind: question · Done: 2026-11-25
+Brad: commit just `docs/plan.md` after each write when nothing else is staged. Built in `commitPlan` (`src/plans.ts`) for `write_plan` and `projects.writePlan`; the answer carries `commit` or `uncommitted` with the reason. decisions.md, "Plan writes commit (2026-11-25)".
 
 ### mcp-start-plan-item: start_session takes the plan item a session is for
 Kind: request · From: verin/start-from-plan-item · Done: 2026-11-24
