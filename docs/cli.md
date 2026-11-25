@@ -6,7 +6,7 @@ aludra [--config FILE] COMMAND
 
 `--config` names the settings file for any command ([configuration.md](configuration.md#where-the-file-is)). `aludra --help` prints the summary.
 
-Commands fall into two groups. `init`, `service`, `serve`, `login`, `logout`, `projects`, `config`, `backup` and `doctor` work on their own. The rest talk to the running host over its Unix socket in the data directory, and print "can't reach the aludra server" if it isn't running.
+Commands fall into two groups. `init`, `service`, `serve`, `login`, `logout`, `projects`, `config`, `backup` and `doctor` work on their own. The rest talk to the running host over its Unix socket in the data directory, and print "can't reach the aludra host" if it isn't running.
 
 ## Setting up
 

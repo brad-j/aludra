@@ -55,7 +55,7 @@ test("the CLI says what's wrong with a bad command or a missing server", (t) => 
 	assert.match(cli("--help").stdout, /usage: aludra/);
 	assert.match(cli("frobnicate").stderr, /unknown command frobnicate/);
 	assert.match(cli("ask", "hello").stderr, /needs --project or --session/);
-	assert.match(cli("sessions").stderr, /can't reach the aludra server/);
+	assert.match(cli("sessions").stderr, /can't reach the aludra host/);
 	assert.match(cli("stop").stderr, /needs --session ID/);
 });
 

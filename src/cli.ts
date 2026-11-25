@@ -16,7 +16,7 @@ export function talk(config: Config, request: ClientMessage, lost?: string): Pro
 	return new Promise((resolvePromise) => {
 		const socket = connect(socketPathFor(config));
 		socket.once("error", (error) => {
-			console.error(`can't reach the aludra server (${error.message}). Start it with: aludra serve`);
+			console.error(`can't reach the aludra host (${error.message}). Start it with: aludra serve`);
 			resolvePromise(1);
 		});
 		socket.once("connect", async () => {

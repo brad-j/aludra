@@ -80,9 +80,9 @@ A `Setting` is:
 
 ### The live socket: `WS /api/live`
 
-Same identity and same-origin checks as HTTP. The server pings every 25 seconds.
+Same identity and same-origin checks as HTTP. The host pings every 25 seconds.
 
-On connect, the server sends `sessions`, `ideas` and `colors`, then keeps each current:
+On connect, the host sends `sessions`, `ideas` and `colors`, then keeps each current:
 
 | Event | When |
 | --- | --- |
@@ -98,7 +98,7 @@ The client sends:
 
 | Event | Effect |
 | --- | --- |
-| `{ type: "follow", session }` | Follow one session's transcript (`null` for none). The server sends its whole transcript and meta, then changes. |
+| `{ type: "follow", session }` | Follow one session's transcript (`null` for none). The host sends its whole transcript and meta, then changes. |
 | `{ type: "visible", visible }` | Whether the client is on screen. A session followed on screen gets no notifications. |
 
 Transcript items are `user`, `answer`, `call`, `failure` and `compacted` (see `Item` in `src/api-types.ts`). Long call arguments and outputs are cut to 6,000 characters: arguments keep their start, outputs their end.
@@ -213,7 +213,7 @@ With `mcp.sandboxOnly` on as well:
 - `start_session` always makes a sandbox session, with or without `sandbox: true` and with or without `project`. `sandbox: false` is an error and starts nothing.
 - `send_message`, `stop_session`, `archive_session` and `unarchive_session` are an error for a session that isn't in a sandbox, whoever started it.
 - Without a sandbox host in the settings, every write tool is an error for every call.
-- The tools' descriptions and the server's instructions say sandbox-only. They're fixed per setting, so they don't change from one connection to the next.
+- The tools' descriptions and the MCP server's instructions say sandbox-only. They're fixed per setting, so they don't change from one connection to the next.
 
 `archive_session` and `unarchive_session` act only on sandbox sessions, whether or not `mcp.sandboxOnly` is on; any other session is an error, and with `mcp.sandboxOnly` the error is the one `send_message` gives. `archive_session` is an error for a session that's `running` or `waiting`, one whose sandbox is still being made, and one whose `sandbox/N` was discarded (`sandbox.discard`), since archiving that deletes its sandbox without fetching. Archiving is the same flag the apps set: `list_sessions` leaves the session out unless `includeArchived` is true, `read_session` and `search_messages` still find it, and its transcript and `sandbox/N` branch stay. As with any archive, its commits are then fetched to `sandbox/N` and its sandbox deleted, or kept when it holds uncommitted files. Both are idempotent: archiving an archived session or unarchiving one that isn't archived changes nothing, and `message` says it was already so. An unknown `id` is an error.
 
@@ -242,17 +242,17 @@ With `mcp.allowNewProjects` on as well:
 | `create_project` | `name`, `description?` | `{ request, status, name, message }` while it waits; `{ request, status: "done", name, project: { name, workspace, dir }, message }` once made. Asks to make an empty project, as `projects.create` makes one. |
 | `promote_session` | `id`, `name`, `description?` | As `create_project`, with `session`. Asks to make scratch session `id`'s work a project, as `sandbox.promote` does. |
 
-Neither makes anything when called. Each stores a request and answers `status: "pending"` at once, with its ID; it waits for the owner's approval as a call's approval does (`aludra approve`, `POST /api/approvals/:id`), for `approvals.waitHours`. Approving makes the project then. The agent calls the tool again with the same arguments to learn the answer: the project once made, or an error when it was denied, expired, or couldn't be made (git or gh failing). That error is given once; calling again after it is a new request. Calling again while one waits answers with the same request. Both are an error, with nothing stored, for a name that isn't a project name or is a project already, and when the host can't make projects: `newProjects` not set, or `gh` not signed in. `promote_session` is also an error for a session that isn't a scratch sandbox session, is still having its sandbox made or has lost it, or is `running` or `waiting`, and with `mcp.sandboxOnly` the error `send_message` gives. With `mcp.worktreeOnly`, `promote_session` isn't offered, since that mode has no scratch sessions, and `create_project` is. With `mcp.allowNewProjects` off, neither is offered and the server's instructions say so.
+Neither makes anything when called. Each stores a request and answers `status: "pending"` at once, with its ID; it waits for the owner's approval as a call's approval does (`aludra approve`, `POST /api/approvals/:id`), for `approvals.waitHours`. Approving makes the project then. The agent calls the tool again with the same arguments to learn the answer: the project once made, or an error when it was denied, expired, or couldn't be made (git or gh failing). That error is given once; calling again after it is a new request. Calling again while one waits answers with the same request. Both are an error, with nothing stored, for a name that isn't a project name or is a project already, and when the host can't make projects: `newProjects` not set, or `gh` not signed in. `promote_session` is also an error for a session that isn't a scratch sandbox session, is still having its sandbox made or has lost it, or is `running` or `waiting`, and with `mcp.sandboxOnly` the error `send_message` gives. With `mcp.worktreeOnly`, `promote_session` isn't offered, since that mode has no scratch sessions, and `create_project` is. With `mcp.allowNewProjects` off, neither is offered and the MCP server's instructions say so.
 
 `start_session` without `project` doesn't need `mcp.allowNewProjects`: it makes a scratch sandbox and touches no project or GitHub.
 
-A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool with a read token or while `mcp.write` is off, or an unknown model or effort. The server's instructions say which machine it is and, when it can't write, why.
+A missing session or project is a tool result with `isError`, not a protocol error, and so is calling a write tool with a read token or while `mcp.write` is off, or an unknown model or effort. The MCP server's instructions say which machine it is and, when it can't write, why.
 
 ## The CLI socket
 
 `aludra.sock` in the data directory, owner-only. One JSON object per line, one request per connection.
 
-Client to server, one of:
+Client to host, one of:
 
 ```json
 { "type": "ask", "content": "...", "project": "site", "requestId": "...", "steer": false }
@@ -275,6 +275,6 @@ Client to server, one of:
 
 `{ "type": "retitle" }` writes titles for sessions that still have their first message's first line and sends a line for each. With `"session": 12` it writes that session's title again from its whole conversation, as `POST /api/sessions/:id/retitle` does, and the status is `failed` when no model wrote one.
 
-`{ "type": "sessions", "listing": true }` asks for the sessions as data: the server answers with one `{ "type": "sessions", "sessions": SessionSummary[], "colors": { name: hue } }`, which the CLI lays out for its terminal, and `spend: { month }`, this calendar month's OpenRouter spend, when any session used OpenRouter. A summary's `cost` is that session's total. A sandbox session's summary has `sandbox`, its sandbox's number, and `source`, the project's directory on the host; its `dir` is then in the sandbox. Without `listing`, the server sends them as text lines. A host from before `listing` ignores it and sends lines, which the CLI prints as they are.
+`{ "type": "sessions", "listing": true }` asks for the sessions as data: the host answers with one `{ "type": "sessions", "sessions": SessionSummary[], "colors": { name: hue } }`, which the CLI lays out for its terminal, and `spend: { month }`, this calendar month's OpenRouter spend, when any session used OpenRouter. A summary's `cost` is that session's total. A sandbox session's summary has `sandbox`, its sandbox's number, and `source`, the project's directory on the host; its `dir` is then in the sandbox. Without `listing`, the host sends them as text lines. A host from before `listing` ignores it and sends lines, which the CLI prints as they are.
 
-Server to client: any number of `{ "type": "line", "text": "..." }`, then `{ "type": "done", "status": "..." }` and the connection closes. `status` is `done` on success. A `watch` never sends `done`; it ends when the client closes.
+Host to client: any number of `{ "type": "line", "text": "..." }`, then `{ "type": "done", "status": "..." }` and the connection closes. `status` is `done` on success. A `watch` never sends `done`; it ends when the client closes.

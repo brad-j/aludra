@@ -4,17 +4,17 @@ Status: v1, reviewed 2026-10-12 (decisions in section 10). aludra serves it at `
 
 The protocol was written for a native macOS client, since retired, and moved here from its repository on 2026-11-20. Where this document says "the Mac app", it means that client and describes what it did; loial's `docs/protocol.md` lists what loial uses.
 
-This is the contract between a client and a server (one Node process per machine that owns a pi-durable 1.1.0 Harness, its SQLite store and its model credentials). The client depends only on this document. The server translates pi-durable's experimental `watchEvents()` stream into the events defined here.
+This is the contract between a client and a host (one Node process per machine that owns a pi-durable 1.1.0 Harness, its SQLite store and its model credentials). The client depends only on this document. The host translates pi-durable's experimental `watchEvents()` stream into the events defined here.
 
 Evidence for every durable shape is in `test/fixtures/durable-1.1.0/`. A reference like `02-tool-round:14` means line 14 of `test/fixtures/durable-1.1.0/02-tool-round.jsonl`. Shapes the fixtures could not show are marked **unrecorded**; they come from the 1.1.0 type definitions (`pi-durable/dist/harness/events.d.ts`) and the spec (§9.4).
 
 ## 1. Transport and identity
 
-- One WebSocket per server: `wss://<machine>.<tailnet>.ts.net/app`.
-- The server listens on `127.0.0.1` only. `tailscale serve` terminates TLS and proxies to it.
+- One WebSocket per host: `wss://<machine>.<tailnet>.ts.net/app`.
+- The host listens on `127.0.0.1` only. `tailscale serve` terminates TLS and proxies to it.
 - `tailscale serve` adds `Tailscale-User-Login` and `Tailscale-User-Name` to tailnet requests and strips client-supplied copies. Values may be RFC 2047 "Q" encoded. Funnel traffic and traffic from tagged devices carry no identity headers.
-- The server reads identity from the upgrade request. A request without `Tailscale-User-Login` is refused (HTTP 401 before upgrade). A login not on the server's allowlist is refused (HTTP 403). The client sends no tokens.
-- The server keeps the identity for the connection and records it where it matters (approval answers).
+- The host reads identity from the upgrade request. A request without `Tailscale-User-Login` is refused (HTTP 401 before upgrade). A login not on the host's allowlist is refused (HTTP 403). The client sends no tokens.
+- The host keeps the identity for the connection and records it where it matters (approval answers).
 
 ## 2. Frames
 
@@ -22,13 +22,13 @@ Every WebSocket message is one UTF-8 JSON object with a `type`. Binary messages 
 
 | `type` | Direction | Purpose |
 |---|---|---|
-| `hello` | client → server | First frame. Offers protocol versions. |
-| `welcome` | server → client | Accepts. Names the version and the host. |
-| `goodbye` | server → client | Refuses or shuts down, then the server closes the socket. |
-| `request` | client → server | A command. |
-| `response` | server → client | The result or error of one request. |
-| `event` | server → client | One batch of events for a subscription. |
-| `end` | server → client | A subscription ended without being asked to. |
+| `hello` | client → host | First frame. Offers protocol versions. |
+| `welcome` | host → client | Accepts. Names the version and the host. |
+| `goodbye` | host → client | Refuses or shuts down, then the host closes the socket. |
+| `request` | client → host | A command. |
+| `response` | host → client | The result or error of one request. |
+| `event` | host → client | One batch of events for a subscription. |
+| `end` | host → client | A subscription ended without being asked to. |
 
 ### 2.1 Requests and responses
 
@@ -53,7 +53,7 @@ Error codes:
 | `already_resolved` | `approval.answer` for an approval that was already answered differently or cancelled. |
 | `invalid_settings` | `configure` named an unknown model, thinking level or tool. |
 | `unavailable` | The Harness is restarting (for example after a storage failure). `retryable: true`. |
-| `unsupported` | The server doesn't offer this method, such as forks or archiving on a host without them. |
+| `unsupported` | The host doesn't offer this method, such as forks or archiving on a host without them. |
 | `internal` | Anything else. |
 
 ### 2.2 Subscriptions
@@ -65,7 +65,7 @@ Error codes:
 {"type":"event","subscription":"s3","seq":1,"events":[{"type":"tool.updated", …}]}
 ```
 
-- The server sends the `response` to the watch request before the subscription's first event frame.
+- The host sends the `response` to the watch request before the subscription's first event frame.
 - Frame `seq` starts at 0 and rises by 1 per frame within a subscription. The first frame holds exactly one `snapshot` event.
 - One event frame of a `conversation.watch` carries the translation of one durable batch, which is one commit. The client applies a frame's events in order and renders after the whole frame. A durable batch whose events all translate to nothing produces no frame.
 - A `snapshot` event can arrive later in any frame. It replaces all state the client holds for the subscription.
@@ -75,7 +75,7 @@ Error codes:
 
 - `welcome.limits.maxFrameBytes` (default 16 MiB) bounds every frame. `URLSessionWebSocketTask.maximumMessageSize` defaults to 1 MiB, so the client must raise it to this value.
 - A single item larger than the limit is sent with its text cut and `truncated: true`.
-- The server sends WebSocket pings every 15 s. The client treats 45 s without any frame or pong as a dead connection.
+- The host sends WebSocket pings every 15 s. The client treats 45 s without any frame or pong as a dead connection.
 
 ## 3. Version negotiation
 
@@ -89,13 +89,13 @@ Error codes:
 ```
 
 - The client must send `hello` first and nothing else until `welcome`.
-- `protocols` lists every version the client speaks. The server picks the highest one it also speaks. With none in common it sends `goodbye` and closes with code 4406.
-- A version is a single integer. Within a version the server may add optional fields, but never new event types, methods or required fields. Those need a new version, and the server sends only what the negotiated version defines.
+- `protocols` lists every version the client speaks. The host picks the highest one it also speaks. With none in common it sends `goodbye` and closes with code 4406.
+- A version is a single integer. Within a version the host may add optional fields, but never new event types, methods or required fields. Those need a new version, and the host sends only what the negotiated version defines.
 - The client ignores unknown fields. Enum values are open: an unknown status or reason decodes to an "unknown" case and is shown as such.
-- An unknown event `type`, or an event that fails to decode, is a server bug under this rule. The client logs the raw frame, unsubscribes and watches again for a fresh snapshot. If one subscription fails this way three times in a minute, the client stops retrying it and shows the conversation as unreadable.
-- `hostId` is a UUID the server creates once and keeps in its store. The client keys machines by `hostId`, not by DNS name.
+- An unknown event `type`, or an event that fails to decode, is a host bug under this rule. The client logs the raw frame, unsubscribes and watches again for a fresh snapshot. If one subscription fails this way three times in a minute, the client stops retrying it and shows the conversation as unreadable.
+- `hostId` is a UUID the host creates once and keeps in its store. The client keys machines by `hostId`, not by DNS name.
 
-Close codes: 4400 malformed or missing `hello`, 4406 no common version, 1001 server shutting down, 1011 internal error.
+Close codes: 4400 malformed or missing `hello`, 4406 no common version, 1001 host shutting down, 1011 internal error.
 
 ## 4. Data types
 
@@ -119,13 +119,13 @@ All IDs are JSON integers from pi-durable's numeric ID space. Entries, submissio
  "byTool":{}}
 ```
 
-The server builds `Spend` from durable `UsageState` (`09-manual-compaction:1` snapshot `usage`). Each pi-ai `Usage` becomes `{input, output, cacheRead, cacheWrite, total: totalTokens, cost: cost.total}`. The top-level counters are sums over `byModel` and `byTool`. `cost` is in US dollars. The faux provider always reports cost 0, so every fixture has `cost: 0`.
+The host builds `Spend` from durable `UsageState` (`09-manual-compaction:1` snapshot `usage`). Each pi-ai `Usage` becomes `{input, output, cacheRead, cacheWrite, total: totalTokens, cost: cost.total}`. The top-level counters are sums over `byModel` and `byTool`. `cost` is in US dollars. The faux provider always reports cost 0, so every fixture has `cost: 0`.
 
 `byModel` is keyed `provider/modelId`, as pi-durable's `recordUsage` writes it. Provider IDs have no slash, so the provider runs to the first one and the rest is the model ID. pi-ai prices every answer at API rates, including answers on a flat plan (aludra's `claude-bridge` and `openai` on a ChatGPT sign-in), so `cost` is not money charged. Clients never show dollars from `Spend`; they show the charged `cost` and `monthCost` of section 10, item 10.
 
 ### 4.3 Items
 
-A conversation's transcript is a list of items ordered by `id`. Each item comes from one durable entry. The table below is the complete mapping; the server applies it to snapshot entries, `message_end` entries, `entry_appended` entries and history pages.
+A conversation's transcript is a list of items ordered by `id`. Each item comes from one durable entry. The table below is the complete mapping; the host applies it to snapshot entries, `message_end` entries, `entry_appended` entries and history pages.
 
 | Durable entry | Wire item | Evidence |
 |---|---|---|
@@ -189,7 +189,7 @@ A tool call of the current round that the transcript cannot show yet.
 
 `status` is `running` or `ended`. `ended` means the call finished without a result entry, after a fault or an orphaning (`tool_execution_end` without `entry`, `20-tool-fault:9`).
 
-The server builds slots from durable `ToolSlot`s (`10-late-join:1`), with two rules that keep a late joiner's state equal to a from-the-start client's:
+The host builds slots from durable `ToolSlot`s (`10-late-join:1`), with two rules that keep a late joiner's state equal to a from-the-start client's:
 
 - Durable `pending` slots are omitted. A from-the-start client never hears about them, because `tool_execution_start` fires only when a call starts to run. The app infers pending calls from `toolCall` blocks that have no result item and no slot.
 - Durable `done` slots that have an `entry` are omitted, because their result item carries everything.
@@ -203,7 +203,7 @@ Arguments are not in the slot. They are in the `toolCall` block of the assistant
 {"submissionId":40,"mode":"write","kind":"app.note"}
 ```
 
-`mode` is `steer`, `followUp` or `write`. Durable's inbox events carry only `id` and `mode` (`04-steer-during-tools:9`). The server adds `text` (from the durable `InboxDoc` item's `content`), `kind` (for writes) and `requestId` (from the submission record, when it has one).
+`mode` is `steer`, `followUp` or `write`. Durable's inbox events carry only `id` and `mode` (`04-steer-during-tools:9`). The host adds `text` (from the durable `InboxDoc` item's `content`), `kind` (for writes) and `requestId` (from the submission record, when it has one).
 
 ### 4.7 Submission
 
@@ -222,8 +222,8 @@ This mirrors the durable `SubmissionRecord` (`01-plain-answer:2`, `06-abort-mid-
 ```
 
 - `stored` is the durable `pi.agent` document (`AgentState`), limited to `model`, `thinkingLevel`, `cwd`, `tools` and `instructions`. An absent field follows the host default. `tools` is an array or `{"remove":[…]}`.
-- `effective` is the server's `conversation.agent()` resolution: `model`, `thinkingLevel`, `cwd` and `tools` as the list of offered tool names.
-- Registry and settings changes on the server emit nothing in pi-durable (spec §9.4), so `effective` can go stale until the next `settings.changed` or snapshot.
+- `effective` is the host's `conversation.agent()` resolution: `model`, `thinkingLevel`, `cwd` and `tools` as the list of offered tool names.
+- Registry and settings changes on the host emit nothing in pi-durable (spec §9.4), so `effective` can go stale until the next `settings.changed` or snapshot.
 
 ### 4.9 Approval
 
@@ -249,13 +249,13 @@ See section 8.
   - `stuck` when `harness.inspect()` shows a task of this conversation as `blocked`, for example a tool whose extension is not installed after a restart. `stuck` carries its reason.
   - `busy` while durable `pi.live.run` is present.
   - `idle` otherwise.
-- `title` is the server's stored title, or the first line of the first user item cut to 80 characters, or `"New conversation"`.
+- `title` is the host's stored title, or the first line of the first user item cut to 80 characters, or `"New conversation"`.
 - `parent` is the durable `ConversationRecord.parent`, present for forks.
 - `model` is the effective model.
 - `updatedAt` is the newest item's `at`, or `createdAt`.
-- Title, `archived` and `createdAt` live in a server-owned conversation document (defined with `defineDoc`; aludra keeps them in its session records) and are written in the commit that creates the conversation. pi-durable has no titles or archiving.
+- Title, `archived` and `createdAt` live in a host-owned conversation document (defined with `defineDoc`; aludra keeps them in its session records) and are written in the commit that creates the conversation. pi-durable has no titles or archiving.
 - Conversations owned by a task, such as subagents, are not listed in v1. They can still be watched by ID.
-- Servers that tie conversations to projects add `workspace`, `project` (its name) and `dir` (its directory). The snapshot's `conversation` carries `project` and `dir` too.
+- Hosts that tie conversations to projects add `workspace`, `project` (its name) and `dir` (its directory). The snapshot's `conversation` carries `project` and `dir` too.
 
 ## 5. Commands
 
@@ -274,17 +274,17 @@ Params: none. Result:
  "defaults":{"model":{…},"thinkingLevel":"medium"}}
 ```
 
-[`models.getModels()` with `getAvailable()` for `available`, the registry snapshot's tools, and the server's approval policy.] A server whose conversations live in projects adds `"projects":[{"workspace":"egwene","name":"aludra","path":"Software/aludra","dir":"/home/you/Projects/Software/aludra"}]`; new conversations must name one. `thinkingLevels` lists the levels the model supports, from its `thinkingLevelMap`. Safe to retry.
+[`models.getModels()` with `getAvailable()` for `available`, the registry snapshot's tools, and the host's approval policy.] A host whose conversations live in projects adds `"projects":[{"workspace":"egwene","name":"aludra","path":"Software/aludra","dir":"/home/you/Projects/Software/aludra"}]`; new conversations must name one. `thinkingLevels` lists the levels the model supports, from its `thinkingLevelMap`. Safe to retry.
 
 ### `conversations.list`
 
-Params: `{"includeArchived":false}`. Result: `{"conversations":[ConversationSummary…]}`, newest `updatedAt` first. [`scanConversations` for ownerless conversations plus server state.] Safe to retry. `host.watch` carries the same data live; this is for one-off reads.
+Params: `{"includeArchived":false}`. Result: `{"conversations":[ConversationSummary…]}`, newest `updatedAt` first. [`scanConversations` for ownerless conversations plus host state.] Safe to retry. `host.watch` carries the same data live; this is for one-off reads.
 
 ### `conversations.create`
 
-Params: `{"requestId":"…","title":"…","settings":{"model":…,"thinkingLevel":…,"cwd":…,"tools":[…]},"project":"/dir","text":"…"}`. Everything except `requestId` is optional. On a server with projects, `project` (a `dir` from `host.info`, or `settings.cwd` naming one) picks one; without either, the server may make a no-project conversation in a scratch directory of its own (aludra does), whose summary has no `project`. `text` is submitted as the first message, with request ID `<requestId>:first`, and titles the conversation. Result: `{"conversation":ConversationSummary,"duplicate":false}`.
+Params: `{"requestId":"…","title":"…","settings":{"model":…,"thinkingLevel":…,"cwd":…,"tools":[…]},"project":"/dir","text":"…"}`. Everything except `requestId` is optional. On a host with projects, `project` (a `dir` from `host.info`, or `settings.cwd` naming one) picks one; without either, the host may make a no-project conversation in a scratch directory of its own (aludra does), whose summary has no `project`. `text` is submitted as the first message, with request ID `<requestId>:first`, and titles the conversation. Result: `{"conversation":ConversationSummary,"duplicate":false}`.
 
-[`harness.createConversation({ownership:{kind:"ownerless"}, agent, init})`; `init` writes the conversation document with the title, `createdAt` and `requestId`.] pi-durable does not deduplicate creation. The server keeps a `requestId` → conversation index, rebuilt from those documents at startup, and returns the existing conversation with `duplicate: true` for a repeated `requestId`.
+[`harness.createConversation({ownership:{kind:"ownerless"}, agent, init})`; `init` writes the conversation document with the title, `createdAt` and `requestId`.] pi-durable does not deduplicate creation. The host keeps a `requestId` → conversation index, rebuilt from those documents at startup, and returns the existing conversation with `duplicate: true` for a repeated `requestId`.
 
 ### `conversations.fork`
 
@@ -304,7 +304,7 @@ Params:
 
 `whenBusy` is `followUp` (default), `steer` or `reject`. It only matters while the conversation is busy; an idle conversation starts a run either way. Result: `{"submission":Submission,"duplicate":false}`.
 
-[`conversation.submit({type:"input", content:text, requestId, whenBusy})`.] `requestId` is required. The client makes one UUID per user action and reuses it for every retry of that action. pi-durable returns the existing submission for a repeated `requestId`, also after a restart (`11-crash-and-resume:16`). The server reports that as `duplicate: true`, so a retry is exactly once. Errors: `busy` for `reject`, `not_found`.
+[`conversation.submit({type:"input", content:text, requestId, whenBusy})`.] `requestId` is required. The client makes one UUID per user action and reuses it for every retry of that action. pi-durable returns the existing submission for a repeated `requestId`, also after a restart (`11-crash-and-resume:16`). The host reports that as `duplicate: true`, so a retry is exactly once. Errors: `busy` for `reject`, `not_found`.
 
 The brief lists `steer` as its own command. This draft folds it into `submit` because pi-durable has one call with a `whenBusy` mode: Return sends `followUp`, and the steer modifier sends `steer`. A separate `steer` method would duplicate `submit`'s params, deduplication and errors. Section 10 asks whether to keep this.
 
@@ -336,7 +336,7 @@ Params: `{"conversationId":1,"handoff":"We were fixing the flaky login test."}`.
 
 Params: `{"approvalId":"1:call-1","decision":"approve"|"deny","message":"Not that file"}`. Result: `{"approval":{…Approval…,"decision":"approve","by":"you@example.com"}}`.
 
-[Resolves the server's waiting `beforeTool` hook; see section 8.] Repeating the same decision returns the same result. A different decision after resolution, or any answer after cancellation, returns `already_resolved` with the recorded outcome in `error.data`.
+[Resolves the host's waiting `beforeTool` hook; see section 8.] Repeating the same decision returns the same result. A different decision after resolution, or any answer after cancellation, returns `already_resolved` with the recorded outcome in `error.data`.
 
 ### `conversation.history`
 
@@ -373,15 +373,15 @@ The first frame holds one `snapshot`:
  "spend":Spend}
 ```
 
-How the server builds it:
+How the host builds it:
 
 1. It calls `watchEvents(harness, id)`. `stream.snapshot` and the registration for later batches are taken atomically.
-2. `items` are the durable snapshot's `entries` mapped by 4.3. If there are fewer than `limits.snapshotItems`, the server pages older entries with `entries({maxEntryId: lowestSnapshotEntryId - 1})`. It uses the lowest ID, not the first entry, because after a compaction the first entry is the summary and the entries it keeps have lower IDs (`09-manual-compaction:4`: summary 21, kept from 19). Older entries are immutable, so the read cannot race the stream. If the active transcript alone exceeds the limit, only its newest items are sent. `hasEarlier` says whether more exist.
+2. `items` are the durable snapshot's `entries` mapped by 4.3. If there are fewer than `limits.snapshotItems`, the host pages older entries with `entries({maxEntryId: lowestSnapshotEntryId - 1})`. It uses the lowest ID, not the first entry, because after a compaction the first entry is the summary and the entries it keeps have lower IDs (`09-manual-compaction:4`: summary 21, kept from 19). Older entries are immutable, so the read cannot race the stream. If the active transcript alone exceeds the limit, only its newest items are sent. `hasEarlier` says whether more exist.
 3. `contextStart` is the `head` of the snapshot's first entry when that entry is a head marker, otherwise `null`.
 4. `run` comes from `snapshot.run` (`10-late-join:1`). `streaming` comes from `snapshot.generation.message` (`10-late-join.mid-answer:1`). `retry` comes from `snapshot.generation.retry` (`17-retry.during-wait:1`).
-5. `tools` follow 4.5, `inbox` follows 4.6, `settings` follow 4.8 and `spend` follows 4.2. `approvals` come from the server.
+5. `tools` follow 4.5, `inbox` follows 4.6, `settings` follow 4.8 and `spend` follows 4.2. `approvals` come from the host.
 
-Later frames hold the events of section 7. When pi-durable delivers a fresh `snapshot` event because the consumer fell more than 100 batches behind (`14-overflow-snapshot:6`), the server builds a wire `snapshot` from it the same way.
+Later frames hold the events of section 7. When pi-durable delivers a fresh `snapshot` event because the consumer fell more than 100 batches behind (`14-overflow-snapshot:6`), the host builds a wire `snapshot` from it the same way.
 
 ### 6.2 `host.watch`
 
@@ -399,7 +399,7 @@ Later events:
 | `{"type":"conversation.removed","conversationId":1}` | The conversation left the list. Reserved; v1 never deletes. |
 | `{"type":"host.spend","spend":Spend}` | Session-wide spend changed (`harness.usage()`, which includes owned conversations). |
 
-Archived conversations are included with `archived: true`; the client filters. The server derives statuses from each conversation's `pi.live` and `pi.usage` documents (`harness.watchDoc`), its own approval table, and `harness.inspect()` run at startup and after each registry change. It may coalesce updates for one conversation to at most 4 per second.
+Archived conversations are included with `archived: true`; the client filters. The host derives statuses from each conversation's `pi.live` and `pi.usage` documents (`harness.watchDoc`), its own approval table, and `harness.inspect()` run at startup and after each registry change. It may coalesce updates for one conversation to at most 4 per second.
 
 ## 7. Conversation events
 
@@ -427,8 +427,8 @@ Each row lists the wire event, the durable event(s) it comes from, and fixture e
 | `retry.scheduled` | `attempt`, `at`, `error` | `auto_retry_start` (`errorMessage` → `error`) | `17-retry:5`, retries run out `18-retry-exhausted:5` to `:7` |
 | `retry.cleared` | `attempt` | `auto_retry_end` | `17-retry:7` |
 | `task.failed` | `taskId`, `kind`, `message` | `task_failed` | a tool task `20-tool-fault:9` |
-| `approval.requested` | `approval` | server (section 8) | silence it fills: `12-approval-hook:6` to `:9` |
-| `approval.resolved` | `approvalId`, `decision`, `by?`, `message?` | server (section 8) | none |
+| `approval.requested` | `approval` | host (section 8) | silence it fills: `12-approval-hook:6` to `:9` |
+| `approval.resolved` | `approvalId`, `decision`, `by?`, `message?` | host (section 8) | none |
 
 Durable events with no wire event:
 
@@ -500,11 +500,11 @@ Wire frame:
 
 ## 8. Approvals
 
-pi-durable 1.1.0 has no approval concept. The server builds one from a `beforeTool` hook in its own extension. The fixtures show the building block: an async `beforeTool` hook can wait, and while it waits the stream is silent. The assistant's tool-call entry is the last event (`12-approval-hook:6`), and `tool_execution_start` follows only after the answer (`12-approval-hook:9`).
+pi-durable 1.1.0 has no approval concept. The host builds one from a `beforeTool` hook in its own extension. The fixtures show the building block: an async `beforeTool` hook can wait, and while it waits the stream is silent. The assistant's tool-call entry is the last event (`12-approval-hook:6`), and `tool_execution_start` follows only after the answer (`12-approval-hook:9`).
 
-Server behaviour:
+Host behaviour:
 
-1. The server's approval policy says which tool calls need approval (`host.info` `tools[].requiresApproval`). The policy is server configuration, not protocol.
+1. The host's approval policy says which tool calls need approval (`host.info` `tools[].requiresApproval`). The policy is host configuration, not protocol.
 2. The hook creates `Approval` with `approvalId = "<conversationId>:<callId>"` and emits `approval.requested` to that conversation's watchers. The summary's `pendingApprovals` and `status` change on `host.watch`.
 3. It waits for `approval.answer`, or for the hook context's abort signal.
 4. On `approve` it returns `undefined` and the call runs. On `deny` it returns `{block: "Denied by <login>: <message>"}`. The model sees a blocked error result, as in `08-blocked-tool:8`.
@@ -515,7 +515,7 @@ Approval events are not durable commits, so they travel in their own frames. `ap
 
 While the hook waits, the durable slot is `pending` (`15-approval-crash-resume:11`). Section 4.5 omits pending slots, so the client sees the call only through `approvals`.
 
-Restart: pending approvals live in server memory. After a crash, `resume()` reruns the tool task, and the hook runs again because no intent was recorded (`15-approval-crash-resume:8` and `:13`, from two processes). The hook raises the same `approvalId`. An answer given just before a crash may be asked for again.
+Restart: pending approvals live in host memory. After a crash, `resume()` reruns the tool task, and the hook runs again because no intent was recorded (`15-approval-crash-resume:8` and `:13`, from two processes). The hook raises the same `approvalId`. An answer given just before a crash may be asked for again.
 
 ## 9. Reconnects, resync and restarts
 
@@ -528,22 +528,22 @@ Restart: pending approvals live in server memory. After a crash, `resume()` reru
 
 ### 9.2 Falling behind
 
-- pi-durable keeps at most 100 undelivered batches per stream, then replaces them with one snapshot (`14-overflow-snapshot:6`). The server turns that into a wire `snapshot`.
-- The server also bounds its own send queue per subscription, at 256 frames or 8 MiB. When the bound is reached, it drops that subscription's queued frames and queues one fresh `snapshot`.
+- pi-durable keeps at most 100 undelivered batches per stream, then replaces them with one snapshot (`14-overflow-snapshot:6`). The host turns that into a wire `snapshot`.
+- The host also bounds its own send queue per subscription, at 256 frames or 8 MiB. When the bound is reached, it drops that subscription's queued frames and queues one fresh `snapshot`.
 - Either way the client just applies the snapshot.
 
-### 9.3 Server restart
+### 9.3 Host restart
 
-1. The server opens the SQLite store and installs the same extensions.
+1. The host opens the SQLite store and installs the same extensions.
 2. It calls `harness.resume()` before it starts listening.
 3. Interrupted work then settles within milliseconds, before a client can attach. A tool that is not replay-safe gets an error result with diagnostic `interrupted` (`11-crash-and-resume:18`). A replay-safe tool reruns: its output resets, and it sends `details: null` and `diagnostics: []`.
 4. A client that attaches in that window sees the interrupted slot as `running` (`11-crash-and-resume:15`), and the next frame corrects it.
 5. A task that stays blocked, for example because its extension is missing, appears as `status: "stuck"` in `host.watch`.
-6. On shutdown the server sends `goodbye` with `reason: "shutting_down"` and closes with 1001.
+6. On shutdown the host sends `goodbye` with `reason: "shutting_down"` and closes with 1001.
 
 ### 9.4 Harness failure
 
-A storage error closes the Harness (pi-durable "Errors", rule 1). The server ends every subscription with `end` `reason: "host_restarting"`, answers requests with `unavailable`, reopens the store, and resumes. Clients watch again after backoff.
+A storage error closes the Harness (pi-durable "Errors", rule 1). The host ends every subscription with `end` `reason: "host_restarting"`, answers requests with `unavailable`, reopens the store, and resumes. Clients watch again after backoff.
 
 ## 10. Review decisions
 
@@ -561,7 +561,7 @@ Added 2026-10-12, as optional fields within v1:
 
 6. **Projects.** aludra's host serves v1 at `/app` and ties each conversation to a project: `host.info` lists `projects`, summaries carry `workspace`, `project` and `dir`, `conversations.create` takes `project` and a first message `text`, and `configure` refuses `cwd` and `tools`. Forks answer `unsupported` there. Since 2026-10-13 aludra archives as section 5 describes: `conversations.archive` is idempotent and returns the summary, `conversations.list` leaves archived conversations out unless `includeArchived` is set, and `host.watch` carries them with `archived: true`. Archiving only hides a session; a running one keeps running. Approvals carry an extra `summary` ("git push"). A create without a project makes a no-project session (T3 Code's no-project threads): its own scratch directory, no `project` in its summary.
 
-Added 2026-10-13, also optional within v1 (aludra serves them; a server without them answers `unknown_method`):
+Added 2026-10-13, also optional within v1 (aludra serves them; a host without them answers `unknown_method`):
 
 7. **Renaming.** `conversations.rename {conversationId, title}` returns `{conversation}` with the new title, and watchers get `conversation.updated`. aludra folds whitespace and takes 1 to 200 characters; anything else is `bad_request`. aludra also retitles a new session itself: a second or two after the first message, a small model's title replaces the first-line one and arrives as `conversation.updated`. A rename by the user always wins over it, so clients show the summary's latest `title` and keep no title of their own.
 8. **Picked project colours.** A project's colour is hashed from its name (`ProjectColor`), and names can clash. `host.info` and `host.snapshot` carry `projectColors`, project name to an index into `ProjectColor.hues`; `projects.setColor {project, color}` sets one (`color: null` clears it, so the name's hue is back) and returns `{projectColors}`; `host.watch` sends `{"type":"host.projectColors","projectColors":{…}}` when they change. A client that doesn't know the event resyncs once.
@@ -570,7 +570,7 @@ Added 2026-10-13, also optional within v1 (aludra serves them; a server without 
 
 10. **Charged cost.** A `ConversationSummary` carries `cost`, the dollars providers that bill each request (OpenRouter) charged for it, only when it used one. `host.info` and `host.snapshot` carry `monthCost`, this calendar month's charged total, only when something was charged. No event carries `monthCost`, so the Mac app reads `host.info` again (at most once a second) when a summary's `cost` changes. It writes amounts as `<$0.01`, `$0.42`, `$12.30`, `$140`.
 
-Added 2026-10-23, outside v1: aludra's own extensions (aludra 861c0f3), which other v1 servers need not serve:
+Added 2026-10-23, outside v1: aludra's own extensions (aludra 861c0f3), which other v1 hosts need not serve:
 
 11. **Host settings.** `settings.get {}` returns `{settings}`, and `settings.set {changes: {key: value | null}}` saves the changes and returns the new `{settings}`; `null` puts a setting back to its default. `settings` is aludra's `Settings` (its docs/api.md, "Settings"): `{file, settings, restart, errors}`, where each `Setting` describes itself (`key`, `label`, `help`, `kind`, `value`, `default`, `set`, `options`, `editable`, `live`) so a client draws its form from the list. A refused change is `invalid_settings` with `data.errors`, one reason each, and nothing is saved. A host without them answers `unknown_method`, and the Mac app offers no settings for it. After a save the Mac app reads `host.info` again, since projects, models and defaults come from the settings.
 
@@ -598,7 +598,7 @@ Added 2026-11-04, aludra's own extension like 11, agreed in design (aludra's san
     - **Results.** A run that ends with an answer records a result for its turn. `task.result {conversationId}` returns `{result}` for the latest, or `{result: null}` before one:
       `{at, summary, changes: ["…"], headsUp: [{kind, text}], checks: [{name, ok, detail?}], shots: [{id, label, side: "before" | "after", path?}], code: {commits, files, add, del}, plan?: [{text, done}], question?: {text, why?, options: ["…"]}}`.
       `summary` and `changes` are plain sentences for someone who uses the project, not its code. `headsUp` kinds are `upstream` (the upstream changed what the work touches), `dependency`, `left` (uncommitted in the sandbox) and `other`. `checks` come from the project's declared check commands (`checks` in `.agents/project.json` in its repository) run in the sandbox once a run ends with an answer, or from the turn's own test and build calls until they've run or when none are declared. `code` waits for `sandbox/N` to come home (zeros before). `task.result` works for any session; outside a sandbox `code` is zeros. `question` is set when the turn ends asking you something; its `options` become buttons that send the option's text. aludra asks the agent for this shape in the session's prompt and parses it from the answer's last block, falling back to `summary` alone. `plan` is the agent's own checklist, a fenced `plan` block of `- [ ]` and `- [x]` lines it writes again as it goes, and the `result` block is fenced JSON at the end of each reply; the app hides both blocks when it shows the answer as prose. `task.result` during a run returns `{result: {plan, at}}`, `plan` being `[]` until the agent writes one, and `conversation.updated` signals a change through `line`.
-    - `task.shot {conversationId, shot}` returns `{mimeType: "image/png", data}` (base64). A shot past its 14 days, or an unknown `id`, is `not_found`, which the app shows as a missing image, not an error. Shots are taken in the sandbox with a headless browser once a run ends with an answer, after the declared checks: the project's declared pages first, then the pages its changed routes make (TanStack Router, Remix, SvelteKit, Astro and Next's app router, from file names; dynamic routes skipped), at most 6, at 1280×800. `before` is at `base`, the sandbox's starting commit, over every turn; `after` is at HEAD. A page that fails to load or answers 400 or more is left out on that side, so a new page has only an `after` and a removed one only a `before`: the app pairs shots by `path` and shows a lone side alone. `label` is the declared label, or the path; `path` is always set. `shots` is `[]` while they're taken, and `line` then ends `· taking screenshots`; `conversation.updated` carries the line change when they land, and the app reads `task.result` again. A host restart meanwhile leaves that answer without shots until the next run ends. A ship waits for them. Screenshots are opt-in per project: the base template carries no browser, so a project that wants them has `playwright` or `@playwright/test` among its dependencies, installs Chromium in its `.agents/setup` (`pnpm exec playwright install --with-deps chromium`), and declares beside `checks` in `.agents/project.json` `devServer: {command, port}` (the server gets `PORT`) and `pages`, paths or `{path, label?}`, default `/`. A project without a dev server or a browser has none, without a heads-up.
+    - `task.shot {conversationId, shot}` returns `{mimeType: "image/png", data}` (base64). A shot past its 14 days, or an unknown `id`, is `not_found`, which the app shows as a missing image, not an error. Shots are taken in the sandbox with a headless browser once a run ends with an answer, after the declared checks: the project's declared pages first, then the pages its changed routes make (TanStack Router, Remix, SvelteKit, Astro and Next's app router, from file names; dynamic routes skipped), at most 6, at 1280×800. `before` is at `base`, the sandbox's starting commit, over every turn; `after` is at HEAD. A page that fails to load or answers 400 or more is left out on that side, so a new page has only an `after` and a removed one only a `before`: the app pairs shots by `path` and shows a lone side alone. `label` is the declared label, or the path; `path` is always set. `shots` is `[]` while they're taken, and `line` then ends `· taking screenshots`; `conversation.updated` carries the line change when they land, and the app reads `task.result` again. A host restart meanwhile leaves that answer without shots until the next run ends. A ship waits for them. Screenshots are opt-in per project: the base template carries no browser, so a project that wants them has `playwright` or `@playwright/test` among its dependencies, installs Chromium in its `.agents/setup` (`pnpm exec playwright install --with-deps chromium`), and declares beside `checks` in `.agents/project.json` `devServer: {command, port}` (the dev server gets `PORT`) and `pages`, paths or `{path, label?}`, default `/`. A project without a dev server or a browser has none, without a heads-up.
     - `task.code {conversationId, path?}` returns `{changes}` in the shape of `checkpoints.changes` (section 10 item 15) for `sandbox/N` against its `base`; with `path`, `{path, patch}`. It's behind the result's "show the code" line.
     - `sandbox.sync {conversationId, merge?}` fetches now and returns `{branch, head, commits, uncommitted, merged?}`: `commits` new on the branch, `uncommitted` files left in the sandbox, and only with `merge`, `merged: true | {reason}`.
     - `sandbox.ship {conversationId, to?, note?}` starts a ship and answers `{started: true}` at once. `to` is `main` or `branch` and defaults to `shipTo`; `note` is added to the ship prompt. The ship runs as a normal turn, so watchers see it stream, and the summary's `line` follows it. When it ends, every `host.watch` gets `{"type": "sandbox.shipped", "conversationId", "shipped": true, "to", "pushed", "head", "commits", "pr"?}`, where `to` is the mode and `pushed` the remote branch (`origin/main`, `origin/sandbox-4-ab12cd3`), or `{"type": "sandbox.shipped", "conversationId", "shipped": false, "kind", "reason"}`. `kind` is `blocked` (the run didn't end with `SHIP-READY`: it asks something, was stopped, or its model failed), `upstream_moved` (the push was refused because the upstream moved; ship again), `push_failed` (git or gh couldn't do it against the upstream) or `check_failed` (the host's own checks before pushing: files left uncommitted, the branch not on the upstream, no upstream). Work with nothing beyond the upstream once rebased lands with nothing pushed: `shipped: true, to: "main", commits: 0` (aludra from 2026-11-05; before, `check_failed` "nothing to ship"), which the app shows as "Already on main" and files under done. A `blocked` ship with a question puts it in the turn's result once results are served; until then the app shows `reason` with a free-text reply, not buttons. Sending `sandbox.ship` is the approval of the push. A ship while the session runs or already ships is `busy`.
