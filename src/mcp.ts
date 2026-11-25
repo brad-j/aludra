@@ -73,7 +73,7 @@ import { context, isSandboxSession, isWorktreeSession, worktreeBranch } from "./
 import { itemsOf } from "./transcript.ts";
 import { shipLine, ShipRefused } from "./ship.ts";
 import type { SessionRecord } from "./host.ts";
-import { PlanBusy, PlanConflict, PlanInvalid, readPlan, writePlan } from "./plans.ts";
+import { originProblem, PLAN_ITEM_ID, PlanBusy, PlanConflict, PlanInvalid, planItems, readPlan, writePlan } from "./plans.ts";
 
 const THINKING_LIST = "off, minimal, low, medium, high, xhigh";
 
@@ -199,6 +199,11 @@ function shipField(record: SessionRecord | undefined): { ship?: NonNullable<Retu
 	return ship === undefined ? {} : { ship };
 }
 
+/** `{ planItem, origin }` as far as the session has them, to spread into an answer. */
+function sourceFields(record: SessionRecord | undefined): { planItem?: string; origin?: string } {
+	return { ...(record?.planItem === undefined ? {} : { planItem: record.planItem }), ...(record?.origin === undefined ? {} : { origin: record.origin }) };
+}
+
 /** What check_sessions tells a gate: whether to wake, an entry per changed session, and the newest change in a line. */
 export async function checkSessions(host: Host, token: Pick<Token, "id" | "createdAt">) {
 	const records = await host.sessions.list();
@@ -250,6 +255,7 @@ export async function checkSessions(host: Host, token: Pick<Token, "id" | "creat
 			...(question === undefined ? {} : { question }),
 			...(summary.sandbox === undefined ? {} : { sandbox: summary.sandbox }),
 			...(summary.archived === true ? { archived: true } : {}),
+			...sourceFields(byId.get(id)),
 			...shipField(byId.get(id)),
 		});
 	}
@@ -354,7 +360,7 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		const shown = summaries.slice(0, limit ?? 30);
 		const agents = await Promise.all(shown.map((s) => sessionAgent(host, s.id)));
 		const shipRecords = await Promise.all(shown.map((s) => host.sessions.get(s.id)));
-		return answer(shown.map((s, i) => ({ id: s.id, project: s.project, title: s.title, state: s.state, line: s.line, updated: new Date(s.updatedAt).toISOString(), model: agents[i]!.model, effort: agents[i]!.effort, ...(s.archived === true ? { archived: true } : {}), ...shipField(shipRecords[i]) })));
+		return answer(shown.map((s, i) => ({ id: s.id, project: s.project, title: s.title, state: s.state, line: s.line, updated: new Date(s.updatedAt).toISOString(), model: agents[i]!.model, effort: agents[i]!.effort, ...(s.archived === true ? { archived: true } : {}), ...sourceFields(shipRecords[i]), ...shipField(shipRecords[i]) })));
 	});
 
 	server.registerTool("read_session", {
@@ -367,9 +373,11 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 		const state = await (await host.conversation(id)).viewState(context);
 		try {
 			const { model, effort } = agentOf(host, state.value);
-			const ship = shipOf(await host.sessions.get(id));
+			const record = await host.sessions.get(id);
+			const ship = shipOf(record);
 			const shipped = ship === undefined ? "" : `Ship: ${"shipping" in ship ? "shipping" : ship.line}\n`;
-			const header = `Session ${id}: ${summary.title}\nProject: ${summary.project} (${summary.dir})\nState: ${summary.state}\nModel: ${model}\nEffort: ${effort}\n${shipped}\n`;
+			const source = `${record?.planItem === undefined ? "" : `Plan item: ${record.planItem}\n`}${record?.origin === undefined ? "" : `Origin: ${record.origin}\n`}`;
+			const header = `Session ${id}: ${summary.title}\nProject: ${summary.project} (${summary.dir})\nState: ${summary.state}\nModel: ${model}\nEffort: ${effort}\n${source}${shipped}\n`;
 			return answer(header + transcriptText(itemsOf(state.value)));
 		} finally {
 			state.dispose();
@@ -437,10 +445,12 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 				worktree: z.boolean().optional().describe(worktreeOnly
 					? "Worktree-only here: leave it out or pass true; false is refused."
 					: `Work in ${worktreeText}.`),
+				planItem: z.string().regex(PLAN_ITEM_ID).optional().describe("The id of the item in the project's docs/plan.md this session works on, as read_plan shows it. It must be in the plan; the session carries it, so the owner's apps show it against the item"),
+				origin: z.string().optional().describe("An https link to where this work came from, such as the thread that asked for it; the session carries it"),
 				...turnFields,
 			},
 			annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-		}, async ({ project, task, sandbox, worktree, model, effort }) => {
+		}, async ({ project, task, sandbox, worktree, planItem, origin, model, effort }) => {
 			const blocked = sandboxOnlyRefusal(host);
 			if (blocked !== undefined) return failure(blocked);
 			if (sandboxOnly && sandbox === false) return failure("this endpoint starts only sandbox sessions (mcp.sandboxOnly); leave sandbox out or pass true");
@@ -463,17 +473,32 @@ export function mcpServer(host: Host, options: { machine: string; token: Pick<To
 			} catch (error) {
 				return failure(error instanceof Error ? error.message : String(error));
 			}
+			if (origin !== undefined) {
+				const problem = originProblem(origin);
+				if (problem !== undefined) return failure(problem);
+			}
+			if (planItem !== undefined) {
+				if (found === undefined) return failure("planItem is for a session in a project; name one from list_projects");
+				try {
+					const plan = await readPlan(found);
+					if (!plan.exists) return failure(`${found.name} has no docs/plan.md, so it has no item ${planItem}`);
+					if (!planItems(plan.text).some((item) => item.id === planItem)) return failure(`${found.name}'s docs/plan.md has no item ${planItem}; read_plan shows its items`);
+				} catch (error) {
+					return failure(error instanceof Error ? error.message : String(error));
+				}
+			}
+			const source = { ...(planItem === undefined ? {} : { planItem }), ...(origin === undefined ? {} : { origin }) };
 			const title = task.split("\n")[0]!.slice(0, 80);
 			let session;
 			try {
-				session = inWorktree ? await host.sessions.createWorktree(found!, title, agent)
-					: inSandbox ? await host.sessions.createSandbox(found, title, agent)
-					: await host.sessions.create(found!, title, agent);
+				session = inWorktree ? await host.sessions.createWorktree(found!, title, agent, source)
+					: inSandbox ? await host.sessions.createSandbox(found, title, agent, undefined, source)
+					: await host.sessions.create(found!, title, agent, source);
 			} catch (error) {
 				return failure(error instanceof Error ? error.message : String(error));
 			}
 			await host.submit(session.id, task);
-			return answer({ id: session.id, project: session.project, dir: session.dir, ...(session.sandbox === undefined ? {} : { sandbox: session.sandbox }), ...(session.worktree === undefined ? {} : { worktree: session.worktree, branch: worktreeBranch(session) }), ...(session.scratch === true ? { scratch: true } : {}) });
+			return answer({ id: session.id, project: session.project, dir: session.dir, ...(session.sandbox === undefined ? {} : { sandbox: session.sandbox }), ...(session.worktree === undefined ? {} : { worktree: session.worktree, branch: worktreeBranch(session) }), ...(session.scratch === true ? { scratch: true } : {}), ...sourceFields(session) });
 		});
 
 		server.registerTool("send_message", {

@@ -51,6 +51,7 @@ Error codes:
 | `not_found` | Unknown conversation, entry, approval or subscription. |
 | `busy` | `submit` with `whenBusy: "reject"` on a busy conversation (durable `ConversationBusy`). |
 | `already_resolved` | `approval.answer` for an approval that was already answered differently or cancelled. |
+| `conflict` | aludra's own: `projects.writePlan` with a `base` that isn't the plan as it is now. |
 | `invalid_settings` | `configure` named an unknown model, thinking level or tool. |
 | `unavailable` | The Harness is restarting (for example after a storage failure). `retryable: true`. |
 | `unsupported` | The host doesn't offer this method, such as forks or archiving on a host without them. |

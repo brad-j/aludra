@@ -109,6 +109,8 @@ export type SessionRecord = {
 	group?: string;
 	/** The item of its project's docs/plan.md it was started for, by id, when a client said so. */
 	planItem?: string;
+	/** Where the work came from, when a client said so: an https link, such as a Verin thread. */
+	origin?: string;
 	/**
 	 * A chat (createChat): it reads anything and writes only `chatDir`, its own directory in the data directory
 	 * (src/chat-env.ts). `dir` is where it starts, its project's checkout or, with no project, `chatDir`.
@@ -820,7 +822,7 @@ export async function openHost(options: HostOptions) {
 	}
 
 	/** A new session in `project`, titled from `prompt`, with the default model and thinking unless `agent` names others. */
-	async function create(project: Project, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { planItem?: string } = {}): Promise<SessionRecord> {
+	async function create(project: Project, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { planItem?: string; origin?: string } = {}): Promise<SessionRecord> {
 		let record: SessionRecord | undefined;
 		const base = await snapshot(project.dir);
 		await harness.createConversation({
@@ -836,6 +838,7 @@ export async function openHost(options: HostOptions) {
 					createdAt: Date.now(),
 					...("error" in base ? { baseError: base.error } : { base }),
 					...(options.planItem === undefined ? {} : { planItem: options.planItem }),
+					...(options.origin === undefined ? {} : { origin: options.origin }),
 				};
 				(await tx.doc(Sessions)).sessions[String(id)] = record;
 			},
@@ -850,7 +853,7 @@ export async function openHost(options: HostOptions) {
 	 * worktrees/<project>-<n> in the data directory, and the session works there. The project's checkout, its branch and
 	 * its uncommitted files are never touched. Its changes view compares against the worktree as it was made.
 	 */
-	async function createWorktree(project: Project, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { planItem?: string } = {}): Promise<SessionRecord> {
+	async function createWorktree(project: Project, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { planItem?: string; origin?: string } = {}): Promise<SessionRecord> {
 		const git = (...args: string[]) => run("git", ["-C", project.dir, ...args]);
 		const top = (await git("rev-parse", "--show-toplevel").catch(() => "")).trim();
 		if (top === "") throw new Error(`${project.name} isn't in git, so it can't have a worktree session`);
@@ -889,6 +892,7 @@ export async function openHost(options: HostOptions) {
 					worktreeBase: head,
 					...("error" in base ? { baseError: base.error } : { base }),
 					...(options.planItem === undefined ? {} : { planItem: options.planItem }),
+					...(options.origin === undefined ? {} : { origin: options.origin }),
 				};
 				(await tx.doc(Sessions)).sessions[String(id)] = record;
 			},
@@ -1013,7 +1017,7 @@ export async function openHost(options: HostOptions) {
 	 * files on this machine. Returns at once with the session `preparing`; the sandbox is made after (`prepareSandbox`), and
 	 * messages sent meanwhile are held (`hold`) until it's ready.
 	 */
-	async function startSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { approvals?: "ask" | "off"; group?: string; size?: SandboxSize; planItem?: string; onProgress?: (line: string) => void } = {}): Promise<SessionRecord> {
+	async function startSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, options: { approvals?: "ask" | "off"; group?: string; size?: SandboxSize; planItem?: string; origin?: string; onProgress?: (line: string) => void } = {}): Promise<SessionRecord> {
 		if (!sandboxes.configured()) throw new Error("no sandbox host in the settings (sandboxes)");
 		// Scratch work gets a repository of its own here, made once its ID is known, which its sandbox's template is cloned from.
 		const dir = sandboxes.dirFor({ name: project?.name ?? SCRATCH_NAME, dir: project?.dir ?? scratchRoot });
@@ -1044,6 +1048,7 @@ export async function openHost(options: HostOptions) {
 					...(options.approvals === undefined ? {} : { approvals: options.approvals }),
 					...(options.group === undefined ? {} : { group: options.group }),
 					...(options.planItem === undefined ? {} : { planItem: options.planItem }),
+					...(options.origin === undefined ? {} : { origin: options.origin }),
 					...(options.size === undefined ? {} : { sandboxSize: options.size }),
 					source: project?.dir ?? resolve(scratchRoot, String(id)),
 					...(project === undefined ? { scratch: true } : {}),
@@ -1129,8 +1134,8 @@ export async function openHost(options: HostOptions) {
 	 * A sandbox session started the old way: waits while the sandbox is made, printing its progress, and throws if it
 	 * couldn't be. For the CLI, the HTTP API and MCP.
 	 */
-	async function createSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, onProgress?: (line: string) => void): Promise<SessionRecord> {
-		const started = await startSandbox(project, prompt, agent, onProgress === undefined ? {} : { onProgress });
+	async function createSandbox(project: Project | undefined, prompt: string, agent: { model?: string; thinking?: Thinking } = {}, onProgress?: (line: string) => void, options: { planItem?: string; origin?: string } = {}): Promise<SessionRecord> {
+		const started = await startSandbox(project, prompt, agent, { ...options, ...(onProgress === undefined ? {} : { onProgress }) });
 		const done = await prepareSandbox(started.id);
 		if (done.sandboxState === "failed") throw new Error(`couldn't make session ${done.id}'s sandbox: ${done.sandboxReason}`);
 		return done;

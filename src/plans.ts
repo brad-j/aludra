@@ -30,6 +30,12 @@ export type PlanItem = { id: string; title: string; section: PlanSection; kind?:
 /** What an item's id looks like: lowercase kebab-case. */
 export const PLAN_ITEM_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
 
+/** Why `value` isn't a session's origin, an https link to where its work came from, or undefined when it is. */
+export function originProblem(value: unknown): string | undefined {
+	if (typeof value !== "string" || value.length > 2000) return "origin should be an https link of at most 2000 characters";
+	return URL.parse(value)?.protocol === "https:" ? undefined : "origin should be an https link";
+}
+
 /**
  * The items of a plan in the standard format, in the file's order: each `### id: title` under `## Now`, `Next`,
  * `Questions`, `Later` or `Done`, with `Kind`, `Needs` and `Run` from the status line under it when it has one.

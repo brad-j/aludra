@@ -599,6 +599,29 @@ test("projects.plan lists a project's plan items, and a session started for one 
 	await assert.rejects(mac.request("conversations.create", { requestId: "plan-5", planItem: "csv-export" }), { code: "bad_request", message: /in a project/ });
 });
 
+test("projects.writePlan writes a plan under write_plan's rules, from projects.plan's sha256", async (t) => {
+	const { url, project } = await sandboxApi(t);
+	const mac = await client(t, url);
+	const first = "# Plan\n\n## Now\n\n### csv-export: Export a season as CSV\nKind: step\n\n## Next\n\n## Questions\n\n## Later\n\n## Done\n";
+	const made = (await mac.request("projects.writePlan", { project: project.dir, text: first, base: null })).write;
+	assert.deepEqual(made.items.added, ["csv-export"]);
+	const read = (await mac.request("projects.plan", { project: project.dir })).plan;
+	assert.equal(read.text, first);
+	assert.equal(read.sha256, made.sha256);
+
+	const second = first.replace("## Next\n", "## Next\n\n### pdf-export: Export a season as PDF\nKind: request · From: verin/01JX\n");
+	const edited = (await mac.request("projects.writePlan", { project: project.dir, text: second, base: read.sha256 })).write;
+	assert.deepEqual(edited.items.added, ["pdf-export"]);
+	assert.equal(readFileSync(join(project.dir, "docs", "plan.md"), "utf8"), second);
+
+	// A stale base, a dropped id and a malformed base each write nothing.
+	await assert.rejects(mac.request("projects.writePlan", { project: project.dir, text: second, base: read.sha256 }), { code: "conflict", message: /changed since it was read/ });
+	await assert.rejects(mac.request("projects.writePlan", { project: project.dir, text: first, base: edited.sha256 }), (error: Json) => error.code === "bad_request" && error.data.problems.some((p: string) => /pdf-export/.test(p)));
+	await assert.rejects(mac.request("projects.writePlan", { project: project.dir, text: first, base: "abc" }), { code: "bad_request" });
+	await assert.rejects(mac.request("projects.writePlan", { project: "/nowhere", text: first, base: null }), { code: "not_found" });
+	assert.equal(readFileSync(join(project.dir, "docs", "plan.md"), "utf8"), second);
+});
+
 test("a worktree task runs on this machine in a worktree of its own, carries it in its summary, and ships from here", async (t) => {
 	const { url, project, remote } = await sandboxApi(t);
 	const mac = await client(t, url);

@@ -126,6 +126,34 @@ test("read_plan gives a read token a project's plan, says when there's none, and
 
 const PLAN = "# Plan\n\n## Now\n\n### first: The first step\nKind: step\nDo it.\n\n## Next\n\n## Questions\n\n## Later\n\n## Done\n";
 
+test("start_session takes the plan item it's for and where it came from, and the session carries both", async (t) => {
+	const { host, project, connect } = await mcp(t, true, { sandboxes: true, sandboxOnly: true });
+	mkdirSync(join(project.dir, "docs"), { recursive: true });
+	writeFileSync(join(project.dir, "docs", "plan.md"), PLAN);
+	const client = await connect();
+	const origin = "https://verin.example.ts.net/threads/01JX";
+	const started = json(await client.callTool({ name: "start_session", arguments: { project: "site", task: "Do the first step", sandbox: true, planItem: "first", origin } }));
+	assert.equal(started.planItem, "first");
+	assert.equal(started.origin, origin);
+	const record = await host.sessions.get(started.id);
+	assert.equal(record?.planItem, "first");
+	assert.equal(record?.origin, origin);
+	const listed = json(await client.callTool({ name: "list_sessions", arguments: {} })).find((s: { id: number }) => s.id === started.id);
+	assert.equal(listed.planItem, "first");
+	assert.equal(listed.origin, origin);
+	assert.match(text(await client.callTool({ name: "read_session", arguments: { id: started.id } })), new RegExp(`Plan item: first\nOrigin: ${origin.replace(/[.]/g, "\\.")}`));
+	const gate = json(await client.callTool({ name: "check_sessions", arguments: {} }));
+	assert.equal(JSON.parse(gate.data).find((c: { id: number }) => c.id === started.id).planItem, "first");
+
+	// An item the plan doesn't have, a bad id, a link that isn't https, and an item with no project are refused, with nothing started.
+	const before = (await host.sessions.list()).length;
+	assert.match(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "x", sandbox: true, planItem: "missing" } })), /has no item missing; read_plan shows its items/);
+	assert.equal((await client.callTool({ name: "start_session", arguments: { project: "site", task: "x", sandbox: true, planItem: "Not An Id" } })).isError, true);
+	assert.match(text(await client.callTool({ name: "start_session", arguments: { project: "site", task: "x", sandbox: true, origin: "http://plain.example" } })), /origin should be an https link/);
+	assert.match(text(await client.callTool({ name: "start_session", arguments: { task: "x", sandbox: true, planItem: "first" } })), /planItem is for a session in a project/);
+	assert.equal((await host.sessions.list()).length, before);
+});
+
 test("write_plan is offered only to a write token while mcp.write and mcp.writePlans are both on", async (t) => {
 	const has = async (write: boolean, writePlans: boolean, read = false) => {
 		const { connect, reader, bearer } = await mcp(t, write, { writePlans });

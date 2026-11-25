@@ -35,7 +35,8 @@ import { type ApprovalRequest, riskFor } from "../permissions.ts";
 import { monthSpend } from "../live.ts";
 import { RestoreRefused } from "../checkpoints.ts";
 import { ParseError } from "../parse.ts";
-import { PLAN_ITEM_ID, planItems, readPlan } from "../plans.ts";
+import { PLAN_ITEM_ID, PlanBusy, PlanConflict, PlanInvalid, planItems, readPlan, writePlan } from "../plans.ts";
+import { checkoutBusy } from "../mcp.ts";
 import { SettingsError } from "../settings.ts";
 import { billedCost } from "../transcript.ts";
 import { DurableTranslator, entryItem, type Json, text, usageState } from "./translate.ts";
@@ -197,6 +198,7 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			...(line === undefined || line === "" ? {} : { line }),
 			// aludra's own: the plan item it was started for, and what kind of session it is when it's a worktree task or a chat.
 			...(record.planItem === undefined ? {} : { planItem: record.planItem }),
+			...(record.origin === undefined ? {} : { origin: record.origin }),
 			...(isWorktreeSession(record) ? { worktree: worktreeOf_(record), ...(record.source === undefined ? {} : { source: record.source }) } : {}),
 			...(record.chat === true ? { chat: true } : {}),
 			...(record.from === undefined ? {} : { from: record.from }),
@@ -1074,7 +1076,23 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 					} catch (error) {
 						throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
 					}
-					return { plan: plan.exists ? { path: plan.path, exists: true, modified: plan.modified, items: planItems(plan.text) } : { path: plan.path, exists: false, items: [] } };
+					return { plan: plan.exists ? { path: plan.path, exists: true, modified: plan.modified, text: plan.text, sha256: plan.sha256, items: planItems(plan.text) } : { path: plan.path, exists: false, items: [] } };
+				}
+				// aludra's own: replacing a project's docs/plan.md, under MCP write_plan's rules (src/plans.ts writePlan).
+				case "projects.writePlan": {
+					if (typeof p.project !== "string") throw new ProtocolError("bad_request", "projects.writePlan takes a project's directory");
+					if (typeof p.text !== "string") throw new ProtocolError("bad_request", "text should be the whole new docs/plan.md");
+					if (!(p.base === null || (typeof p.base === "string" && /^[0-9a-f]{64}$/.test(p.base)))) throw new ProtocolError("bad_request", "base should be projects.plan's sha256 for the text this edits, or null where there's no plan");
+					const project = host.projects().find((candidate) => candidate.dir === p.project);
+					if (project === undefined) throw new ProtocolError("not_found", `${p.project} isn't a project aludra knows; host.info lists them`);
+					try {
+						return { write: await writePlan(project, p.text, p.base, () => checkoutBusy(host, project)) };
+					} catch (error) {
+						if (error instanceof PlanConflict) throw new ProtocolError("conflict", error.message);
+						if (error instanceof PlanBusy) throw new ProtocolError("busy", error.message);
+						if (error instanceof PlanInvalid) throw new ProtocolError("bad_request", error.message, { problems: error.problems });
+						throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+					}
 				}
 				// aludra's own: hiding a project from the lists; its files and sessions stay as they are.
 				case "projects.archive": {

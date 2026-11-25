@@ -6,14 +6,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
-### mcp-start-plan-item: start_session takes the plan item a session is for
-Kind: request · From: verin/start-from-plan-item
-MCP `start_session` takes `planItem`, a plan item's id in the project's `docs/plan.md`, checked and kept on the session as `conversations.create`'s is since plan-items, so a task Verin starts shows against its item in loial's plan view. It also takes `origin`, an optional https URL (a Verin thread), kept on the session and carried in its summary on `/app` and in `list_sessions` and `check_sessions`, so loial can link back. Per decisions.md, "Tasks start from the plan (2026-11-24)".
-
-### app-write-plan: Plan writes over /app
-Kind: request · From: loial/add-to-plan
-`projects.writePlan {project, text, base}` on `/app`, the same `writePlan` as MCP's `write_plan` (format check, ids kept, `sha256` base, refused while a checkout session runs), with `projects.plan` answering the `sha256`. Replaces the dropped write-plan-amyrlin: loial now adds items, since a chat is how work gets into the plan.
-
 ## Questions
 
 ### plan-writes-commit: Should a plan write commit docs/plan.md?
@@ -87,6 +79,14 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### mcp-start-plan-item: start_session takes the plan item a session is for
+Kind: request · From: verin/start-from-plan-item · Done: 2026-11-24
+MCP `start_session` takes `planItem`, a plan item's id in the project's `docs/plan.md`, checked and kept on the session as `conversations.create`'s is since plan-items, so a task Verin starts shows against its item in loial's plan view. It also takes `origin`, an optional https URL (a Verin thread), kept on the session and carried in its summary on `/app` and in `list_sessions` and `check_sessions`, so loial can link back. Per decisions.md, "Tasks start from the plan (2026-11-24)". Built: `start_session` checks the item is in the plan as `read_plan` reads it; `planItem` and `origin` show in `list_sessions`, `read_session`, `check_sessions` and the `/app` summary.
+
+### app-write-plan: Plan writes over /app
+Kind: request · From: loial/add-to-plan · Done: 2026-11-24
+`projects.writePlan {project, text, base}` on `/app`, the same `writePlan` as MCP's `write_plan` (format check, ids kept, `sha256` base, refused while a checkout session runs), with `projects.plan` answering the `sha256`. Replaces the dropped write-plan-amyrlin: loial now adds items, since a chat is how work gets into the plan. Built with `projects.plan` now carrying `text` and `sha256`; a stale base is a new error code, `conflict`, a busy checkout `busy`, and a format problem `bad_request` with `data.problems`. No setting gates it, since `/app` is the owner's login.
 
 ### create-project-plan: A starting plan on MCP create_project
 Kind: request · From: verin/ideas-make-project · Done: 2026-11-24
