@@ -58,6 +58,15 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
+## Tasks start from the plan (2026-11-24)
+
+Brad decided how aludra's two clients split the work (Verin's design.md, decision 16): loial is where tasks are reviewed and shipped, every task starts from an item in its project's `docs/plan.md`, and items come from chats in loial or from Verin. Verin sends all coding notifications. For aludra:
+
+- `/app` is the review surface and keeps growing with loial. MCP stays narrow (start, message, stop, check, ship, plans, projects) and doesn't mirror `/app`'s results.
+- MCP `start_session` takes `planItem` and an `origin` link (plan: `mcp-start-plan-item`), and `/app` gets plan writes (`app-write-plan`).
+- Web Push goes once Verin notifies for every session (`drop-web-push`).
+- The plan-first rule is held by the clients. A per-project setting that enforces it here waits (`plan-first-setting`).
+
 ## create_project takes a plan (2026-11-24)
 
 Verin's ideas-make-project sends an idea's drafted plan with the project it asks for, and Verin talks to aludra over MCP rather than `/app` (its 2026-11-23 decision), so `create_project` takes the same `plan: { steps?, questions? }` seed `projects.create` does (plan: `create-project-plan`). Before this, MCP's projects started with an empty plan and an extra argument would have been dropped. The seed is checked when it's asked for, so the owner approves a request that can be made, and stored with it, since the project is made later. `promote_session` takes none: a scratch session's work brings its own files, as `sandbox.promote` adds no starters. egwene's `mcp.allowNewProjects` is still off, so Verin can't use it there until Brad turns it on.

@@ -6,9 +6,29 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
+### mcp-start-plan-item: start_session takes the plan item a session is for
+Kind: request · From: verin/start-from-plan-item
+MCP `start_session` takes `planItem`, a plan item's id in the project's `docs/plan.md`, checked and kept on the session as `conversations.create`'s is since plan-items, so a task Verin starts shows against its item in loial's plan view. It also takes `origin`, an optional https URL (a Verin thread), kept on the session and carried in its summary on `/app` and in `list_sessions` and `check_sessions`, so loial can link back. Per decisions.md, "Tasks start from the plan (2026-11-24)".
+
+### app-write-plan: Plan writes over /app
+Kind: request · From: loial/add-to-plan
+`projects.writePlan {project, text, base}` on `/app`, the same `writePlan` as MCP's `write_plan` (format check, ids kept, `sha256` base, refused while a checkout session runs), with `projects.plan` answering the `sha256`. Replaces the dropped write-plan-amyrlin: loial now adds items, since a chat is how work gets into the plan.
+
 ## Questions
 
+### plan-writes-commit: Should a plan write commit docs/plan.md?
+Kind: question
+`write_plan` leaves the file changed in the checkout and stages nothing. With Verin and loial both adding items, uncommitted plan edits will sit in checkouts until a task or Brad commits them. Options: leave it; commit just `docs/plan.md` after each write when nothing else in it is staged; or commit only when the plan was clean before. write-plan-commit was dropped on 2026-11-20 when nothing wrote plans.
+
 ## Later
+
+### drop-web-push: Take out Web Push
+Kind: chore · Needs: verin/notify-all-sessions
+Verin sends every coding notification once it pushes for all sessions, and loial sends none, so `/api/push/*`, the VAPID key and the push sender have no user. Check nothing is subscribed (`push-subscriptions` in the data directory) first.
+
+### plan-first-setting: Refuse tasks with no plan item, per project
+Kind: step
+A project setting that makes `start_session` and `conversations.create` refuse a task without `planItem`, so no client can start untracked work there. Only if untracked tasks keep turning up; for now loial and Verin hold the rule themselves.
 
 ### landed-branch-cleanup: Delete a sandbox branch once its work has landed
 Kind: request · From: loial/stale-sandbox-branches
