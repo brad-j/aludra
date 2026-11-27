@@ -58,6 +58,10 @@ The inspiration is Mario Zechner's Pi Durable phone app (x.com/badlogicgames/sta
 
 Later, maybe: Slack (a channel per project, a thread per session), voice, a native companion, other workspaces. Now `more-surfaces` in the plan; sandboxes became the other workspace.
 
+## Coding and personal apart (2026-11-27)
+
+Brad decided coding work and the personal agent stay apart. Pi Desktop becomes the coding app and aludra its only host: its chats run here over `/app`, its pi-host retires, and loial's environments, diff and ship move into it before loial retires. Verin keeps mail, Herid, jobs, notes and connectors and no longer starts, ships, plans or pushes for coding sessions, so the MCP write side it used goes again (plan: `drop-verin-mcp`). Sandboxes, worktrees and ship stay as they are. This replaces "Tasks start from the plan" below for who the clients are; plan items still start tasks.
+
 ## Plan writes commit (2026-11-25)
 
 Brad's answer to `plan-writes-commit`: after each write, `write_plan` and `projects.writePlan` commit `docs/plan.md` alone when nothing else is staged in the checkout. With Verin's `add_plan_item` and loial's Add to plan both writing, uncommitted plan edits would otherwise sit in checkouts, where sandboxes (made from the last commit) don't see the new items and loial warns about uncommitted changes. Committing only that path, and only with an empty index, means a write never sweeps up someone's half-staged work; a merge or rebase under way, a project outside git and a refusing hook leave it uncommitted, and the answer says why (`uncommitted`). Nothing is pushed: the checkout's next push or ship carries the commits. The other options were leaving it, and committing only when the plan was clean before, which would leave a plan uncommitted for good once one write was.

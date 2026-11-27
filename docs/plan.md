@@ -4,15 +4,31 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
+### desktop-tools: What Pi Desktop's chats need from the host
+Kind: request · From: pi-desktop/aludra-host
+Pi Desktop's chats move onto aludra ([decisions.md](decisions.md#coding-and-personal-apart-2026-11-27)). List what its pi-host gives a chat that aludra's sessions lack and bring each over or drop it: `fetch_url` beside the web search aludra has, `read_setup`, Executor's tools, and anything the protocol lacks for a chat with no project (titles, archive, search). Pages and subagents are here already. Write each as its own item once the list is known.
+
+### ideas: Ideas on the host
+Kind: request · From: pi-desktop/ideas-home
+Move Pi Desktop's ideas extension into aludra: the clone of the ideas repository with its local-first sync (pi-desktop's docs/ideas.md), the capture and `update_idea` tools for sessions, and `/app` methods for the Ideas pages (list, read, capture, status, areas, delete, undo, sync state). A brainstorm is a session with the idea file in a prompt section, as in Pi Desktop now. One clone per host; each machine's host syncs through the same repository.
+
+### drop-verin-mcp: Take out the MCP write side Verin used
+Kind: chore · Needs: verin/drop-coding
+Verin stops starting, shipping and planning coding work. Once its `start_coding`, `ship_coding` and `add_plan_item` are gone, remove again what retire-agent-mcp removed on 2026-11-21 and unretire-verin put back: the `check_sessions` gate, `write_plan` on MCP, `ship_session`, `create_project` and `promote_session`, and scratch `start_session`. `/app` keeps `projects.writePlan`, `projects.create` and ship for Pi Desktop. Check egwene's settings file and tokens after.
+
 ## Next
 
 ## Questions
 
 ## Later
 
+### apns-push: Pushes to Pi Desktop's iOS app through APNs
+Kind: request · From: pi-desktop/ios
+The iOS app's WebView can't take Web Push, so the host sends APNs: device registration over `/app`, a token-based APNs key in the settings file, and a push when a session asks, fails or finishes, or a ship lands or stops, with the conversation to open. Replaces Web Push (drop-web-push).
+
 ### drop-web-push: Take out Web Push
-Kind: chore · Needs: verin/notify-all-sessions
-Verin sends every coding notification once it pushes for all sessions, and loial sends none, so `/api/push/*`, the VAPID key and the push sender have no user. Check nothing is subscribed (`push-subscriptions` in the data directory) first.
+Kind: chore · Needs: pi-desktop/desktop-notifications
+Pi Desktop sends coding notifications from `host.watch` (an iOS app would need apns-push first; Verin no longer does, since 2026-11-27), so `/api/push/*`, the VAPID key and the push sender have no user. Check nothing is subscribed (`push-subscriptions` in the data directory) first.
 
 ### plan-first-setting: Refuse tasks with no plan item, per project
 Kind: step
