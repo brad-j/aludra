@@ -712,6 +712,8 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			{ name: "write", description: "Write a file", requiresApproval: false },
 			{ name: "edit", description: "Edit a file", requiresApproval: false },
 			{ name: "bash", description: "Run a shell command. git push, and ssh, scp or rsync to the hosts listed in the settings, wait for approval.", requiresApproval: false },
+			{ name: "web_search", description: "Search the web (Tavily)", requiresApproval: false },
+			{ name: "fetch_url", description: "Read a web page; a URL the user or a search didn't supply is reviewed first", requiresApproval: false },
 		];
 		return {
 			host: await identity(),
@@ -742,6 +744,8 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			...(await host.newProjects.info().then((info) => ("reason" in info ? {} : { newProjects: info }))),
 			...(await monthCostOf()),
 			...subscriptionOf(),
+			// Whether the web tools' key files are in the data directory (src/web-keys.ts); an environment variable may stand in.
+			web: { keys: host.webKeys() },
 			// The ideas repository (src/ideas-repo.ts), on a host with ideas.dir set: the clone's state.
 			...(host.ideas.enabled() ? { ideas: await host.ideas.status() } : {}),
 		};

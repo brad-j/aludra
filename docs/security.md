@@ -50,6 +50,10 @@ A token made with `--write`, while `mcp.write` is on, adds tools that start, mes
 
 **OpenRouter.** `aludra login openrouter` uses OpenRouter's OAuth flow, which creates an API key for aludra on your OpenRouter account. It's kept in `credentials.json` like the ChatGPT sign-in, and works until you delete it on OpenRouter's site. Requests go to `openrouter.ai`, which passes them to the model's maker, carrying the session's transcript. An `OPENROUTER_API_KEY` in the host's environment works too.
 
+## The web tools
+
+`fetch_url` connects only to public addresses: every address a name resolves to is checked inside the connection's own lookup, so the address checked is the one used, and each of up to 5 redirects is checked again. Pages are capped at 5 MB and 20 s, and binary content is refused. A URL the model chose itself, one neither in a user message nor returned by `web_search`, is fetched only when the reviewer judges it safe at 0.9 or more, and refused when its key is missing or it fails or is slow. The reviewer gets the user's last six messages and the URL, with credentials, emails and long tokens masked, never page text or the agent's words, so instructions planted in a page can't argue with it. This guards `fetch_url` alone: `curl` in bash reaches the network as it always has, and a session's commands are as trusted as the session.
+
 ## Permissions
 
 Inside a session the agent works without asking: reading and editing files, builds, tests, installs, commits. Two things stop it.

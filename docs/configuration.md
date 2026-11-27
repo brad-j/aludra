@@ -182,6 +182,10 @@ Making one runs `git init` on `main`, writes a `README.md` with the name and des
 
 The clone needs an `origin` its branch tracks, and git on this machine that can push to it without asking (an SSH key with no passphrase prompt, or a credential helper), since syncing runs in the background. Each machine that keeps ideas has its own clone and syncs through the same remote.
 
+### Web keys
+
+The web tools' keys are files in the data directory, not settings: `tavily.key` for `web_search` (a Tavily API key) and `jev.key` for the URL reviewer (an OrcaRouter key). Each holds the key alone, must be mode `0600` (a file others can read is refused), and is read at each call, so adding one needs no restart. `TAVILY_API_KEY` and `ALUDRA_JEV_KEY` stand in when a file is missing. `host.info` says which files are there.
+
 ### `dataDir`
 
 Where the database, keys, scratch directories, uploaded videos and screenshots go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.
@@ -194,6 +198,8 @@ Where the database, keys, scratch directories, uploaded videos and screenshots g
 | `ALUDRA_DATA_DIR` | Replaces the data directory, over `dataDir` in the file. |
 | `ALUDRA_MODEL=faux` | Runs a scripted model with no network and no Claude Code, for tests and trying the host. |
 | `ALUDRA_SANDBOXES=fake` | Sandboxes are local git clones in the data directory, in place of `sandboxes`' host, for development ([development.md](development.md#trying-it)). Only with `ALUDRA_MODEL=faux`; the host won't start otherwise. |
+| `TAVILY_API_KEY`, `ALUDRA_JEV_KEY` | The web tools' keys, when `tavily.key` or `jev.key` isn't in the data directory. |
+| `ALUDRA_TAVILY_URL`, `ALUDRA_JEV_URL`, `ALUDRA_JEV_MODEL` | Point web search and the URL reviewer elsewhere, such as at stubs in tests. |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | Move the default settings and (on Linux) data directories. |
 | `CLAUDE_CONFIG_DIR` | Claude Code's config directory when `claude.configDir` isn't set. `claude.configDir` replaces it. |
 | `PI_CLAUDE_CODE_ALLOW_USAGE_CREDITS=1` | Lets a turn finish when Claude Code says it was charged to your account's usage credits instead of the plan's limits. Without it, that turn fails, so nothing more is charged. |
@@ -207,6 +213,7 @@ Where the database, keys, scratch directories, uploaded videos and screenshots g
 | `session-changes.sqlite` | What `/mcp`'s `check_sessions` last saw of each session, the changes since, and each token's cursor. Deleting it makes every token start over from what's there then. |
 | `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |
 | `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
+| `tavily.key`, `jev.key` | The web tools' keys, if you add them ([Web keys](#web-keys)). Owner-only. |
 | `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, with its refreshed tokens, and the key `aludra login openrouter` gets. Owner-only. |
 | `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |
 | `scratch/<id>/` | The working directory of each no-project session. |

@@ -104,6 +104,10 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 
 [api.md](api.md) documents all three.
 
+## Web tools
+
+`src/web-tools.ts` installs `aludra-web`, `web_search` and `fetch_url` with a short prompt section giving the date and saying page text is data, in every session. From Pi Desktop's pi-host, with `src/web-fetch.ts` (address checks in the socket's own lookup, redirects by hand, HTML to text), `src/web-reviewer.ts` (Jev's `noul` question over OrcaRouter's System One, with masking) and `src/web-keys.ts`. `fetch_url` reads up to 2,000 of the calling conversation's newest entries for the URLs the user wrote and searches returned; those are fetched straight away, and only the rest go to the reviewer. Both tools replay safely.
+
 ## Ideas
 
 `src/ideas-repo.ts` (`IdeasRepo`) owns the clone `ideas.dir` names. `src/ideas.ts` has the operations (capture, save, update, set status, link a session, delete) and the tools over them, so `/app`'s methods and a session's tools make the same commits. Both came from Pi Desktop's pi-host. A write takes a lock, refuses a dirty clone, changes files, writes `INDEX.md` again from the files and commits; a failure resets the clone to where it began. Syncing is separate and never throws: its state is in `status().sync`, and listeners hear each change, which `/app` passes on as `ideas.changed`. A rebase records old commit IDs to new in `.git/pi-desktop-rewritten.json` (Pi Desktop's name, so either finds them in a shared clone), which undo follows. Undo reverts without committing first, so a conflict in `INDEX.md` alone is settled by writing it again.

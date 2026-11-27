@@ -62,6 +62,14 @@ Later, maybe: Slack (a channel per project, a thread per session), voice, a nati
 
 Brad decided coding work and the personal agent stay apart. Pi Desktop becomes the coding app and aludra its only host: its chats run here over `/app`, its pi-host retires, and loial's environments, diff and ship move into it before loial retires. Verin keeps mail, Herid, jobs, notes and connectors and no longer starts, ships, plans or pushes for coding sessions, so the MCP write side it used goes again (plan: `drop-verin-mcp`). Sandboxes, worktrees and ship stay as they are. This replaces "Tasks start from the plan" below for who the clients are; plan items still start tasks.
 
+## Web tools (2026-11-27)
+
+Plan item `web-tools`: pi-host's `web` extension came over whole, for every session, sandboxes included, since a sandbox reaches the internet anyway and the tools run on the host.
+
+- **The reviewer stays, and bash isn't gated.** The plan asked whether reviewing `fetch_url` matters when bash can `curl` anything. It still matters: a session in a project is told to use `fetch_url` for pages, so that's the path injected text most often travels, and the reviewer costs nothing when the URL came from the user or a search. Sending `curl` and `wget` through approvals would stop every install script and API call in every session, for a leak bash can make without either (`python -c`, `git`, `node`). The guard is for the tool that reads the web for the model, and security.md says that's all it is.
+- **Keys are files, as in pi-host**: `tavily.key` and `jev.key` in the data directory at `0600`, read at each call, with `TAVILY_API_KEY` and `ALUDRA_JEV_KEY` as fallbacks. Not settings, so they never pass through `settings.get` or a settings file a client can rewrite. `host.info` says which files exist.
+- **Names.** The environment overrides are `ALUDRA_*` in place of `PI_DESKTOP_*`, and the user agent says aludra.
+
 ## Ideas on the host (2026-11-27)
 
 Plan item `ideas`. pi-host's `ideas-repo.ts` and `ideas-tools.ts` came over nearly whole, as `src/ideas-repo.ts` and `src/ideas.ts`, onto Durable 1.3.0 and typebox. Their tests came too. The calls:

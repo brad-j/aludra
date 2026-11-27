@@ -64,6 +64,10 @@ A session can hand a self-contained task to a subagent with its `agent` tool: ex
 
 A subagent can't start subagents of its own. Its approvals are the session's: a `git push` it makes waits for you as the session's would, and stopping the session stops it. Subagents aren't sessions, so they're not in the lists. A client can show the agent call in the session's transcript, and open the subagent's own transcript from it. Each subagent's spending counts toward its session's.
 
+### The web
+
+Every session has `web_search`, which asks Tavily, and `fetch_url`, which reads one page as text with its links, 20,000 characters at a time. Search needs a Tavily key; fetching a URL you wrote in a message, or one a search returned, needs nothing more. Any other URL, such as a link the agent found on a page, is first put to a reviewer (Jev, through OrcaRouter) that sees your last few messages and the URL, never the page, and is fetched only when it judges the fetch safe; without its key those are refused, and the agent is told to search instead or ask you for the link. `fetch_url` reads public addresses only. Commands the agent runs in bash reach the network as before, unreviewed. [configuration.md](configuration.md#web-keys) has where the keys go.
+
 ### Pages
 
 Ask for a chart, a table, a diagram or a mockup ("show the build times as a chart") and the agent can publish a page: a self-contained HTML document that loial shows in the session, above the written answer. Local images the page names are copied into it, so it keeps working after the files move. A page can run scripts but can't load anything from the network, so charts are drawn inline. Pages are kept with their session. From a terminal, `aludra page --session ID N` writes page N to a file and prints its path, to open in a browser.

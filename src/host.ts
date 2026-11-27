@@ -27,6 +27,8 @@ import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
 import { createCheckpoints, restoreNoteText } from "./checkpoints.ts";
 import { pagesExtension } from "./pages.ts";
+import { createWebExtension, type WebToolsOptions } from "./web-tools.ts";
+import { JEV_KEY_FILE, keyFilePresent, TAVILY_KEY_FILE } from "./web-keys.ts";
 import { ideaFolder, ideaImages, IdeasError, IdeasRepo, imageType } from "./ideas-repo.ts";
 import { AREAS, createIdeasOps, IDEAS_EXTENSION, ideasExtension, projectDraft } from "./ideas.ts";
 import { subagentOf, subagentsExtension } from "./subagents.ts";
@@ -386,6 +388,8 @@ export type HostOptions = {
 	agentDir?: string;
 	/** Claude Code's skills, the user's after the agent directory's. Default: `skills` in Claude Code's config directory. */
 	claudeSkillsDir?: string;
+	/** The web tools' endpoints and environment in place of the real ones (src/web-tools.ts); tests point them at stubs. */
+	web?: Omit<WebToolsOptions, "dataDir" | "conversation">;
 	/** Over Pi Durable's compaction defaults; the live check keeps less so a small conversation compacts. */
 	compaction?: Partial<CompactionPolicy>;
 	/** Sandboxes in place of the settings' sandbox host; tests pass ones over pi-env's local daemon. */
@@ -479,6 +483,8 @@ export async function openHost(options: HostOptions) {
 	registry.install(checkpoints.extension);
 	const pages = pagesExtension({ harness: () => opened!, context });
 	registry.install(pages.extension);
+	// web_search and fetch_url (src/web-tools.ts), for every session; fetch_url reads the calling conversation's history.
+	registry.install(createWebExtension({ dataDir: config.dataDir, conversation: (id, ctx) => opened!.conversation(id, ctx), ...options.web }));
 	// The agent tool (src/subagents.ts). Children go without it and without publish_page, whose pages are filed by session.
 	const subagents = subagentsExtension({
 		harness: () => opened!,
@@ -1998,6 +2004,8 @@ export async function openHost(options: HostOptions) {
 		/** Requests from /mcp to make projects, and the owner's answer to one, which makes it (src/project-requests.ts). */
 		projectRequests: { list: () => projectRequests.pending(), get: projectRequests.get, find: projectRequests.find, open: projectRequests.open, spent: projectRequests.spent, report: projectRequests.report, decide: decideProjectRequest, onChange: projectRequests.onChange },
 		colors: { list: listColors, set: setColor, onChange: onColors },
+		/** Whether the web tools' keys are in the data directory (src/web-keys.ts); never their contents. */
+		webKeys: () => ({ tavily: keyFilePresent(config.dataDir, TAVILY_KEY_FILE), jev: keyFilePresent(config.dataDir, JEV_KEY_FILE) }),
 		/** The ideas repository (src/ideas-repo.ts), when `ideas.dir` is set; each call throws an IdeasError otherwise. */
 		ideas: {
 			enabled: () => ideasRepo !== undefined,

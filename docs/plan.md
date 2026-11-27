@@ -8,10 +8,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 Kind: chore · Needs: verin/drop-coding
 Verin stops starting, shipping and planning coding work. Once its `start_coding`, `ship_coding` and `add_plan_item` are gone, remove again what retire-agent-mcp removed on 2026-11-21 and unretire-verin put back: the `check_sessions` gate, `write_plan` on MCP, `ship_session`, `create_project` and `promote_session`, and scratch `start_session`. `/app` keeps `projects.writePlan`, `projects.create` and ship for Pi Desktop. Check egwene's settings file and tokens after.
 
-### web-tools: web_search and fetch_url for sessions
-Kind: step · From: pi-desktop/aludra-host
-aludra has no web search: pi-claude-code runs Claude Code with `--tools ""`, so its WebSearch and WebFetch are off, and a session reaches the web only through `curl` in bash. Bring over pi-host's `web` extension (`packages/pi-host/src/web-tools.ts`, its architecture.md "Web tools"): `web_search` through Tavily and `fetch_url` with its address checks and the reviewer that passes URLs the user or a search supplied and asks Jev about the rest. Keys go in the data directory as pi-host's do, and `host.info` says whether each is set. Decide with it whether the reviewer still matters when bash can `curl` any URL unasked, or whether sessions with the web tools should send `curl` and `wget` through approvals.
-
 ### executor-tools: Executor's tools in sessions
 Kind: step · From: pi-desktop/aludra-host
 Bring over pi-host's Executor client (`packages/pi-host/src/executor.ts`, its architecture.md "Executor"): browser approval mode, the OAuth grant in the data directory at mode 0600, refresh on a 401, the tools as `executor_*` with the `executor` prompt section, and `call`, `execute` and `resume` not replayed. The sign-in needs `/app` methods (status, sign in answering the page to open, sign out) and an event when the connection changes, in place of pi-host's commands. The loopback redirect lands on the host's machine, so a client on another machine needs another way back, such as a redirect through the host's tailnet address. Which sessions get the tools (every session, no-project ones only, or a setting) is decided here; sandbox sessions shouldn't, since the grant would be one call away from an untrusted install.
@@ -107,6 +103,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### web-tools: web_search and fetch_url for sessions
+Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27
+pi-host's `web` extension is `src/web-tools.ts`, with `web-fetch.ts`, `web-reviewer.ts` and `web-keys.ts`, installed for every session. Keys are `tavily.key` and `jev.key` in the data directory, and `host.info` carries `web.keys` and lists both tools. The reviewer stays and bash isn't gated: decisions.md, "Web tools (2026-11-27)". Its tests came over against local stubs, with one through a faux session. The real Tavily and Jev weren't called.
 
 ### app-model-input: Say which models take images in host.info
 Kind: request · From: pi-desktop/aludra-host · Done: 2026-11-27
