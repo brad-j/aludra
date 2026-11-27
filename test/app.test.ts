@@ -53,7 +53,7 @@ const lastUser = (ctx: TranscriptContext) => JSON.stringify(ctx.messages.findLas
  * ship's note says "block"; anything else is answered. With `sandboxes`, the host has a sandbox host.
  */
 async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: string; settings?: Record<string, unknown>; newProjects?: HostOptions["newProjects"] } = {}) {
-	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000 }, { id: "faux-2", name: "Faux 2" }] });
+	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000, input: ["text", "image"] }, { id: "faux-2", name: "Faux 2", input: ["text"] }] });
 	const prompts: string[] = [];
 	/** What "write outside" calls came back with. */
 	const writes: string[] = [];
@@ -173,6 +173,9 @@ test("a session made from the Mac runs, shows in the host's list with its projec
 	const info = await mac.request("host.info");
 	assert.deepEqual(info.projects.map((p: Json) => p.dir), [project.dir]);
 	assert.deepEqual(info.models.map((m: Json) => m.modelId), ["faux-1"]);
+	// What each model takes in, from its catalog entry, so a client knows whether to offer images.
+	assert.deepEqual(info.models[0].input, ["text", "image"]);
+	assert.equal(typeof info.models[0].maxTokens, "number");
 
 	const list = (await mac.request("host.watch")).subscription;
 	await mac.event(list, type("host.snapshot"), "the host snapshot");

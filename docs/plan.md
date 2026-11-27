@@ -28,10 +28,6 @@ Pi Desktop's `withdraw` takes back one queued follow-up or steer. aludra has it 
 Kind: step · From: pi-desktop/aludra-host
 Pi Desktop shows Durable's `pi.live.compactionFailure` with a Retry; aludra's `conversation.watch` snapshot carries `compactions` in progress but not the last failure, so a client can't tell a summary failed unless a run failed with it. Carry it in the snapshot and an event when it changes, from the Durable 1.3.0 live state that already has it.
 
-### app-model-input: Say which models take images in host.info
-Kind: request · From: pi-desktop/aludra-host
-protocol.md section 5 gives each `host.info` model `input` (`["text", "image"]`), but aludra's `hostInfo` leaves it out, so a client can't tell whether the chosen model takes images. Pi Desktop greys out its attach button for a model without them; against aludra it now assumes every model does. Add `input` from the model's catalog entry, as the protocol says.
-
 ## Next
 
 ## Questions
@@ -111,6 +107,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### app-model-input: Say which models take images in host.info
+Kind: request · From: pi-desktop/aludra-host · Done: 2026-11-27
+Each `host.info` model carries `input` and `maxTokens` from its catalog entry (`host.modelInfo`), as protocol.md section 5 gives them, left out for a model no provider has loaded. api.md says so; the app test checks a faux model's.
 
 ### ideas: Ideas on the host
 Kind: request · From: pi-desktop/ideas-home · Done: 2026-11-27

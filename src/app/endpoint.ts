@@ -717,7 +717,8 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			host: await identity(),
 			models: host.choices().map((choice) => {
 				const info = host.modelInfo({ provider: choice.provider, modelId: choice.id });
-				return { provider: choice.provider, modelId: choice.id, name: choice.name, reasoning: true, thinkingLevels: [...THINKING], contextWindow: info.window, available: true };
+				// input and maxTokens from the model's catalog entry; left out for a model no provider has loaded yet.
+				return { provider: choice.provider, modelId: choice.id, name: choice.name, reasoning: true, thinkingLevels: [...THINKING], contextWindow: info.window, ...(info.maxTokens === undefined ? {} : { maxTokens: info.maxTokens }), ...(info.input === undefined ? {} : { input: info.input }), available: true };
 			}),
 			tools,
 			defaults: { model: host.model, thinkingLevel: host.thinking },

@@ -808,9 +808,10 @@ export async function openHost(options: HostOptions) {
 	const catalog = createCatalog(models);
 
 	/** A model's name and context window; an unknown model gets its ID and no window. */
-	function modelInfo(ref: ModelRef): { name: string; window: number } {
+	/** A model's name and context window, and, when a provider has it, what it takes in and its longest answer. */
+	function modelInfo(ref: ModelRef): { name: string; window: number; input?: string[]; maxTokens?: number } {
 		const found = models.getModel(ref.provider, ref.modelId);
-		return found === undefined ? { name: ref.modelId, window: 0 } : { name: displayName(found.name), window: found.contextWindow };
+		return found === undefined ? { name: ref.modelId, window: 0 } : { name: displayName(found.name), window: found.contextWindow, input: [...found.input], maxTokens: found.maxTokens };
 	}
 
 	/**
