@@ -201,6 +201,7 @@ Where the database, keys, scratch directories, uploaded videos and screenshots g
 | `ALUDRA_MODEL=faux` | Runs a scripted model with no network and no Claude Code, for tests and trying the host. |
 | `ALUDRA_SANDBOXES=fake` | Sandboxes are local git clones in the data directory, in place of `sandboxes`' host, for development ([development.md](development.md#trying-it)). Only with `ALUDRA_MODEL=faux`; the host won't start otherwise. |
 | `TAVILY_API_KEY`, `ALUDRA_JEV_KEY` | The web tools' keys, when `tavily.key` or `jev.key` isn't in the data directory. |
+| `ALUDRA_EXECUTOR_URL` | Executor's MCP endpoint, in place of hosted Executor with browser approvals. |
 | `ALUDRA_TAVILY_URL`, `ALUDRA_JEV_URL`, `ALUDRA_JEV_MODEL` | Point web search and the URL reviewer elsewhere, such as at stubs in tests. |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | Move the default settings and (on Linux) data directories. |
 | `CLAUDE_CONFIG_DIR` | Claude Code's config directory when `claude.configDir` isn't set. `claude.configDir` replaces it. |
@@ -215,6 +216,7 @@ Where the database, keys, scratch directories, uploaded videos and screenshots g
 | `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |
 | `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
 | `setup/` | Your setup notes, unless `setup.dir` names another directory: `README.md` as the map and one `<topic>.md` per note. |
+| `executor-auth.json` | Executor's OAuth grant, after a sign-in ([using.md](using.md#executor)). Owner-only. Deleting it signs out. |
 | `tavily.key`, `jev.key` | The web tools' keys, if you add them ([Web keys](#web-keys)). Owner-only. |
 | `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, with its refreshed tokens, and the key `aludra login openrouter` gets. Owner-only. |
 | `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |

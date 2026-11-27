@@ -108,6 +108,10 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 
 `src/web-tools.ts` installs `aludra-web`, `web_search` and `fetch_url` with a short prompt section giving the date and saying page text is data, in every session. From Pi Desktop's pi-host, with `src/web-fetch.ts` (address checks in the socket's own lookup, redirects by hand, HTML to text), `src/web-reviewer.ts` (Jev's `noul` question over OrcaRouter's System One, with masking) and `src/web-keys.ts`. `fetch_url` reads up to 2,000 of the calling conversation's newest entries for the URLs the user wrote and searches returned; those are fetched straight away, and only the rest go to the reviewer. Both tools replay safely.
 
+## Executor
+
+`src/executor.ts`, from pi-host: an `Executor` that holds the MCP client (`@earendil-works/pi-mcp` with its OAuth pieces), the grant in `executor-auth.json` and the sign-in, and `createExecutorExtension`, the server's tools as `executor_<name>` with an `executor` prompt section. Tool schemas pass through, or become an open object when pi-ai's validator can't take them or a `$ref` names nothing. Reads replay; `call`, `execute` and `resume` don't. The host installs the extension as tools arrive and uninstalls it on sign-out; local no-project sessions select it by name when they're made, so they have the tools whenever it's installed. pi-host's sign-in came back to a loopback port on the machine with the browser; aludra's browser can be on another machine, so the redirect is `https://<host>/api/executor/callback` at the address the `/app` socket came in on (its `Host` through `tailscale serve`), and the API hands the code to the waiting sign-in by its state.
+
 ## Setup notes
 
 `src/setup-notes.ts` is the `aludra-setup` extension: a `setup` prompt section from the notes directory's `README.md` and topic list, and `read_setup`. pi-host compiled its notes in; here they're files, read at each request, so nothing about a user's machines is in the repository. Like the ideas tools, the harness's default selection leaves it out and `createScratch` and `createChat` without a project add it.

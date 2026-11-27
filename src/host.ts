@@ -32,6 +32,7 @@ import { JEV_KEY_FILE, keyFilePresent, TAVILY_KEY_FILE } from "./web-keys.ts";
 import { ideaFolder, ideaImages, IdeasError, IdeasRepo, imageType } from "./ideas-repo.ts";
 import { AREAS, createIdeasOps, IDEAS_EXTENSION, ideasExtension, projectDraft } from "./ideas.ts";
 import { SETUP_EXTENSION, setupExtension } from "./setup-notes.ts";
+import { createExecutorExtension, Executor, EXECUTOR_EXTENSION, type ExecutorOptions } from "./executor.ts";
 import { subagentOf, subagentsExtension } from "./subagents.ts";
 import { claudeConfigDir, type Config, expandHome, THINKING, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
@@ -387,6 +388,8 @@ export type HostOptions = {
 	agentDir?: string;
 	/** Claude Code's skills, the user's after the agent directory's. Default: `skills` in Claude Code's config directory. */
 	claudeSkillsDir?: string;
+	/** Executor's endpoint in place of hosted Executor (src/executor.ts); tests point it at a stand-in. */
+	executor?: Omit<ExecutorOptions, "dataDir">;
 	/** The web tools' endpoints and environment in place of the real ones (src/web-tools.ts); tests point them at stubs. */
 	web?: Omit<WebToolsOptions, "dataDir" | "conversation">;
 	/** Over Pi Durable's compaction defaults; the live check keeps less so a small conversation compacts. */
@@ -513,8 +516,18 @@ export async function openHost(options: HostOptions) {
 	// The user's setup notes (src/setup-notes.ts), for local no-project sessions only, like the ideas tools.
 	const setup = setupExtension({ dir: () => config.setup.dir });
 	registry.install(setup);
-	/** A local no-project session's agent: the default extensions, the setup notes and, on a host with ideas, the ideas tools. */
-	const withIdeas = (cwd: string) => ({ cwd, extensions: { add: [setup, ...(ideasRepo === undefined ? [] : [ideas])] } });
+	// Executor's tools (src/executor.ts), installed once it connects and taken out when it signs out; local no-project
+	// sessions select the extension by name, so one made before a sign-in has the tools once it's installed.
+	const executor = new Executor({ dataDir: config.dataDir, ...options.executor });
+	executor.onTools = (tools) => {
+		const extension = createExecutorExtension(executor, tools);
+		if (tools.length > 0) registry.install(extension);
+		else registry.uninstall(extension);
+	};
+	/** Only local no-project sessions get these, as with ideas: never a project's or a sandbox's. */
+	const NO_PROJECT_ONLY = new Set([IDEAS_EXTENSION, SETUP_EXTENSION, EXECUTOR_EXTENSION]);
+	/** A local no-project session's agent: the default extensions, the setup notes, Executor's tools and, on a host with ideas, the ideas tools. */
+	const withIdeas = (cwd: string) => ({ cwd, extensions: { add: [setup, createExecutorExtension(executor, []), ...(ideasRepo === undefined ? [] : [ideas])] } });
 	// A ship's commands get a timeout, so a check that hangs in the sandbox can't hold the task (src/ship.ts).
 	registry.install(defineExtension({
 		name: "aludra-ship-timeout",
@@ -583,7 +596,7 @@ export async function openHost(options: HostOptions) {
 				...(options.compaction === undefined ? {} : { compaction: options.compaction }),
 				// Every installed extension but the ideas tools, in install order; a getter, so it follows the registry.
 				get extensions() {
-					return registry.snapshot().installed().filter((extension) => extension.name !== IDEAS_EXTENSION && extension.name !== SETUP_EXTENSION);
+					return registry.snapshot().installed().filter((extension) => !NO_PROJECT_ONLY.has(extension.name));
 				},
 			},
 			env: async (target, ctx) => {
@@ -1976,6 +1989,8 @@ export async function openHost(options: HostOptions) {
 		/** New projects (src/new-projects.ts): where they go when this host can make them, and making one. */
 		newProjects: { info: newProjectsInfo, create: createProject, promote, onMade: onProjectMade },
 		colors: { list: listColors, set: setColor, onChange: onColors },
+		/** Executor (src/executor.ts): its connection, signing in and out, and the redirect's code from the API. */
+		executor,
 		/** Whether the web tools' keys are in the data directory (src/web-keys.ts); never their contents. */
 		webKeys: () => ({ tavily: keyFilePresent(config.dataDir, TAVILY_KEY_FILE), jev: keyFilePresent(config.dataDir, JEV_KEY_FILE) }),
 		/** The ideas repository (src/ideas-repo.ts), when `ideas.dir` is set; each call throws an IdeasError otherwise. */
@@ -2031,6 +2046,8 @@ export async function openHost(options: HostOptions) {
 		/** Continues the work the last process left unfinished. */
 		resume: () => {
 			harness.resume();
+			// With a grant from an earlier sign-in, Executor connects in the background.
+			executor.start();
 			void resumeSandboxes().catch((error) => console.error(`[sandbox] resuming: ${error instanceof Error ? error.message : String(error)}`));
 		},
 		search: searchMessages,
@@ -2054,6 +2071,7 @@ export async function openHost(options: HostOptions) {
 			tokens.close();
 			sandboxes.close();
 			ideasRepo?.close();
+			await executor.close();
 		},
 	};
 }

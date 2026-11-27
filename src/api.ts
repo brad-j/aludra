@@ -37,6 +37,7 @@ import { shipOutcome, shipSentence } from "./ship.ts";
 import { RestoreRefused } from "./checkpoints.ts";
 import { array, boolean, integer, jsonObject, literal, nullable, object, optional, ParseError, parseJson, string } from "./parse.ts";
 import { findProject } from "./projects.ts";
+import { API_CALLBACK_PATH } from "./executor.ts";
 import type { ApprovalRequest } from "./permissions.ts";
 import type { Push, PushMessage } from "./push.ts";
 import { createLive, type Live } from "./live.ts";
@@ -395,6 +396,14 @@ export function createApi(host: Host, options: ApiOptions) {
 	}
 
 	const server = createServer((request, response) => {
+		// Executor's sign-in redirect (src/executor.ts). It's the browser coming back with a code, so it carries the
+		// user's Tailscale login like any page here; the code only finishes a sign-in this host started for that state.
+		if (new URL(request.url ?? "/", "http://host").pathname === API_CALLBACK_PATH) {
+			if (loginOf(request) === undefined) return reply(response, 403, "Forbidden", "text/plain");
+			if (request.method !== "GET") return reply(response, 405, "Method not allowed", "text/plain");
+			const page = host.executor.deliver(new URL(request.url ?? "/", "http://host").searchParams);
+			return reply(response, page.ok ? 200 : 400, page.message, "text/plain");
+		}
 		// Agents' MCP clients (src/mcp.ts), by a token of their own (src/tokens.ts) rather than a Tailscale login, which a
 		// tagged machine doesn't have. Like /app, no Origin: a browser always sends one, so a web page can't call it.
 		if (new URL(request.url ?? "/", "http://host").pathname === "/mcp") {
@@ -443,7 +452,11 @@ export function createApi(host: Host, options: ApiOptions) {
 				return;
 			}
 			const name = request.headers["tailscale-user-name"];
-			appSockets.handleUpgrade(request, socket, head, (ws) => app.connect(ws, { login, name: typeof name === "string" ? name : login }));
+			// The address the client reached the host at, through tailscale serve, which is HTTPS: where a sign-in's
+			// redirect can come back to (src/executor.ts). Absent for a socket that came in without a host name.
+			const forwarded = request.headers["x-forwarded-host"] ?? request.headers.host;
+			const base = typeof forwarded === "string" && /^[A-Za-z0-9.-]+(?::\d+)?$/.test(forwarded) && !/^(127\.|localhost)/.test(forwarded) ? `https://${forwarded}` : undefined;
+			appSockets.handleUpgrade(request, socket, head, (ws) => app.connect(ws, { login, name: typeof name === "string" ? name : login, ...(base === undefined ? {} : { base }) }));
 			return;
 		}
 		if (path !== "/api/live" || loginOf(request) === undefined || !sameOrigin(request, false)) {

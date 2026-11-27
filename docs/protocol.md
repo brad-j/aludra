@@ -626,6 +626,8 @@ Added 2026-11-04, aludra's own extension like 11 (aludra c3e5fc6 new projects, b
 
 23. **A failed compaction.** `compaction.ended` carries `error` when the compaction failed, faulted or was orphaned (Durable's `compaction_end`), and the `conversation.watch` snapshot carries `compactionFailure: {taskId, reason, error}`, the newest failure since a compaction last wrote a summary (`pi.live.compactionFailure`), absent when there's none. A client shows it with a way to ask again, and stops showing it once a later `compaction.ended` has no `error`. Added 2026-11-27.
 
+24. **Executor.** `host.info` carries `executor`, its connection; `executor.status`, `executor.signIn` and `executor.signOut` read and change it, and `host.watch` sends `executor.changed`. aludra's api.md has the shapes.
+
 Deferred, not in v1:
 
 - A fixture for deferred polling. Faux can return deferred handles, so it can be recorded before a provider needs it.

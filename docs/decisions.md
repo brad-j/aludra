@@ -62,6 +62,15 @@ Later, maybe: Slack (a channel per project, a thread per session), voice, a nati
 
 Brad decided coding work and the personal agent stay apart. Pi Desktop becomes the coding app and aludra its only host: its chats run here over `/app`, its pi-host retires, and loial's environments, diff and ship move into it before loial retires. Verin keeps mail, Herid, jobs, notes and connectors and no longer starts, ships, plans or pushes for coding sessions, so the MCP write side it used goes again (plan: `drop-verin-mcp`). Sandboxes, worktrees and ship stay as they are. This replaces "Tasks start from the plan" below for who the clients are; plan items still start tasks.
 
+## Executor on the host (2026-11-27)
+
+Plan item `executor-tools`. pi-host's Executor client came over nearly whole as `src/executor.ts`, with its stand-in for tests.
+
+- **Which sessions.** Local no-project sessions only, as with ideas and setup notes. A sandbox session runs untrusted installs one call away from the grant, and a project session runs its repository's code, so neither gets a user's mail and accounts. The extension is out of the default selection; `createScratch` and `createChat` add it by name, so a no-project session made before a sign-in gets the tools when they arrive.
+- **The way back.** pi-host's redirect went to a loopback port on the machine its browser was on. aludra's client can be on another machine, so the redirect goes to the host's own API, `/api/executor/callback`, at the address the client's `/app` socket came in on through `tailscale serve`. A browser on any tailnet device reaches it, behind the same login check as the rest of the API, and the code finishes only the sign-in waiting for its OAuth state. `loopback: true` keeps pi-host's way for a browser on the host. Executor registers a new client for each redirect, so each address signs in once.
+- **Approvals stay Executor's.** Browser approval mode, as in pi-host: aludra's own approvals are for commands on the machine, and a mail send should be decided on Executor's page, with its own wording, not as a `bash` approval.
+- **Names.** `ALUDRA_EXECUTOR_URL` overrides the endpoint; the client registers as `aludra`.
+
 ## Setup notes as files (2026-11-27)
 
 Plan item `setup-notes`. pi-host's `setup` extension compiled Brad's notes into the app, since the packaged Mac app had no checkout. aludra runs where the files are, so the notes are Markdown in `setup/` in the data directory (or `setup.dir`): `README.md` is the map for the prompt, each other `<topic>.md` a note for `read_setup`. Nothing about anyone's machines is in this repository, and egwene's notes are Brad's to write. Only local no-project sessions get them: a project session is about its code, and a sandbox session shouldn't be handed a map of the network it's kept off. No notes, no section and no tool. The map isn't folded into `no_project`'s text as the plan suggested, since an extension of its own can be left out of other sessions cleanly; it sits beside it.

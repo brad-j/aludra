@@ -4,10 +4,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
-### executor-tools: Executor's tools in sessions
-Kind: step · From: pi-desktop/aludra-host
-Bring over pi-host's Executor client (`packages/pi-host/src/executor.ts`, its architecture.md "Executor"): browser approval mode, the OAuth grant in the data directory at mode 0600, refresh on a 401, the tools as `executor_*` with the `executor` prompt section, and `call`, `execute` and `resume` not replayed. The sign-in needs `/app` methods (status, sign in answering the page to open, sign out) and an event when the connection changes, in place of pi-host's commands. The loopback redirect lands on the host's machine, so a client on another machine needs another way back, such as a redirect through the host's tailnet address. Which sessions get the tools (every session, no-project ones only, or a setting) is decided here; sandbox sessions shouldn't, since the grant would be one call away from an untrusted install.
-
 ## Next
 
 ## Questions
@@ -83,6 +79,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### executor-tools: Executor's tools in sessions
+Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27
+`src/executor.ts`, from pi-host: browser approval mode, the grant in `executor-auth.json` at 0600, refresh on a 401, the tools as `executor_*` with the `executor` section, and `call`, `execute` and `resume` not replayed. Only local no-project sessions get them. `/app` has `executor.status`, `executor.signIn` and `executor.signOut`, `host.info.executor` and the `executor.changed` event; the redirect comes back to `/api/executor/callback` at the host's tailnet address. Tested against the stand-in only; the real executor.sh sign-in hasn't run. decisions.md, "Executor on the host".
 
 ### setup-notes: Notes on the user's setup, read on demand
 Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27

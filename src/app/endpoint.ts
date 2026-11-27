@@ -336,6 +336,12 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 		});
 	});
 	// A project made here, from this endpoint or approved from /mcp, reaches every host watcher as the whole list.
+	// Executor's connection changed (signed in, out, connecting, an error): host watchers get its status.
+	const onExecutor = () => {
+		const event = { type: "executor.changed", status: host.executor.status() };
+		for (const listener of hostListeners) listener(event);
+	};
+	host.executor.listeners.add(onExecutor);
 	// The ideas clone changed (a write, an undo, a sync that brought something, or its sync state): host watchers refetch.
 	const stopIdeas = host.ideas.onChange(() => {
 		for (const listener of hostListeners) listener({ type: "ideas.changed" });
@@ -761,6 +767,8 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			...(await host.newProjects.info().then((info) => ("reason" in info ? {} : { newProjects: info }))),
 			...(await monthCostOf()),
 			...subscriptionOf(),
+			// Executor's connection (src/executor.ts); executor.signIn and executor.signOut change it.
+			executor: host.executor.status(),
 			// Whether the web tools' key files are in the data directory (src/web-keys.ts); an environment variable may stand in.
 			web: { keys: host.webKeys() },
 			// The ideas repository (src/ideas-repo.ts), on a host with ideas.dir set: the clone's state.
@@ -966,7 +974,7 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 
 	// One connection (sections 2 and 3)
 
-	function connect(ws: WebSocket, you: { login: string; name: string }) {
+	function connect(ws: WebSocket, you: { login: string; name: string; base?: string }) {
 		let welcomed = false;
 		let nextSubscription = 1;
 		const subscriptions = new Map<string, () => Promise<void>>();
@@ -1370,6 +1378,22 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 					return history(p);
 				case "conversation.image":
 					return image(p);
+				// aludra's own: Executor's connection (src/executor.ts), for a client's settings.
+				case "executor.status":
+					return { status: host.executor.status() };
+				case "executor.signIn": {
+					// The redirect comes back through this host's API at the address this client reached it on.
+					if (you.base === undefined && p.loopback !== true) throw new ProtocolError("unsupported", "This connection didn't come through the host's tailnet address, so Executor's sign-in has nowhere to come back to; connect through tailscale serve");
+					try {
+						const { url } = await host.executor.beginSignIn(p.loopback === true ? {} : { callbackBase: you.base! });
+						return { ...(url === undefined ? {} : { url }), status: host.executor.status() };
+					} catch (error) {
+						throw new ProtocolError("bad_request", error instanceof Error ? error.message : String(error));
+					}
+				}
+				case "executor.signOut":
+					await host.executor.signOut();
+					return { status: host.executor.status() };
 				default:
 					// aludra's own: the ideas repository (src/ideas-repo.ts).
 					if (method.startsWith("ideas.")) return ideas(method, p);
@@ -1394,6 +1418,7 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			stopProjectArchive();
 			stopProjectMade();
 			stopIdeas();
+			host.executor.listeners.delete(onExecutor);
 		},
 	};
 }
