@@ -4,10 +4,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
-### desktop-tools: What Pi Desktop's chats need from the host
-Kind: request · From: pi-desktop/aludra-host
-Pi Desktop's chats move onto aludra ([decisions.md](decisions.md#coding-and-personal-apart-2026-11-27)). List what its pi-host gives a chat that aludra's sessions lack and bring each over or drop it: `fetch_url` beside the web search aludra has, `read_setup`, Executor's tools, and anything the protocol lacks for a chat with no project (titles, archive, search). Pages and subagents are here already. Write each as its own item once the list is known.
-
 ### ideas: Ideas on the host
 Kind: request · From: pi-desktop/ideas-home
 Move Pi Desktop's ideas extension into aludra: the clone of the ideas repository with its local-first sync (pi-desktop's docs/ideas.md), the capture and `update_idea` tools for sessions, and `/app` methods for the Ideas pages (list, read, capture, status, areas, delete, undo, sync state). A brainstorm is a session with the idea file in a prompt section, as in Pi Desktop now. One clone per host; each machine's host syncs through the same repository.
@@ -16,9 +12,33 @@ Move Pi Desktop's ideas extension into aludra: the clone of the ideas repository
 Kind: chore · Needs: verin/drop-coding
 Verin stops starting, shipping and planning coding work. Once its `start_coding`, `ship_coding` and `add_plan_item` are gone, remove again what retire-agent-mcp removed on 2026-11-21 and unretire-verin put back: the `check_sessions` gate, `write_plan` on MCP, `ship_session`, `create_project` and `promote_session`, and scratch `start_session`. `/app` keeps `projects.writePlan`, `projects.create` and ship for Pi Desktop. Check egwene's settings file and tokens after.
 
+### web-tools: web_search and fetch_url for sessions
+Kind: step · From: pi-desktop/aludra-host
+aludra has no web search: pi-claude-code runs Claude Code with `--tools ""`, so its WebSearch and WebFetch are off, and a session reaches the web only through `curl` in bash. Bring over pi-host's `web` extension (`packages/pi-host/src/web-tools.ts`, its architecture.md "Web tools"): `web_search` through Tavily and `fetch_url` with its address checks and the reviewer that passes URLs the user or a search supplied and asks Jev about the rest. Keys go in the data directory as pi-host's do, and `host.info` says whether each is set. Decide with it whether the reviewer still matters when bash can `curl` any URL unasked, or whether sessions with the web tools should send `curl` and `wget` through approvals.
+
+### executor-tools: Executor's tools in sessions
+Kind: step · From: pi-desktop/aludra-host
+Bring over pi-host's Executor client (`packages/pi-host/src/executor.ts`, its architecture.md "Executor"): browser approval mode, the OAuth grant in the data directory at mode 0600, refresh on a 401, the tools as `executor_*` with the `executor` prompt section, and `call`, `execute` and `resume` not replayed. The sign-in needs `/app` methods (status, sign in answering the page to open, sign out) and an event when the connection changes, in place of pi-host's commands. The loopback redirect lands on the host's machine, so a client on another machine needs another way back, such as a redirect through the host's tailnet address. Which sessions get the tools (every session, no-project ones only, or a setting) is decided here; sandbox sessions shouldn't, since the grant would be one call away from an untrusted install.
+
+### setup-notes: Notes on the user's setup, read on demand
+Kind: step · From: pi-desktop/aludra-host
+pi-host's `setup` extension gives every chat a short map and `read_setup`, which returns one topic's note. Its notes are compiled in, since the packaged app has no checkout; aludra runs where the files are, so the notes can be files in the data directory or a directory the settings name, keeping anything about Brad's machines out of this repository. A no-project session's `no_project` section is the place for the map.
+
+### app-withdraw: Withdraw one queued message over /app
+Kind: step · From: pi-desktop/aludra-host
+Pi Desktop's `withdraw` takes back one queued follow-up or steer. aludra has it on HTTP (`POST /api/sessions/:id/withdraw`, `host.withdraw`), but protocol.md lists it as deferred on `/app`, where `abort` withdraws every queued input. Add `submission.withdraw {conversationId, submissionId}` answering `aborted`, `already_placed`, `settled` or `not_found`.
+
+### app-compaction-failure: Say when a compaction failed
+Kind: step · From: pi-desktop/aludra-host
+Pi Desktop shows Durable's `pi.live.compactionFailure` with a Retry; aludra's `conversation.watch` snapshot carries `compactions` in progress but not the last failure, so a client can't tell a summary failed unless a run failed with it. Carry it in the snapshot and an event when it changes, from the Durable 1.3.0 live state that already has it.
+
 ## Next
 
 ## Questions
+
+### chat-auto-archive: Should idle archiving skip no-project sessions?
+Kind: question · From: pi-desktop/aludra-host
+aludra archives every session idle `archive.afterDays` (3 by default). Pi Desktop never archives a chat by itself, and its chats are long-lived conversations, not tasks. Options: archive them like tasks, skip sessions with no project, or a separate setting for them.
 
 ## Later
 
@@ -91,6 +111,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### desktop-tools: What Pi Desktop's chats need from the host
+Kind: request · From: pi-desktop/aludra-host · Done: 2026-11-27
+Compared pi-host (`packages/pi-host` at 972da65) with aludra's no-project sessions. Gaps, each an item: web-tools, executor-tools, setup-notes, app-withdraw, app-compaction-failure, and the question chat-auto-archive. Already here: titles (written by a model), rename, retitle, archive, message search with an index, history paging, compact, models and thinking, images, pages and subagents; skills and files go beyond pi-host. The ideas tools and a chat's idea link are the ideas item. decisions.md, "What Pi Desktop's chats need (2026-11-27)".
 
 ### plan-writes-commit: Should a plan write commit docs/plan.md?
 Kind: question · Done: 2026-11-25

@@ -62,6 +62,16 @@ Later, maybe: Slack (a channel per project, a thread per session), voice, a nati
 
 Brad decided coding work and the personal agent stay apart. Pi Desktop becomes the coding app and aludra its only host: its chats run here over `/app`, its pi-host retires, and loial's environments, diff and ship move into it before loial retires. Verin keeps mail, Herid, jobs, notes and connectors and no longer starts, ships, plans or pushes for coding sessions, so the MCP write side it used goes again (plan: `drop-verin-mcp`). Sandboxes, worktrees and ship stay as they are. This replaces "Tasks start from the plan" below for who the clients are; plan items still start tasks.
 
+## What Pi Desktop's chats need (2026-11-27)
+
+Plan item `desktop-tools`, comparing pi-host (Pi Desktop at 972da65) with an aludra session that has no project.
+
+- **Here already.** Titles, rename, retitle and archive through the session record; `messages.search` on an FTS index, where pi-host reads every chat on each search; `conversation.history`, `compact`, `configure`, images, `publish_page` and the `agent` tool. Skills, files, videos, checkpoints and forks are aludra's own.
+- **No web search.** The request said aludra had one; it doesn't. pi-claude-code passes `--tools ""`, so Claude Code's own WebSearch and WebFetch never run, and a session reaches the web through `curl` in bash. pi-host's reviewer for `fetch_url` exists because Pi Desktop has no approvals; in aludra bash already fetches any URL unasked, so `web-tools` has to settle how much the reviewer adds.
+- **Missing:** the web tools (`web-tools`), Executor (`executor-tools`), the setup notes (`setup-notes`), withdrawing one queued message on `/app` (`app-withdraw`; HTTP has it) and a failed compaction in the live state (`app-compaction-failure`). Idle archiving would archive Pi Desktop's chats after three days, which pi-host never does (`chat-auto-archive`, for Brad).
+- **Left to the client.** pi-host reuses an empty chat on New chat. A client on `/app` can make the session with its first message (`conversations.create` takes `text`), so nothing is needed here.
+- **Ideas** (the tools, the clone, a chat's idea and its prompt section) are the `ideas` item.
+
 ## Plan writes commit (2026-11-25)
 
 Brad's answer to `plan-writes-commit`: after each write, `write_plan` and `projects.writePlan` commit `docs/plan.md` alone when nothing else is staged in the checkout. With Verin's `add_plan_item` and loial's Add to plan both writing, uncommitted plan edits would otherwise sit in checkouts, where sandboxes (made from the last commit) don't see the new items and loial warns about uncommitted changes. Committing only that path, and only with an empty index, means a write never sweeps up someone's half-staged work; a merge or rebase under way, a project outside git and a refusing hook leave it uncommitted, and the answer says why (`uncommitted`). Nothing is pushed: the checkout's next push or ship carries the commits. The other options were leaving it, and committing only when the plan was clean before, which would leave a plan uncommitted for good once one write was.
