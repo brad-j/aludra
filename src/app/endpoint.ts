@@ -1116,6 +1116,12 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 				case "abort":
 					await host.stop((await session(p.conversationId)).record.id);
 					return {};
+				// aludra's own: take back one queued message (harness.abortSubmission) where abort takes back all of them.
+				case "submission.withdraw": {
+					const { record } = await session(p.conversationId);
+					if (typeof p.submissionId !== "number" || !Number.isSafeInteger(p.submissionId)) throw new ProtocolError("bad_request", "submission.withdraw takes submissionId, an inbox item's");
+					return { result: await host.withdraw(record.id, p.submissionId) };
+				}
 				case "configure":
 					return configure(p);
 				case "compact":

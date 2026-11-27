@@ -622,7 +622,8 @@ Added 2026-11-04, aludra's own extension like 11 (aludra c3e5fc6 new projects, b
 
 21. **Ideas.** On a host with an ideas repository, `host.info` carries `ideas`, `host.watch` sends `ideas.changed`, and `ideas.*` methods read and write it: list, read, file, capture, setStatus, setAreas, delete, undo, reverted, sync, draft, makeProject and brainstorm. A session about an idea carries `idea` in its summary. aludra's api.md has the shapes.
 
+22. **Withdrawing one message.** `submission.withdraw {conversationId, submissionId}` takes back one queued follow-up or steer (an `InboxItem`'s `submissionId`, 4.6) through `harness.abortSubmission`, where `abort` withdraws every queued input and stops the run. It returns `{result}`: `aborted` when it was withdrawn (its `submission` event settles `unanswered` with `aborted`), `already_placed` when a boundary placed it first, `settled` when it had settled already, `not_found` for a submission not in that conversation. Added 2026-11-27, replacing the line under Deferred.
+
 Deferred, not in v1:
 
-- Withdrawing one queued message (`harness.abortSubmission`). `abort` withdraws all queued inputs.
 - A fixture for deferred polling. Faux can return deferred handles, so it can be recorded before a provider needs it.

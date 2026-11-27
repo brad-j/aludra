@@ -78,6 +78,8 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 		const name = /commit (\w+)/.exec(user)?.[1];
 		if (name !== undefined) return fauxAssistantMessage(fauxToolCall("bash", { command: `echo ${name} > ${name}.txt && git add ${name}.txt && git -c user.name=t -c user.email=t@example.com commit -q -m ${name} && git log -1 --format=%s` }), { stopReason: "toolUse" });
 		if (/push/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "git push --dry-run 2>&1 || true" }), { stopReason: "toolUse" });
+		// "take a while" runs a command long enough for a message to queue behind it.
+		if (/take a while/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "sleep 3" }), { stopReason: "toolUse" });
 		// "limits" answers as Claude Code does, with the subscription's windows in a rate-limit diagnostic.
 		if (/limits/.test(user)) return { ...fauxAssistantMessage(fauxText("Within limits.")), diagnostics: [{ type: "claude-code.rate-limit", timestamp: Date.now(), details: { status: "allowed", rateLimitType: "five_hour", utilization: 0.5, resetsAt: LIMITS_RESET, unifiedWindows: { five_hour: { utilization: 0.5, resetsAt: LIMITS_RESET }, seven_day: { utilization: 0.25, resetsAt: LIMITS_RESET + 86_400 } } } }] };
 		return fauxAssistantMessage(fauxText("Hello from the faux model."));
@@ -210,6 +212,27 @@ test("a session made from the Mac runs, shows in the host's list with its projec
 	assert.equal(latest.hasEarlier, true);
 	const older = await mac.request("conversation.history", { conversationId: id, before: latest.items[0].id, limit: 10 });
 	assert.ok(older.items.every((item: Json) => item.id < latest.items[0].id));
+});
+
+test("submission.withdraw takes back one queued message, and says when it can't", async (t) => {
+	const { url, project } = await api(t);
+	const mac = await client(t, url);
+	const id = (await mac.request("conversations.create", { requestId: "w", project: project.dir })).conversation.id;
+	const watch = (await mac.request("conversation.watch", { conversationId: id })).subscription;
+	await mac.event(watch, type("snapshot"), "the snapshot");
+	await mac.request("submit", { conversationId: id, requestId: "w1", text: "take a while" });
+	await mac.event(watch, type("tool.started"), "the slow command");
+	const queued = (await mac.request("submit", { conversationId: id, requestId: "w2", text: "and the docs", whenBusy: "followUp" })).submission;
+	assert.equal(queued.status, "queued");
+	const inbox = await mac.event(watch, (e) => e.type === "inbox.changed" && e.items.some((i: Json) => i.submissionId === queued.id), "the follow-up in the inbox");
+	assert.equal(inbox.find((e) => e.type === "inbox.changed" && e.items.length > 0).items[0].text, "and the docs");
+	assert.deepEqual(await mac.request("submission.withdraw", { conversationId: id, submissionId: queued.id }), { result: "aborted" });
+	await mac.event(watch, (e) => e.type === "submission" && e.submission.id === queued.id && e.submission.reason === "aborted", "the withdrawn follow-up");
+	assert.deepEqual(await mac.request("submission.withdraw", { conversationId: id, submissionId: queued.id }), { result: "settled" });
+	assert.deepEqual(await mac.request("submission.withdraw", { conversationId: id, submissionId: 999_999 }), { result: "not_found" });
+	await assert.rejects(mac.request("submission.withdraw", { conversationId: id }), { code: "bad_request" });
+	await assert.rejects(mac.request("submission.withdraw", { conversationId: 424_242, submissionId: 1 }), { code: "not_found" });
+	await mac.request("abort", { conversationId: id });
 });
 
 test("aludra's approvals reach the Mac: approve, deny, and a stop while one waits", async (t) => {

@@ -16,10 +16,6 @@ Bring over pi-host's Executor client (`packages/pi-host/src/executor.ts`, its ar
 Kind: step · From: pi-desktop/aludra-host
 pi-host's `setup` extension gives every chat a short map and `read_setup`, which returns one topic's note. Its notes are compiled in, since the packaged app has no checkout; aludra runs where the files are, so the notes can be files in the data directory or a directory the settings name, keeping anything about Brad's machines out of this repository. A no-project session's `no_project` section is the place for the map.
 
-### app-withdraw: Withdraw one queued message over /app
-Kind: step · From: pi-desktop/aludra-host
-Pi Desktop's `withdraw` takes back one queued follow-up or steer. aludra has it on HTTP (`POST /api/sessions/:id/withdraw`, `host.withdraw`), but protocol.md lists it as deferred on `/app`, where `abort` withdraws every queued input. Add `submission.withdraw {conversationId, submissionId}` answering `aborted`, `already_placed`, `settled` or `not_found`.
-
 ### app-compaction-failure: Say when a compaction failed
 Kind: step · From: pi-desktop/aludra-host
 Pi Desktop shows Durable's `pi.live.compactionFailure` with a Retry; aludra's `conversation.watch` snapshot carries `compactions` in progress but not the last failure, so a client can't tell a summary failed unless a run failed with it. Carry it in the snapshot and an event when it changes, from the Durable 1.3.0 live state that already has it.
@@ -103,6 +99,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### app-withdraw: Withdraw one queued message over /app
+Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27
+`submission.withdraw {conversationId, submissionId}` on `/app` calls `host.withdraw`, as HTTP's withdraw does, and answers `{result}`. protocol.md has it as section 10 item 22 in place of the Deferred line; api.md says so. An app test queues a follow-up behind a slow command, withdraws it, and checks `settled`, `not_found` and bad requests.
 
 ### web-tools: web_search and fetch_url for sessions
 Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27
