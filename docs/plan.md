@@ -22,10 +22,6 @@ Pi Desktop sends coding notifications from `host.watch` (an iOS app would need a
 Kind: step
 A project setting that makes `start_session` and `conversations.create` refuse a task without `planItem`, so no client can start untracked work there. Only if untracked tasks keep turning up; for now loial and Verin hold the rule themselves.
 
-### landed-branch-cleanup: Delete a sandbox branch once its work has landed
-Kind: request · From: loial/stale-sandbox-branches
-aludra keeps `sandbox/N` after a task is archived: loial's checkout has 62 and aludra's 16 (2026-11-20). Once a sandbox session's work is on its upstream (a landed ship, or its commits reachable from `origin/main`) and it's archived, delete the local branch. Never one with commits not on the upstream. A one-off sweep of the existing ones can use the same check.
-
 ### sandbox-template-flake: A sandbox template test fails now and then under the full suite
 Kind: chore
 "a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run. On 2026-11-24 the first one failed in 2 of 4 runs of `test/sandboxes.test.ts` alone, again `ENOTEMPTY` on the project's `.git`, and passed in the full run. On 2026-11-27 it failed in 2 of 3 runs alone and in 3 of 6 full runs. A third: "a worktree task runs on this machine in a worktree of its own…" (`test/app.test.ts`) hung until a 90 s timeout in 1 of 3 runs alone with that day's changes stashed, and in one full run; a hung run leaves the whole suite waiting, which looks like `pnpm test` never finishing.
@@ -79,6 +75,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### landed-branch-cleanup: Delete a sandbox branch once its work has landed
+Kind: request · From: loial/stale-sandbox-branches · Done: 2026-11-27
+Once an archived sandbox session's sandbox is gone, `deleteLandedBranch` (`src/sandbox-cleanup.ts`) deletes its `sandbox/N` when the head is on the ship base's remote-tracking ref; a commit the upstream lacks, or a checked-out branch, keeps it. A sweep at start covers sessions archived before. Nothing is fetched for the check.
 
 ### executor-tools: Executor's tools in sessions
 Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27

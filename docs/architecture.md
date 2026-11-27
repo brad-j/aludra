@@ -80,6 +80,10 @@ pi-claude-code isn't on npm, so it's pinned to a commit, and Pi Durable to its v
 
 `src/sandboxes.ts` holds one pi-env connection per sandbox, opened by the first call and counted while calls are in flight. Once none is, it closes at the later of `AGENT_IDLE_MS` after the last call and `USER_IDLE_MS` after the user last touched the session, and the sandbox host's reaper pauses the sandbox a minute after that, so a sandbox pauses 5 minutes after the agent stops or 20 after the user last interacted. `host.sessions.touch` marks the user interacting: `submit` calls it, as do an approval approved or denied, `/api/live`'s follow and `/app`'s `conversation.watch`. A touch never opens a connection, so it never wakes a paused sandbox; the next tool call does, through `connect N`. Each wake is logged with how long the connection had been closed, how long since the user's last touch, and what connecting and `.agents/resume` took.
 
+## Landed sandbox branches
+
+`src/sandbox-cleanup.ts` deletes an archived sandbox session's `sandbox/N` once its sandbox is gone and the branch's head is an ancestor of the ref `shipBase` gives (the checkout's upstream, else `origin/HEAD`), with `deleteBranch`'s compare-and-delete so a sync landing meanwhile isn't lost. Nothing is fetched for the check. It runs after each archive removes a sandbox, and once at start over every session.
+
 ## Archiving idle sessions
 
 `src/archive.ts` runs a minute after start and hourly: it reads the summary of every session in a project (no-project sessions are skipped) and archives each one idle for `archive.afterDays` with nothing running or waiting, through `host.sessions.archiveIdle`, which skips a session archived or kept in the meantime. Unarchiving one that was archived marks it `kept`; archiving it again clears that. The change reaches clients as any archive does, through the session's update.

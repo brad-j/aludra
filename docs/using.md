@@ -90,6 +90,8 @@ A session you're done with can be archived: it leaves the lists, and unarchiving
 
 A project can be archived too, to take it out of clients' lists and `aludra projects` without touching its folder or sessions: `aludra archive --project NAME`, and `aludra unarchive --project NAME` to bring it back.
 
+Archiving a sandbox session deletes its sandbox once its commits are fetched, and then its `sandbox/N` branch in your checkout too when every commit on it is on the upstream the project ships to (a landed ship leaves it so). A branch with any commit the upstream lacks, or one you have checked out, is kept. At start the host does the same for sessions archived before. The check uses the remote-tracking branch as it is, so work pushed from elsewhere counts after your next fetch.
+
 The host also archives sessions in a project on its own once they've been idle for `archive.afterDays` (default 3) with nothing waiting for your approval. Sessions with no project, which are conversations rather than tasks, stay until you archive them. It checks a minute after start and hourly, whether or not any client is open. A session you bring back from the archive is kept: it stays in the lists however long it sits, until you archive it again. Set `archive.afterDays` to 0 to turn it off.
 
 ## Setup notes
