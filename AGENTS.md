@@ -1,6 +1,6 @@
 # aludra
 
-A coding agent Brad reaches from his Mac and the terminal: Pi Durable on egwene, Opus 5.5 through `pi-claude-code` (his own Claude Code, `claude -p`) on his Claude subscription, an HTTP API and the `/app` endpoint loial and pi-desktop use (its protocol is docs/protocol.md), over Tailscale. It has no web app.
+A coding agent Brad reaches from his Mac and the terminal: Pi Durable on egwene, Opus 5.5 through `pi-claude-code` (his own Claude Code, `claude -p`) on his Claude subscription, an HTTP API and the `/app` endpoint Pi Desktop uses (its protocol is docs/protocol.md), over Tailscale. It has no web app.
 
 - [docs/decisions.md](docs/decisions.md) holds the decisions, architecture, milestones and spike findings, and [docs/plan.md](docs/plan.md) the open work in the plan format. Read both before starting work; record a decision in decisions.md and move a plan item to Done when it's finished.
 - The rest of `docs/` describes aludra as it is now: setup, configuration, using it, the CLI, security, operations, architecture, the API and development (the README indexes them). Update the matching doc in the same change when a setting, command, endpoint, permission rule or behavior it describes changes. Keep them general: nothing about Brad's machines, logins or homelab, which belong in decisions.md, plan.md or here.
@@ -10,4 +10,4 @@ A coding agent Brad reaches from his Mac and the terminal: Pi Durable on egwene,
 - Use pnpm. Package versions must be 3 days old before pnpm resolves them (`minimumReleaseAge: 4320`).
 - `src/protected-paths.ts` is a copy of terminal pi's rules in `~/.pi/agent/lib/protected-paths.ts`; keep the two in step by hand.
 - Commit messages describe the change in a sentence or two of prose, as the history does.
-- loial (`../loial`) is the client. Its `docs/plan.md` asks for aludra work as `request` items here; its e2e runs against this checkout.
+- Pi Desktop (`../pi-desktop`) is the client, for chats, ideas and coding (decisions.md, "Coding and personal apart"). Its `docs/plan.md` asks for aludra work as `request` items here, and its e2e runs against this checkout. loial (`../loial`) is the older client it replaces, which retires once Pi Desktop's environments work; its e2e runs against this checkout too.

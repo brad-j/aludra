@@ -4,7 +4,15 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
+### executor-live-check: Sign in to Executor for real and use a tool
+Kind: chore · From: pi-desktop/executor-live-check
+executor-tools is tested only against pi-host's stand-in. Against executor.sh: `executor.signIn` over `/app` through egwene's tailnet address, the browser coming back to `/api/executor/callback`, Executor's client registration for that redirect, one read-only tool called from a no-project session, a call that needs approval giving its link, and the grant refreshed after a restart. Pi Desktop dropped its own check for this one.
+
 ## Next
+
+### sandbox-template-flake: Three tests fail or hang now and then
+Kind: chore
+On 2026-11-27 about half of full runs hit one of them, and the hang stalls `pnpm test` until a timeout, so it's next after the live check. History: "a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run. On 2026-11-24 the first one failed in 2 of 4 runs of `test/sandboxes.test.ts` alone, again `ENOTEMPTY` on the project's `.git`, and passed in the full run. On 2026-11-27 it failed in 2 of 3 runs alone and in 3 of 6 full runs. A third: "a worktree task runs on this machine in a worktree of its own…" (`test/app.test.ts`) hung until a 90 s timeout in 1 of 3 runs alone with that day's changes stashed, and in one full run; a hung run leaves the whole suite waiting, which looks like `pnpm test` never finishing.
 
 ## Questions
 
@@ -16,15 +24,11 @@ The iOS app's WebView can't take Web Push, so the host sends APNs: device regist
 
 ### drop-web-push: Take out Web Push
 Kind: chore · Needs: pi-desktop/desktop-notifications
-Pi Desktop sends coding notifications from `host.watch` (an iOS app would need apns-push first; Verin no longer does, since 2026-11-27), so `/api/push/*`, the VAPID key and the push sender have no user. Check nothing is subscribed (`push-subscriptions` in the data directory) first.
+Once Pi Desktop sends coding notifications from `host.watch` (an iOS app would need apns-push first; Verin stopped on 2026-11-27), `/api/push/*`, the VAPID key (`push-keys.json`) and the push sender have no user. Check nothing is subscribed first: devices are in the `aludra.push` document in the database.
 
 ### plan-first-setting: Refuse tasks with no plan item, per project
 Kind: step
-A project setting that makes `start_session` and `conversations.create` refuse a task without `planItem`, so no client can start untracked work there. Only if untracked tasks keep turning up; for now loial and Verin hold the rule themselves.
-
-### sandbox-template-flake: A sandbox template test fails now and then under the full suite
-Kind: chore
-"a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run. On 2026-11-24 the first one failed in 2 of 4 runs of `test/sandboxes.test.ts` alone, again `ENOTEMPTY` on the project's `.git`, and passed in the full run. On 2026-11-27 it failed in 2 of 3 runs alone and in 3 of 6 full runs. A third: "a worktree task runs on this machine in a worktree of its own…" (`test/app.test.ts`) hung until a 90 s timeout in 1 of 3 runs alone with that day's changes stashed, and in one full run; a hung run leaves the whole suite waiting, which looks like `pnpm test` never finishing.
+A project setting that makes `start_session` and `conversations.create` refuse a task without `planItem`, so no client can start untracked work there. Only if untracked tasks keep turning up; for now Pi Desktop holds the rule itself, starting tasks from its plan view.
 
 ### setup-only-secrets: Secrets for setup scripts only
 Kind: step
@@ -72,7 +76,7 @@ The Flame of Tar Valon is a Wheel of Time symbol. Both repositories are private,
 
 ### more-surfaces: Slack, voice, a native companion
 Kind: step
-From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
+From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Pi Desktop covers the desktop and is the start of a phone client (pi-desktop/ios, with apns-push); voice has none.
 
 ## Done
 
@@ -82,15 +86,15 @@ Once an archived sandbox session's sandbox is gone, `deleteLandedBranch` (`src/s
 
 ### executor-tools: Executor's tools in sessions
 Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27
-`src/executor.ts`, from pi-host: browser approval mode, the grant in `executor-auth.json` at 0600, refresh on a 401, the tools as `executor_*` with the `executor` section, and `call`, `execute` and `resume` not replayed. Only local no-project sessions get them. `/app` has `executor.status`, `executor.signIn` and `executor.signOut`, `host.info.executor` and the `executor.changed` event; the redirect comes back to `/api/executor/callback` at the host's tailnet address. Tested against the stand-in only; the real executor.sh sign-in hasn't run. decisions.md, "Executor on the host".
+`src/executor.ts`, from pi-host: browser approval mode, the grant in `executor-auth.json` at 0600, refresh on a 401, the tools as `executor_*` with the `executor` section, and `call`, `execute` and `resume` not replayed. Only local no-project sessions get them. `/app` has `executor.status`, `executor.signIn` and `executor.signOut`, `host.info.executor` and the `executor.changed` event; the redirect comes back to `/api/executor/callback` at the host's tailnet address. Tested against the stand-in only; the real sign-in is executor-live-check. decisions.md, "Executor on the host".
 
 ### setup-notes: Notes on the user's setup, read on demand
 Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27
-`src/setup-notes.ts`: `setup/` in the data directory, or `setup.dir`, holds `README.md` (the map, in the prompt) and `<topic>.md` notes for `read_setup`, for local no-project sessions only. No notes are in the repository; egwene has none yet. decisions.md, "Setup notes as files".
+`src/setup-notes.ts`: `setup/` in the data directory, or `setup.dir`, holds `README.md` (the map, in the prompt) and `<topic>.md` notes for `read_setup`, for local no-project sessions only. No notes are in the repository; egwene's were written the same day, from pi-host's, in its data directory. decisions.md, "Setup notes as files".
 
 ### drop-verin-mcp: Take out the MCP write side Verin used
 Kind: chore · Needs: verin/drop-coding · Done: 2026-11-27
-Removed again: the `check_sessions` gate, `write_plan`, `ship_session`, `create_project` and `promote_session` with their settings and stores, and scratch `start_session`. `/app`'s `projects.writePlan`, `projects.create` and ship stay. decisions.md, "MCP write side trimmed again (2026-11-27)". egwene's settings (`mcp.ship`, `mcp.writePlans`, `mcp.allowNewProjects`, `mcp.write`) and the `verin-vm` token are Brad's to clear, after verin/drop-coding-vm is deployed.
+Removed again: the `check_sessions` gate, `write_plan`, `ship_session`, `create_project` and `promote_session` with their settings and stores, and scratch `start_session`. `/app`'s `projects.writePlan`, `projects.create` and ship stay. decisions.md, "MCP write side trimmed again (2026-11-27)". verin/drop-coding-vm was deployed the same day; every MCP token on egwene is revoked, and Brad took `mcp.ship` and `mcp.writePlans` out of its settings.
 
 ### chat-auto-archive: Should idle archiving skip no-project sessions?
 Kind: question · From: pi-desktop/aludra-host · Done: 2026-11-27
@@ -114,7 +118,7 @@ Each `host.info` model carries `input` and `maxTokens` from its catalog entry (`
 
 ### ideas: Ideas on the host
 Kind: request · From: pi-desktop/ideas-home · Done: 2026-11-27
-Pi Desktop's ideas clone and tools are in aludra: `src/ideas-repo.ts` (the clone, local-first sync, undo) and `src/ideas.ts` (the operations, the six tools and the `idea-chat` section), behind a file-only `ideas.dir`. Only local no-project sessions get the tools. `/app` has `ideas.list`, `read`, `file`, `capture`, `setStatus`, `setAreas`, `delete`, `undo`, `reverted`, `sync`, `draft`, `makeProject` and `brainstorm`, `host.info.ideas`, the `ideas.changed` event and `idea` on summaries. Idea files list sessions in `sessions:` as `<machine>/<id>`. egwene's settings don't set `ideas.dir` yet. decisions.md, "Ideas on the host (2026-11-27)".
+Pi Desktop's ideas clone and tools are in aludra: `src/ideas-repo.ts` (the clone, local-first sync, undo) and `src/ideas.ts` (the operations, the six tools and the `idea-chat` section), behind a file-only `ideas.dir`. Only local no-project sessions get the tools. `/app` has `ideas.list`, `read`, `file`, `capture`, `setStatus`, `setAreas`, `delete`, `undo`, `reverted`, `sync`, `draft`, `makeProject` and `brainstorm`, `host.info.ideas`, the `ideas.changed` event and `idea` on summaries. Idea files list sessions in `sessions:` as `<machine>/<id>`. egwene's settings set `ideas.dir` the same day. decisions.md, "Ideas on the host (2026-11-27)".
 
 ### drop-old-ideas: Take out aludra's saved first messages
 Kind: chore · Done: 2026-11-27
@@ -147,7 +151,6 @@ Brad brought Verin back on 2026-11-22, so c8e3cbd is reverted: the check_session
 ### retire-amyrlin: Take amyrlin's name out of aludra
 Kind: step · Done: 2026-11-21
 The app protocol is at `/app`, "aludra's app protocol v1" (1d1c7bb): `src/app/`, `createAppEndpoint`, `test/app.test.ts`, `scripts/app-capture.ts` and `app-export-wire.ts`. The spec is `docs/protocol.md` and the fixtures `test/fixtures/` (`durable-1.1.0`, `wire-v1`, `server-v1`), so nothing reads `../amyrlin`. The `aludra.amyrlin` document kind stays, as stored data. loial (ddb8939) and pi-desktop (0becd75) moved to `/app` and rewrite a saved `/amyrlin` address; their new builds are in the Mac's /Applications. The `/amyrlin` alias was then removed, and a test checks it no longer answers. brad-j/amyrlin is archived and the checkout removed (`~/westwood/MIGRATIONS.md`). aludra-site's docs are synced. decisions.md, "amyrlin retired", has Brad's calls.
-
 
 ### starter-files: A new project's starter files and plan
 Kind: request · From: pi-desktop/ideas-make-project · Done: 2026-11-20
