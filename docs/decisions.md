@@ -62,6 +62,15 @@ Later, maybe: Slack (a channel per project, a thread per session), voice, a nati
 
 Brad decided coding work and the personal agent stay apart. Pi Desktop becomes the coding app and aludra its only host: its chats run here over `/app`, its pi-host retires, and loial's environments, diff and ship move into it before loial retires. Verin keeps mail, Herid, jobs, notes and connectors and no longer starts, ships, plans or pushes for coding sessions, so the MCP write side it used goes again (plan: `drop-verin-mcp`). Sandboxes, worktrees and ship stay as they are. This replaces "Tasks start from the plan" below for who the clients are; plan items still start tasks.
 
+## The subscription's windows read fresh (2026-11-27)
+
+Plan item `subscription-fresh`. `host.info.subscription` was only as new as the host's last answer, so use from claude.ai or another Claude Code didn't show: on 2026-11-27 it said 80% of the 5-hour window as of 15:42 while claude.ai said 38% at 17:38.
+
+- **How Claude Code does it.** Its usage view calls `GET https://api.anthropic.com/api/oauth/usage` with the login's OAuth bearer and `anthropic-beta: oauth-2025-04-20` (found in the 2.1.321 binary as `fetchUtilization`). It's not a model request: it costs nothing and spends no window. The answer has `five_hour`, `seven_day` and per-model `seven_day_*` windows as `{ utilization (percent), resets_at (ISO) }`, plus `limits` with a severity each. A live read from egwene matched claude.ai's page.
+- **The token.** Read where Claude Code keeps it for `claude.configDir`: `.credentials.json` there, or on macOS the keychain item Claude Code names after the directory (`Claude Code-credentials`, with the directory's hash when one was named). Read only: an expired token waits for Claude Code's own next request to refresh it, so aludra never races Claude Code over the login or rotates its refresh token.
+- **When.** On `host.watch`, and every 30 s while anyone watches, when the figure is over 3 minutes old; at most one read a minute, failures included, and a repeated failure is logged once. Only on a host whose choices include a Claude model.
+- **Shape unchanged.** The read becomes the same `Subscription` and replaces what's known, since it has every window; `at` is when it was read. `status` comes from use (any window at 100% is `rejected`) and the limits' severity, since the endpoint has no request status. A window past its `resetsAt` already left the figure on read; `host.subscription` now also goes out when that happens with nothing new heard.
+
 ## Executor on the host (2026-11-27)
 
 Plan item `executor-tools`. pi-host's Executor client came over nearly whole as `src/executor.ts`, with its stand-in for tests.

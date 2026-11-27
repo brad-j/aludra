@@ -54,6 +54,7 @@ import { openTokens } from "./tokens.ts";
 import { type Exchange, excerptOf, modelTitler, type Titler, titleModels } from "./titles.ts";
 import { itemsOf, textOf } from "./transcript.ts";
 import { mergeSubscription, type Subscription, subscriptionIn, subscriptionNow } from "./subscription.ts";
+import { readUsage } from "./usage-read.ts";
 import { fileBlocks, type FileInput, isLong, preview, saveFiles, withoutFileNotes } from "./files.ts";
 import { saveVideos, sweepUploads, type VideoInput, videoBlocks, withoutVideoNotes } from "./videos.ts";
 
@@ -390,6 +391,11 @@ export type HostOptions = {
 	claudeSkillsDir?: string;
 	/** Executor's endpoint in place of hosted Executor (src/executor.ts); tests point it at a stand-in. */
 	executor?: Omit<ExecutorOptions, "dataDir">;
+	/**
+	 * Where the subscription's windows are read fresh (src/usage-read.ts), in place of Anthropic's endpoint and Claude Code's
+	 * login; tests point it at a stand-in. Without it, the host reads only when a Claude model is among its choices.
+	 */
+	usage?: { url?: string; configDir?: string };
 	/** The web tools' endpoints and environment in place of the real ones (src/web-tools.ts); tests point them at stubs. */
 	web?: Omit<WebToolsOptions, "dataDir" | "conversation">;
 	/** Over Pi Durable's compaction defaults; the live check keeps less so a small conversation compacts. */
@@ -724,9 +730,12 @@ export async function openHost(options: HostOptions) {
 			}
 		}
 		if (next === subscription || next === undefined) return;
+		adoptSubscription(next);
+	});
+	/** Takes `next` as what's known, saves it and tells listeners. A listener mustn't call Session APIs, so the save waits. */
+	function adoptSubscription(next: Subscription): void {
 		subscription = next;
 		const saved = next;
-		// A listener mustn't call Session APIs, so the save waits for the commit to finish.
 		savingSubscription = savingSubscription.then(() => {
 			if (closing) return;
 			return root.commit(async (tx) => {
@@ -735,7 +744,43 @@ export async function openHost(options: HostOptions) {
 			}, context).then(() => undefined);
 		}).catch((error) => console.error(`[subscription] saving: ${error instanceof Error ? error.message : String(error)}`));
 		for (const listener of subscriptionListeners) listener(saved);
-	});
+	}
+
+	// Reading the windows fresh (src/usage-read.ts), as Claude Code's usage view does: only on a host that runs Claude
+	// models, since it's that login's account, and at most once a minute, a failure included.
+	const readsUsage = options.usage !== undefined || config.model.choices.some((choice) => choice.provider === PROVIDER);
+	const usageLogin = { configDir: options.usage?.configDir ?? claudeConfigDir(config), named: options.usage?.configDir !== undefined || config.claude.configDir !== undefined || process.env.CLAUDE_CONFIG_DIR !== undefined };
+	let lastUsageRead = 0;
+	let usageReading: Promise<void> | undefined;
+	let usageProblem: string | undefined;
+	/**
+	 * Reads the windows when what's known is older than `maxAgeMs` (or unknown), unless a read started in the last minute.
+	 * The read replaces what's known, since it has every window the account has; an answer heard after it still wins.
+	 */
+	function refreshSubscription(maxAgeMs = 3 * 60_000): Promise<void> {
+		const now = Date.now();
+		if (!readsUsage || closing) return Promise.resolve();
+		if (subscription !== undefined && now - subscription.at < maxAgeMs) return Promise.resolve();
+		if (usageReading !== undefined) return usageReading;
+		if (now - lastUsageRead < 60_000) return Promise.resolve();
+		lastUsageRead = now;
+		usageReading = readUsage(usageLogin, options.usage?.url === undefined ? {} : { url: options.usage.url })
+			.then((read) => {
+				usageProblem = undefined;
+				if (closing || (subscription !== undefined && subscription.at > read.at)) return;
+				adoptSubscription(read);
+			})
+			.catch((error) => {
+				const why = error instanceof Error ? error.message : String(error);
+				// Said once until it changes, so a login that stays expired doesn't fill the log every minute.
+				if (why !== usageProblem) console.error(`[subscription] reading the windows: ${why}`);
+				usageProblem = why;
+			})
+			.finally(() => {
+				usageReading = undefined;
+			});
+		return usageReading;
+	}
 
 	const stopIndexing = harness.subscribeCommits((publication) => {
 		const found = publication.changes.flatMap((change) => (change.type === "entry" ? messagesOf({ ...change.value, id: Number(change.value.id), conversationId: Number(change.value.conversationId) }) : []));
@@ -2026,6 +2071,8 @@ export async function openHost(options: HostOptions) {
 		/** The Claude subscription's windows as last heard, those that reset since left out; undefined before any answer said. */
 		subscription: {
 			get: (now = Date.now()) => subscriptionNow(subscription, now),
+			/** Reads the windows fresh when what's known is older than `maxAgeMs` (default 3 minutes), at most once a minute. */
+			refresh: refreshSubscription,
 			onChange(listener: (subscription: Subscription) => void): () => void {
 				subscriptionListeners.add(listener);
 				return () => void subscriptionListeners.delete(listener);

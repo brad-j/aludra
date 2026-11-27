@@ -6,10 +6,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
-### subscription-fresh: The subscription's windows as they are now, not as of the last answer
-Kind: request · From: pi-desktop/console-layout
-`host.info.subscription` is whatever the host's latest answer reported, so use from other clients on the same account (Claude Code in a terminal, claude.ai) doesn't show until aludra answers again. On 2026-11-27 at 17:38 it said 80% of the 5-hour window and 12% of the week, heard at 15:42, while claude.ai's usage page said 38% and 17%: two hours stale, and the 5-hour window had probably reset in between. Pi Desktop now shows the figure's age and dims it past 15 minutes. Read it fresh: ask Claude Code for the windows (a cheap call that returns the rate-limit headers, as its own usage view does) when a client watches and the figure is older than a few minutes, or at least drop a window whose `resetsAt` has passed.
-
 ### sandbox-template-flake: Three tests fail or hang now and then
 Kind: chore
 On 2026-11-27 about half of full runs hit one of them, and the hang stalls `pnpm test` until a timeout, so it's next after the live check. History: "a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run. On 2026-11-24 the first one failed in 2 of 4 runs of `test/sandboxes.test.ts` alone, again `ENOTEMPTY` on the project's `.git`, and passed in the full run. On 2026-11-27 it failed in 2 of 3 runs alone and in 3 of 6 full runs. A third: "a worktree task runs on this machine in a worktree of its own…" (`test/app.test.ts`) hung until a 90 s timeout in 1 of 3 runs alone with that day's changes stashed, and in one full run; a hung run leaves the whole suite waiting, which looks like `pnpm test` never finishing.
@@ -79,6 +75,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Pi Desktop covers the desktop and is the start of a phone client (pi-desktop/ios, with apns-push); voice has none.
 
 ## Done
+
+### subscription-fresh: The subscription's windows as they are now, not as of the last answer
+Kind: request · From: pi-desktop/console-layout · Done: 2026-11-27
+`src/usage-read.ts` reads the windows as Claude Code's usage view does: `GET /api/oauth/usage` with the login's OAuth token from `claude.configDir`, no model request. The host reads when a client opens `host.watch` and every 30 s while one watches, when the figure is over 3 minutes old, at most once a minute; `at` is when it was read, and `host.subscription` goes out on any change, a window passing its `resetsAt` included. The `/app` shapes are unchanged. Tested against a stand-in endpoint, and live against egwene's login (51% and 18% at 18:05). decisions.md, "The subscription's windows read fresh".
 
 ### executor-live-check: Sign in to Executor for real and use a tool
 Kind: chore · From: pi-desktop/executor-live-check · Done: 2026-11-27

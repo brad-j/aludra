@@ -872,11 +872,25 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			? { type: "sandbox.shipped", conversationId: id, shipped: true, to: result.mode, pushed: result.pushed, head: result.head, commits: result.commits, ...(result.pr === undefined ? {} : { pr: result.pr }), ...checkedOf(result) }
 			: { type: "sandbox.shipped", conversationId: id, shipped: false, kind: result.kind, reason: result.reason };
 	}
-	// Each answer that changes what's known of the Claude subscription's windows reaches every host watcher.
-	const stopSubscription = host.subscription.onChange(() => {
+	// What's known of the Claude subscription's windows, as an answer reports it or a fresh read finds it, reaches every
+	// host watcher when it changes: a new figure, or a window whose resetsAt has passed with nothing new heard.
+	let sentSubscription = JSON.stringify(subscriptionOf());
+	const sendSubscription = () => {
+		const now = JSON.stringify(subscriptionOf());
+		if (now === sentSubscription) return;
+		sentSubscription = now;
 		const event = { type: "host.subscription", ...subscriptionOf() };
 		for (const listener of hostListeners) listener(event);
-	});
+	};
+	const stopSubscription = host.subscription.onChange(sendSubscription);
+	// While anyone watches: read the windows fresh when they're more than a few minutes old (at most once a minute, the
+	// host's rule), and let a window go once it resets.
+	const subscriptionPoll = setInterval(() => {
+		if (hostListeners.size === 0) return;
+		sendSubscription();
+		void host.subscription.refresh();
+	}, 30_000);
+	subscriptionPoll.unref();
 	const stopShipped = host.ships.onShipped((id, result) => {
 		markDirty(id);
 		const event = shippedEvent(id, result);
@@ -1057,6 +1071,9 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 							stopCheckouts();
 						});
 						respond({ subscription: id });
+						// A watcher arriving gets the figure as it is; one more than a few minutes old is read again, and the
+						// fresh one follows as host.subscription.
+						void host.subscription.refresh();
 						await send([{ type: "host.snapshot", host: await identity(), spend: await hostSpend(), ...(await monthCostOf()), ...subscriptionOf(), conversations: listSummaries(), projectColors: await host.colors.list() }]);
 						summaryListeners.add(onSummary);
 						hostListeners.add(onHostEvent);
@@ -1407,6 +1424,7 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 		close() {
 			clearTimeout(flushTimer);
 			clearInterval(statePoll);
+			clearInterval(subscriptionPoll);
 			checkouts.close();
 			stopShipped();
 			stopSubscription();
