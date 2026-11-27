@@ -17,6 +17,7 @@
 //   `sandbox.discard` and `group.keep`, over src/sandboxes.ts, src/ship.ts and src/sandbox-cleanup.ts; the summary's `line`,
 //   `task.result` and `task.code` over src/results.ts, and `task.shot` over src/shots.ts.
 import { randomUUID } from "node:crypto";
+import { isAbsolute, relative } from "node:path";
 import { AgentDoc, defineDoc, UsageDoc, watchEvents } from "@earendil-works/pi-durable";
 import type { WebSocket } from "ws";
 import { THINKING, type Thinking } from "../config.ts";
@@ -37,7 +38,6 @@ import { monthSpend } from "../live.ts";
 import { RestoreRefused } from "../checkpoints.ts";
 import { ParseError } from "../parse.ts";
 import { PLAN_ITEM_ID, PlanBusy, PlanConflict, PlanInvalid, planItems, readPlan, writePlan } from "../plans.ts";
-import { checkoutBusy } from "../mcp.ts";
 import { SettingsError } from "../settings.ts";
 import { billedCost } from "../transcript.ts";
 import { DurableTranslator, entryItem, type Json, text, usageState } from "./translate.ts";
@@ -706,6 +706,23 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 		return itemsBefore(conversation, before, Math.min(Math.max(1, Number(p.limit ?? 100)), 500));
 	}
 
+	/**
+	 * Why a plan in `project`'s checkout can't be written now: the sessions working in that checkout (not in a sandbox, a
+	 * worktree or a chat, none of which can write it) that are running or waiting for approval, named. Undefined when none is.
+	 */
+	async function checkoutBusy(project: { name: string; dir: string }): Promise<string | undefined> {
+		const records = await host.sessions.list();
+		const states = await host.sessions.states();
+		const within = (dir: string) => {
+			const rel = relative(project.dir, dir);
+			return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+		};
+		const busy = records.filter((r) => !isSandboxSession(r) && !isWorktreeSession(r) && r.chat !== true && within(r.dir) && states.get(r.id) !== undefined && states.get(r.id) !== "idle");
+		if (busy.length === 0) return undefined;
+		const named = busy.map((r) => `session ${r.id} (${r.title}) is ${states.get(r.id) === "waiting" ? "waiting for approval" : "running"}`);
+		return `${named.join(", and ")} in ${project.name}'s checkout, and may be changing the plan`;
+	}
+
 	async function hostInfo(): Promise<Json> {
 		const tools = [
 			{ name: "read", description: "Read a file", requiresApproval: false },
@@ -1175,7 +1192,7 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 					const project = host.projects().find((candidate) => candidate.dir === p.project);
 					if (project === undefined) throw new ProtocolError("not_found", `${p.project} isn't a project aludra knows; host.info lists them`);
 					try {
-						return { write: await writePlan(project, p.text, p.base, () => checkoutBusy(host, project), "projects.writePlan") };
+						return { write: await writePlan(project, p.text, p.base, () => checkoutBusy(project), "projects.writePlan") };
 					} catch (error) {
 						if (error instanceof PlanConflict) throw new ProtocolError("conflict", error.message);
 						if (error instanceof PlanBusy) throw new ProtocolError("busy", error.message);

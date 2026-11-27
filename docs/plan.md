@@ -4,10 +4,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
-### drop-verin-mcp: Take out the MCP write side Verin used
-Kind: chore · Needs: verin/drop-coding
-Verin stops starting, shipping and planning coding work. Once its `start_coding`, `ship_coding` and `add_plan_item` are gone, remove again what retire-agent-mcp removed on 2026-11-21 and unretire-verin put back: the `check_sessions` gate, `write_plan` on MCP, `ship_session`, `create_project` and `promote_session`, and scratch `start_session`. `/app` keeps `projects.writePlan`, `projects.create` and ship for Pi Desktop. Check egwene's settings file and tokens after.
-
 ### executor-tools: Executor's tools in sessions
 Kind: step · From: pi-desktop/aludra-host
 Bring over pi-host's Executor client (`packages/pi-host/src/executor.ts`, its architecture.md "Executor"): browser approval mode, the OAuth grant in the data directory at mode 0600, refresh on a 401, the tools as `executor_*` with the `executor` prompt section, and `call`, `execute` and `resume` not replayed. The sign-in needs `/app` methods (status, sign in answering the page to open, sign out) and an event when the connection changes, in place of pi-host's commands. The loopback redirect lands on the host's machine, so a client on another machine needs another way back, such as a redirect through the host's tailnet address. Which sessions get the tools (every session, no-project ones only, or a setting) is decided here; sandbox sessions shouldn't, since the grant would be one call away from an untrusted install.
@@ -91,6 +87,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### drop-verin-mcp: Take out the MCP write side Verin used
+Kind: chore · Needs: verin/drop-coding · Done: 2026-11-27
+Removed again: the `check_sessions` gate, `write_plan`, `ship_session`, `create_project` and `promote_session` with their settings and stores, and scratch `start_session`. `/app`'s `projects.writePlan`, `projects.create` and ship stay. decisions.md, "MCP write side trimmed again (2026-11-27)". egwene's settings (`mcp.ship`, `mcp.writePlans`, `mcp.allowNewProjects`, `mcp.write`) and the `verin-vm` token are Brad's to clear, after verin/drop-coding-vm is deployed.
 
 ### chat-auto-archive: Should idle archiving skip no-project sessions?
 Kind: question · From: pi-desktop/aludra-host · Done: 2026-11-27

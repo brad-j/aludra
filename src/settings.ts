@@ -65,8 +65,6 @@ const SPECS: readonly Spec[] = [
 		help: "Whether agents on /mcp may start only sandbox sessions and act only on sandbox sessions. Without a sandbox host, their write tools refuse every call. File-only." },
 	{ key: "mcp.worktreeOnly", label: "MCP worktrees only", kind: "choice", options: ["off", "on"], editable: false, get: (c) => (c.mcp.worktreeOnly ? "on" : "off"), default: () => "off",
 		help: "Whether agents on /mcp may start only worktree sessions, each in a git worktree of its own that can't push, and act only on those. File-only." },
-	{ key: "mcp.allowNewProjects", label: "MCP can ask for projects", kind: "choice", options: ["off", "on"], editable: false, get: (c) => (c.mcp.allowNewProjects ? "on" : "off"), default: () => "off",
-		help: "Whether write tokens on /mcp get create_project and promote_session, which ask to make a project and wait for your approval. File-only." },
 	{ key: "api.users", label: "Logins", kind: "list", editable: false, get: (c) => [...c.api.users], default: () => [],
 		help: "The Tailscale logins the apps let in." },
 	{ key: "api.port", label: "Port", kind: "integer", editable: false, get: (c) => c.api.port, default: () => 8724,
