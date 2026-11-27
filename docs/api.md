@@ -10,7 +10,7 @@ Served on `127.0.0.1:<api.port>`, and reached through `tailscale serve`.
 
 Every request needs a `Tailscale-User-Login` header naming a login in `api.users`; otherwise 403. POSTs must send `Content-Type: application/json`, and an `Origin`, if present, must be this host. Bodies are JSON; message bodies may be up to 64 MB (for images), everything else up to 200 KB.
 
-Errors come back as `text/plain` with a status: 400 for a malformed body or a bad value, 403 for identity or origin, 404 for a missing session, project, idea or model, 409 for an approval that isn't waiting, 413 for a body too large, 500 for anything else (also logged by the host).
+Errors come back as `text/plain` with a status: 400 for a malformed body or a bad value, 403 for identity or origin, 404 for a missing session, project or model, 409 for an approval that isn't waiting, 413 for a body too large, 500 for anything else (also logged by the host).
 
 ### Endpoints
 
@@ -34,9 +34,6 @@ Errors come back as `text/plain` with a status: 400 for a malformed body or a ba
 | `GET /api/search?q=WORDS&session=ID&limit=N` | | `{ results }`: `SearchResult`s, best first, for the messages and answers that have every word (the last one as a prefix; `test` matches `tests`). `session` limits it to one session, `limit` is 1 to 200 (default 50). Archived sessions are searched, marked `archived`. Tool calls and their output aren't. Each result has the session's title and project, and `item`, the transcript item's id, to open the session at it. |
 | `GET /api/sessions/:id/images/:entry/:message/:block` | | The image's bytes, cached for good. |
 | `POST /api/approvals/:id` | `{ allow }` | `{ status }`: `approved`, `denied` or `expired`. For an MCP agent's request to make a project, approving makes it before answering: `{ status: "done", dir }`, or `{ status: "failed", error }`. |
-| `POST /api/ideas` | `{ project, text }` | `{ id }` |
-| `POST /api/ideas/:id/start` | `{}` | `{ id }` of the new session. |
-| `POST /api/ideas/:id/delete` | `{}` | `{}` |
 | `POST /api/projects/color` | `{ project, color }` | `{ colors }`. `color` is a hue index 0 to 10, or `null` for the hashed one. |
 | `GET /api/settings` | | `Settings`: every setting, described for a form (see "Settings" below). |
 | `POST /api/settings` | `{ changes: { key: value \| null } }` | `Settings` after the change. `null` puts a setting back to its default. A refused change is 400 with one reason per line, and nothing is saved. |
@@ -82,12 +79,11 @@ A `Setting` is:
 
 Same identity and same-origin checks as HTTP. The host pings every 25 seconds.
 
-On connect, the host sends `sessions`, `ideas` and `colors`, then keeps each current:
+On connect, the host sends `sessions` and `colors`, then keeps each current:
 
 | Event | When |
 | --- | --- |
 | `{ type: "sessions", sessions: SessionSummary[] }` | Any session's state, title, latest line or age changed. Newest first. |
-| `{ type: "ideas", ideas: Idea[] }` | An idea was added, started or deleted. |
 | `{ type: "colors", colors }` | A project's color was picked or reset. |
 | `{ type: "settings" }` | The settings were changed. The bootstrap's projects, models and defaults may have changed too; fetch it again. |
 | `{ type: "items", session, start, items, length }` | The followed session's transcript, from `start` on. Items before `start` are unchanged; drop any after `length`. |

@@ -196,7 +196,7 @@ Where the database, keys, scratch directories, uploaded videos and screenshots g
 
 | Path | What |
 | --- | --- |
-| `aludra.sqlite` | Every session, idea, approval and setting clients change: one Pi Durable database. `-wal` and `-shm` sit beside it while the host runs. |
+| `aludra.sqlite` | Every session, approval and setting clients change: one Pi Durable database. `-wal` and `-shm` sit beside it while the host runs. |
 | `search.sqlite` | The index `aludra search` and the search endpoints read: the text of every message and answer. Built from `aludra.sqlite`, so it can be deleted any time; the host rebuilds it at start. |
 | `session-changes.sqlite` | What `/mcp`'s `check_sessions` last saw of each session, the changes since, and each token's cursor. Deleting it makes every token start over from what's there then. |
 | `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |

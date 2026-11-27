@@ -13,9 +13,6 @@
 //   GET  /api/sessions/:id/changes        what the session changed since it started (src/changes.ts)
 //   GET  /api/sessions/:id/changes/diff?path=   one changed file's diff
 //   POST /api/approvals/:id               { allow }                                     a call's approval, or an MCP agent's request to make a project
-//   POST /api/ideas                       { project, text }                            → { id }
-//   POST /api/ideas/:id/start                                                          → { id } of the session
-//   POST /api/ideas/:id/delete
 //   POST /api/projects/color              { project, color: 0-10 | null }                 a picked color, or the hashed one again
 //   GET  /api/settings                    every setting, described for a form (Settings in src/api-types.ts)
 //   POST /api/settings                    { changes: { key: value | null } } → Settings     saved, and applied where it can be
@@ -105,7 +102,6 @@ const newTitle = object({ title: string });
 const archiving = object({ archived: boolean });
 const decision = object({ allow: boolean });
 const clientEvent = object({ type: literal("follow", "visible"), session: optional(integer), visible: optional(boolean) });
-const newIdea = object({ project: string, text: string });
 const projectColor = object({ project: string, color: nullable(integer) });
 const subscription = object({ endpoint: string, keys: object({ p256dh: string, auth: string }), label: optional(string) });
 const endpointBody = object({ endpoint: string });
@@ -238,18 +234,6 @@ export function createApi(host: Host, options: ApiOptions) {
 		if (path === "/api/projects/color") {
 			const request = parseJson(body, projectColor, "the color");
 			return { colors: await host.colors.set(request.project, request.color ?? null) };
-		}
-		if (path === "/api/ideas") {
-			const request = parseJson(body, newIdea, "the idea");
-			if (request.text.trim() === "") throw new HttpError(400, "Say what the idea is");
-			return { id: (await host.ideas.add(findProject(host.projects(), request.project), request.text)).id };
-		}
-		const idea = /^\/api\/ideas\/(\d+)\/(start|delete)$/.exec(path);
-		if (idea !== null) {
-			const id = Number(idea[1]);
-			if (idea[2] === "start") return { id: (await host.ideas.start(id)).id };
-			if ((await host.ideas.remove(id)) === undefined) throw new HttpError(404, `No idea ${id}`);
-			return {};
 		}
 		if (path.startsWith("/api/push/")) {
 			if (push === undefined) throw new HttpError(404, "Notifications are off");
@@ -454,7 +438,7 @@ export function createApi(host: Host, options: ApiOptions) {
 		if (login === undefined) return reply(response, 403, "Forbidden", "text/plain");
 		if (request.method === "POST" && !sameOrigin(request, true)) return reply(response, 403, "Cross-site request", "text/plain");
 		route(request, response, login).catch((error) => {
-			const status = error instanceof HttpError ? error.status : error instanceof ParseError ? 400 : /^no (session|project|model|idea)|could be/.test(String(error?.message)) ? 404 : 500;
+			const status = error instanceof HttpError ? error.status : error instanceof ParseError ? 400 : /^no (session|project|model)|could be/.test(String(error?.message)) ? 404 : 500;
 			if (status === 500) console.error("[api]", error);
 			if (!response.headersSent) reply(response, status, error instanceof Error ? error.message : String(error), "text/plain");
 			else response.end();

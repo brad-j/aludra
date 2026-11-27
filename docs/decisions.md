@@ -70,7 +70,7 @@ Plan item `desktop-tools`, comparing pi-host (Pi Desktop at 972da65) with an alu
 - **No web search.** The request said aludra had one; it doesn't. pi-claude-code passes `--tools ""`, so Claude Code's own WebSearch and WebFetch never run, and a session reaches the web through `curl` in bash. pi-host's reviewer for `fetch_url` exists because Pi Desktop has no approvals; in aludra bash already fetches any URL unasked, so `web-tools` has to settle how much the reviewer adds.
 - **Missing:** the web tools (`web-tools`), Executor (`executor-tools`), the setup notes (`setup-notes`), withdrawing one queued message on `/app` (`app-withdraw`; HTTP has it) and a failed compaction in the live state (`app-compaction-failure`). Idle archiving would archive Pi Desktop's chats after three days, which pi-host never does (`chat-auto-archive`, for Brad).
 - **Left to the client.** pi-host reuses an empty chat on New chat. A client on `/app` can make the session with its first message (`conversations.create` takes `text`), so nothing is needed here.
-- **Ideas** (the tools, the clone, a chat's idea and its prompt section) are the `ideas` item.
+- **Ideas** (the tools, the clone, a chat's idea and its prompt section) are the `ideas` item. aludra's own ideas, first messages saved under a project through `/api/ideas`, used the same name; Brad chose to drop them rather than rename them (`drop-old-ideas`). Nothing called them, and egwene's database had none. A database that still has an `aludra.ideas` document keeps it unread.
 
 ## Plan writes commit (2026-11-25)
 

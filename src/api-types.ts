@@ -98,9 +98,6 @@ export type SearchResult = {
 	archived?: boolean;
 };
 
-/** Something to do later, filed under its project. */
-export type Idea = { id: number; workspace: string; project: string; dir: string; text: string; createdAt: number };
-
 /** The devices that get notifications. */
 export type PushState = { publicKey: string; devices: { endpoint: string; label: string; addedAt: number }[] };
 
@@ -161,7 +158,6 @@ export type ServerEvent =
 	| { type: "sessions"; sessions: SessionSummary[] }
 	/** The settings changed: the projects, models or defaults in the bootstrap may have too. */
 	| { type: "settings" }
-	| { type: "ideas"; ideas: Idea[] }
 	/** Projects whose color was picked: name to hue index (src/project-colors.ts). */
 	| { type: "colors"; colors: Record<string, number> }
 	/** The transcript from `start` on; items before it are unchanged, and the transcript is `length` long. */

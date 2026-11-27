@@ -37,7 +37,6 @@ One long-lived Node process, `aludra serve`, owns the SQLite file and runs every
   | Document | Holds |
   | --- | --- |
   | `aludra.sessions` | Each session's workspace, project, directory, title and who wrote it (a model or the user), whether it's archived or was brought back by hand (`kept`), creation time, and changes snapshot. |
-  | `aludra.ideas` | Ideas, by ID. |
   | `aludra.approvals` | Approval requests and decisions; decided ones are dropped after a week. |
   | `aludra.colors` | Picked project colors: name to hue index. |
   | `aludra.archivedProjects` | Archived projects: directory to when it was archived. |

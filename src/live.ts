@@ -1,4 +1,4 @@
-// What's live, for the apps' sockets: every session's summary, ideas and picked colors, kept current, and the transcript
+// What's live, for the apps' sockets: every session's summary and picked colors, kept current, and the transcript
 // and meta of the session a client follows. API clients get it over /api/live (src/api.ts), in ServerEvent and
 // ClientEvent (src/api-types.ts); the app endpoint translates its own (src/app/).
 import type { ConversationView, UsageState } from "@earendil-works/pi-durable";
@@ -6,7 +6,7 @@ import type { Item, ServerEvent, SessionMeta, SessionSummary, Thinking } from ".
 import { context, type Host, type SessionRecord } from "./host.ts";
 import { billedCost, contextUsed, firstChange, itemsOf, lineOf, queuedOf, spendOf, stateOf, updatedAt } from "./transcript.ts";
 
-/** One client's view: its list of sessions, ideas and colors, and the session it follows. */
+/** One client's view: its list of sessions and colors, and the session it follows. */
 export type LiveClient = {
 	/** Follows session `id`'s transcript instead of the one before, or none with null. */
 	follow(id: number | null): void;
@@ -21,9 +21,6 @@ export function createLive(host: Host) {
 
 	function connect(send: (event: ServerEvent) => void): LiveClient {
 		const stopFeed = feed.subscribe((sessions) => send({ type: "sessions", sessions }));
-		const sendIdeas = () => void host.ideas.list().then((ideas) => send({ type: "ideas", ideas }), (error) => console.error("[live]", error));
-		const stopIdeas = host.ideas.onChange(sendIdeas);
-		sendIdeas();
 		const stopColors = host.colors.onChange((colors) => send({ type: "colors", colors }));
 		void host.colors.list().then((colors) => send({ type: "colors", colors }), (error) => console.error("[live]", error));
 		const stopSettings = host.settings.onChange(() => send({ type: "settings" }));
@@ -45,7 +42,6 @@ export function createLive(host: Host) {
 			},
 			close() {
 				closed = true;
-				stopIdeas();
 				stopColors();
 				stopSettings();
 				stopProjects();

@@ -9,7 +9,7 @@ import { fauxAssistantMessage, fauxProvider, type FauxResponseStep, fauxText, fa
 import { WebSocket } from "ws";
 import { createApi } from "../src/api.ts";
 import { context } from "../src/host.ts";
-import type { Idea, Item, ServerEvent, SessionMeta, SessionSummary } from "../src/api-types.ts";
+import type { Item, ServerEvent, SessionMeta, SessionSummary } from "../src/api-types.ts";
 import { createPush, loadPushKeys } from "../src/push.ts";
 import type { Titler } from "../src/titles.ts";
 import { decrypt, device, fakeSandboxes, gitProject, makeProject, PNG, SANDBOX_SETTINGS, tempDir, testHost } from "./helpers.ts";
@@ -56,13 +56,12 @@ async function api(t: TestContext, responses: FauxResponseStep[], titler?: Title
 async function live(t: TestContext, base: string) {
 	const ws = new WebSocket(`${base.replace("http", "ws")}/api/live`, { headers: { "tailscale-user-login": USER } });
 	t.after(() => ws.close());
-	const state = { sessions: [] as SessionSummary[], ideas: [] as Idea[], items: [] as Item[], meta: undefined as SessionMeta | undefined, events: [] as ServerEvent[] };
+	const state = { sessions: [] as SessionSummary[], items: [] as Item[], meta: undefined as SessionMeta | undefined, events: [] as ServerEvent[] };
 	const waiters = new Set<() => void>();
 	ws.on("message", (data) => {
 		const event = JSON.parse(String(data)) as ServerEvent;
 		state.events.push(event);
 		if (event.type === "sessions") state.sessions = event.sessions;
-		if (event.type === "ideas") state.ideas = event.ideas;
 		if (event.type === "items") state.items = [...state.items.slice(0, event.start), ...event.items].slice(0, event.length);
 		if (event.type === "meta") state.meta = event.meta;
 		for (const wake of waiters) wake();
@@ -217,22 +216,6 @@ test("there's no web app: every path that isn't the API is a 404, and no respons
 		assert.match(response.headers.get("content-security-policy")!, /default-src 'none'/, path);
 	}
 	assert.match((await call("/api/bootstrap")).headers.get("content-security-policy")!, /frame-ancestors 'none'/);
-});
-
-test("an idea is saved under its project, shows on the socket, and starts as a session", async (t) => {
-	const { call, base } = await api(t, [fauxAssistantMessage("On it.")]);
-	const client = await live(t, base);
-	const { id } = await (await call("/api/ideas", { project: "one", text: "  Retry flaky tests once  " })).json();
-	await client.until(() => client.state.ideas.length === 1, "the idea");
-	assert.deepEqual([client.state.ideas[0]!.project, client.state.ideas[0]!.text], ["one", "Retry flaky tests once"]);
-	assert.equal((await call("/api/ideas", { project: "one", text: " " })).status, 400);
-	const started = await (await call(`/api/ideas/${id}/start`, {})).json();
-	await client.until(() => client.state.ideas.length === 0 && client.state.sessions.some((s) => s.id === started.id && s.state === "done"), "the idea to run as a session");
-	assert.equal(client.state.sessions.find((s) => s.id === started.id)!.title, "Retry flaky tests once");
-	assert.equal((await call(`/api/ideas/${id}/start`, {})).status, 404);
-	const another = await (await call("/api/ideas", { project: "one", text: "Later" })).json();
-	assert.equal((await call(`/api/ideas/${another.id}/delete`, {})).status, 200);
-	await client.until(() => client.state.ideas.length === 0, "the deleted idea to go");
 });
 
 test("a signed-up device hears of an approval and of a run that ends, but not of a session on screen", async (t) => {

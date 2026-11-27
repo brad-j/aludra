@@ -63,7 +63,7 @@ determined agent. [docs/security.md](docs/security.md) has the details.
 
 - [Setting up a machine](docs/setup.md): requirements, install, the service, Tailscale, connecting a client, updating.
 - [Configuration](docs/configuration.md): every setting, environment variables, the data directory.
-- [Using aludra](docs/using.md): sessions, steering, ideas, approvals, changes, notifications, clients.
+- [Using aludra](docs/using.md): sessions, steering, approvals, changes, notifications, clients.
 - [The aludra command](docs/cli.md): every CLI command and its flags.
 - [Security](docs/security.md): who gets in, the permissions, what's stored.
 - [Running aludra](docs/operations.md): logs, doctor, backups and restoring, upgrades, troubleshooting.

@@ -19,7 +19,7 @@ A session's state is one of:
 
 ### Starting one
 
-Start one in loial, from a terminal, or with `POST /api/sessions`. A no-project session isn't about one repository: it works in a scratch directory of its own and reads anything else by absolute path. Its prompt tells it where your workspaces and agent histories are on this machine. It has no changes view and can't hold ideas.
+Start one in loial, from a terminal, or with `POST /api/sessions`. A no-project session isn't about one repository: it works in a scratch directory of its own and reads anything else by absolute path. Its prompt tells it where your workspaces and agent histories are on this machine. It has no changes view.
 
 From a terminal:
 
@@ -87,10 +87,6 @@ A session you're done with can be archived: it leaves the lists, and unarchiving
 A project can be archived too, to take it out of clients' lists and `aludra projects` without touching its folder or sessions: `aludra archive --project NAME`, and `aludra unarchive --project NAME` to bring it back.
 
 The host also archives sessions on its own once they've been idle for `archive.afterDays` (default 3) with nothing waiting for your approval. It checks a minute after start and hourly, whether or not any client is open. A session you bring back from the archive is kept: it stays in the lists however long it sits, until you archive it again. Set `archive.afterDays` to 0 to turn it off.
-
-## Ideas
-
-An idea is a first message kept for later, filed under its project, through the API: `POST /api/ideas` saves one, `/api/ideas/:id/start` runs it as a new session in its project, and `/api/ideas/:id/delete` drops it. Ideas are text only.
 
 ## Approvals
 

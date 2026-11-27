@@ -6,7 +6,7 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ### ideas: Ideas on the host
 Kind: request · From: pi-desktop/ideas-home
-Move Pi Desktop's ideas extension into aludra: the clone of the ideas repository with its local-first sync (pi-desktop's docs/ideas.md), the capture and `update_idea` tools for sessions, and `/app` methods for the Ideas pages (list, read, capture, status, areas, delete, undo, sync state). A brainstorm is a session with the idea file in a prompt section, as in Pi Desktop now. One clone per host; each machine's host syncs through the same repository.
+Move Pi Desktop's ideas extension into aludra: the clone of the ideas repository with its local-first sync (pi-desktop's docs/ideas.md), the capture and `update_idea` tools for sessions, and `/app` methods for the Ideas pages (list, read, capture, status, areas, delete, undo, sync state). A brainstorm is a session with the idea file in a prompt section, as in Pi Desktop now. One clone per host; each machine's host syncs through the same repository. The name is free: aludra's own ideas (saved first messages) are gone (drop-old-ideas).
 
 ### drop-verin-mcp: Take out the MCP write side Verin used
 Kind: chore · Needs: verin/drop-coding
@@ -111,6 +111,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### drop-old-ideas: Take out aludra's saved first messages
+Kind: chore · Done: 2026-11-27
+Brad's call, so ideas can mean the ideas repository: `aludra.ideas`, `host.ideas`, `/api/ideas` and its three routes, and the `ideas` event on `/api/live` are gone. No client called them, and egwene's database held no `aludra.ideas` document. decisions.md, "What Pi Desktop's chats need".
 
 ### desktop-tools: What Pi Desktop's chats need from the host
 Kind: request · From: pi-desktop/aludra-host · Done: 2026-11-27
