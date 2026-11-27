@@ -19,7 +19,7 @@ git clone git@github.com:brad-j/aludra.git && cd aludra
 sh scripts/install.sh
 ```
 
-`scripts/install.sh` checks Node, npm and pnpm, runs `pnpm install --frozen-lockfile`, packs the package (which builds the host into `dist/host`), and installs the tarball with `npm install --global`. It then says what to do next. If a service is already installed, it reinstalls it so the new version runs.
+`scripts/install.sh` checks Node, npm and pnpm, runs `pnpm install --frozen-lockfile`, packs the package (which builds the host into `dist/host`), and installs the tarball with `npm install --global`. It then says what to do next. If a service is already installed, it reinstalls it so the new version runs; one that's running is stopped just before npm replaces the package and started again after, so it never runs half-installed files. The build comes first, so a failed build leaves the service running, and a failed npm install starts the old one again.
 
 The checkout stays where it is. The host runs the installed package, so you can keep developing in the checkout without touching the running host.
 
