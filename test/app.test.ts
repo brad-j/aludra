@@ -52,11 +52,13 @@ const lastUser = (ctx: TranscriptContext) => JSON.stringify(ctx.messages.findLas
  * NAME.txt and commits it; a ship prompt rebases onto refs/aludra/base and says SHIP-READY, or SHIP-BLOCKED when the
  * ship's note says "block"; anything else is answered. With `sandboxes`, the host has a sandbox host.
  */
-async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: string; settings?: Record<string, unknown>; newProjects?: HostOptions["newProjects"] } = {}) {
+async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: string; settings?: Record<string, unknown>; newProjects?: HostOptions["newProjects"]; compaction?: HostOptions["compaction"] } = {}) {
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux 1", contextWindow: 200_000, input: ["text", "image"] }, { id: "faux-2", name: "Faux 2", input: ["text"] }] });
 	const prompts: string[] = [];
 	/** What "write outside" calls came back with. */
 	const writes: string[] = [];
+	/** Whether a summary request answers with no text, which fails the compaction. */
+	const summaries = { fail: false };
 	faux.setResponses(Array.from({ length: 100 }, () => (ctx: TranscriptContext) => {
 		prompts.push(JSON.stringify(ctx.messages.filter((m) => m.role === "system")));
 		const last = ctx.messages.at(-1);
@@ -78,6 +80,8 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 		const name = /commit (\w+)/.exec(user)?.[1];
 		if (name !== undefined) return fauxAssistantMessage(fauxToolCall("bash", { command: `echo ${name} > ${name}.txt && git add ${name}.txt && git -c user.name=t -c user.email=t@example.com commit -q -m ${name} && git log -1 --format=%s` }), { stopReason: "toolUse" });
 		if (/push/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "git push --dry-run 2>&1 || true" }), { stopReason: "toolUse" });
+		// A summary request answers with no text while the conversation asks for it to fail, so the compaction fails.
+		if (/context checkpoint summary/.test(user)) return fauxAssistantMessage(fauxText(summaries.fail ? "" : "## Goal\nA summary."));
 		// "take a while" runs a command long enough for a message to queue behind it.
 		if (/take a while/.test(user)) return fauxAssistantMessage(fauxToolCall("bash", { command: "sleep 3" }), { stopReason: "toolUse" });
 		// "limits" answers as Claude Code does, with the subscription's windows in a rate-limit diagnostic.
@@ -86,12 +90,12 @@ async function api(t: TestContext, options: { sandboxes?: Sandboxes; dir?: strin
 	}));
 	const models = createModels();
 	models.setProvider(faux.provider);
-	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(options.sandboxes === undefined ? (options.settings === undefined ? {} : { settings: options.settings }) : { sandboxes: options.sandboxes, settings: { ...SANDBOX_SETTINGS, ...options.settings } }), ...(options.dir === undefined ? {} : { dir: options.dir }), ...(options.newProjects === undefined ? {} : { newProjects: options.newProjects }) });
+	const { host, dir } = await testHost(t, { models, model: { provider: "faux", modelId: "faux-1" }, ...(options.sandboxes === undefined ? (options.settings === undefined ? {} : { settings: options.settings }) : { sandboxes: options.sandboxes, settings: { ...SANDBOX_SETTINGS, ...options.settings } }), ...(options.dir === undefined ? {} : { dir: options.dir }), ...(options.newProjects === undefined ? {} : { newProjects: options.newProjects }), ...(options.compaction === undefined ? {} : { compaction: options.compaction }) });
 	const project = options.dir !== undefined || options.sandboxes !== undefined ? { workspace: "test", name: "one", path: "Software/one", dir: join(dir, "Projects", "Software", "one") } : makeProject(dir, "one");
 	const server = createApi(host, { users: [USER], name: "test-host", checkoutMs: 100 });
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	t.after(() => server.close());
-	return { host, project, prompts, writes, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/app` };
+	return { host, project, prompts, writes, summaries, url: `ws://127.0.0.1:${(server.server.address() as AddressInfo).port}/app` };
 }
 
 /** A protocol v1 client: requests, and each subscription's events in order with `seq` checked. */
@@ -212,6 +216,38 @@ test("a session made from the Mac runs, shows in the host's list with its projec
 	assert.equal(latest.hasEarlier, true);
 	const older = await mac.request("conversation.history", { conversationId: id, before: latest.items[0].id, limit: 10 });
 	assert.ok(older.items.every((item: Json) => item.id < latest.items[0].id));
+});
+
+test("a failed compaction says why in its compaction.ended and in the snapshot until one writes a summary", async (t) => {
+	// Keeping little verbatim, so two short exchanges are enough to cut.
+	const { url, project, summaries } = await api(t, { compaction: { keepRecentTokens: 50 } });
+	summaries.fail = true;
+	const mac = await client(t, url);
+	const id = (await mac.request("conversations.create", { requestId: "c", project: project.dir })).conversation.id;
+	const watch = (await mac.request("conversation.watch", { conversationId: id })).subscription;
+	await mac.event(watch, type("snapshot"), "the snapshot");
+	for (const [n, text] of ["first", "and again"].entries()) {
+		const from = mac.count(watch);
+		await mac.request("submit", { conversationId: id, requestId: `c${n}`, text });
+		await mac.event(watch, type("run.ended"), `answer ${n}`, from);
+	}
+	const from = mac.count(watch);
+	await mac.request("compact", { conversationId: id });
+	const ended = (await mac.event(watch, type("compaction.ended"), "the failed compaction", from)).find(type("compaction.ended"));
+	assert.match(ended.error, /Summarization produced no text/);
+	// A client that watches only now still learns of it.
+	const late = (await mac.request("conversation.watch", { conversationId: id })).subscription;
+	const snapshot = (await mac.event(late, type("snapshot"), "a late snapshot")).find(type("snapshot"));
+	assert.deepEqual(snapshot.compactionFailure, { taskId: ended.taskId, reason: "manual", error: ended.error });
+
+	// One that writes a summary clears it.
+	summaries.fail = false;
+	const next = mac.count(watch);
+	await mac.request("compact", { conversationId: id });
+	const done = (await mac.event(watch, type("compaction.ended"), "the compaction that works", next)).find(type("compaction.ended"));
+	assert.equal(done.error, undefined);
+	const after = (await mac.request("conversation.watch", { conversationId: id })).subscription;
+	assert.equal((await mac.event(after, type("snapshot"), "the snapshot after")).find(type("snapshot")).compactionFailure, undefined);
 });
 
 test("submission.withdraw takes back one queued message, and says when it can't", async (t) => {

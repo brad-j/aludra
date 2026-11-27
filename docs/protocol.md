@@ -624,6 +624,8 @@ Added 2026-11-04, aludra's own extension like 11 (aludra c3e5fc6 new projects, b
 
 22. **Withdrawing one message.** `submission.withdraw {conversationId, submissionId}` takes back one queued follow-up or steer (an `InboxItem`'s `submissionId`, 4.6) through `harness.abortSubmission`, where `abort` withdraws every queued input and stops the run. It returns `{result}`: `aborted` when it was withdrawn (its `submission` event settles `unanswered` with `aborted`), `already_placed` when a boundary placed it first, `settled` when it had settled already, `not_found` for a submission not in that conversation. Added 2026-11-27, replacing the line under Deferred.
 
+23. **A failed compaction.** `compaction.ended` carries `error` when the compaction failed, faulted or was orphaned (Durable's `compaction_end`), and the `conversation.watch` snapshot carries `compactionFailure: {taskId, reason, error}`, the newest failure since a compaction last wrote a summary (`pi.live.compactionFailure`), absent when there's none. A client shows it with a way to ask again, and stops showing it once a later `compaction.ended` has no `error`. Added 2026-11-27.
+
 Deferred, not in v1:
 
 - A fixture for deferred polling. Faux can return deferred handles, so it can be recorded before a provider needs it.

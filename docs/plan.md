@@ -16,10 +16,6 @@ Bring over pi-host's Executor client (`packages/pi-host/src/executor.ts`, its ar
 Kind: step · From: pi-desktop/aludra-host
 pi-host's `setup` extension gives every chat a short map and `read_setup`, which returns one topic's note. Its notes are compiled in, since the packaged app has no checkout; aludra runs where the files are, so the notes can be files in the data directory or a directory the settings name, keeping anything about Brad's machines out of this repository. A no-project session's `no_project` section is the place for the map.
 
-### app-compaction-failure: Say when a compaction failed
-Kind: step · From: pi-desktop/aludra-host
-Pi Desktop shows Durable's `pi.live.compactionFailure` with a Retry; aludra's `conversation.watch` snapshot carries `compactions` in progress but not the last failure, so a client can't tell a summary failed unless a run failed with it. Carry it in the snapshot and an event when it changes, from the Durable 1.3.0 live state that already has it.
-
 ## Next
 
 ## Questions
@@ -48,7 +44,7 @@ aludra keeps `sandbox/N` after a task is archived: loial's checkout has 62 and a
 
 ### sandbox-template-flake: A sandbox template test fails now and then under the full suite
 Kind: chore
-"a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run. On 2026-11-24 the first one failed in 2 of 4 runs of `test/sandboxes.test.ts` alone, again `ENOTEMPTY` on the project's `.git`, and passed in the full run.
+"a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run. On 2026-11-24 the first one failed in 2 of 4 runs of `test/sandboxes.test.ts` alone, again `ENOTEMPTY` on the project's `.git`, and passed in the full run. On 2026-11-27 it failed in 2 of 3 runs alone and in 3 of 6 full runs. A third: "a worktree task runs on this machine in a worktree of its own…" (`test/app.test.ts`) hung until a 90 s timeout in 1 of 3 runs alone with that day's changes stashed, and in one full run; a hung run leaves the whole suite waiting, which looks like `pnpm test` never finishing.
 
 ### setup-only-secrets: Secrets for setup scripts only
 Kind: step
@@ -99,6 +95,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### app-compaction-failure: Say when a compaction failed
+Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27
+The `conversation.watch` snapshot carries `compactionFailure: {taskId, reason, error}` from `pi.live.compactionFailure`, left out when there's none so the recorded wire fixtures still match, and `compaction.ended` carries `error` from Durable's `compaction_end`, which is the event when it changes. protocol.md section 10 item 23 and api.md say so. An app test fails a manual compaction with an empty summary, sees both, then clears it with one that works.
 
 ### app-withdraw: Withdraw one queued message over /app
 Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27

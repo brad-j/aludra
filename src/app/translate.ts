@@ -103,6 +103,9 @@ export class DurableTranslator {
 				attempt: c.attempt ?? null,
 				retry: c.retry ?? null,
 			})),
+			// aludra's own: the newest failed compaction since one last wrote a summary (pi.live.compactionFailure).
+			// Left out without one, so the recorded wire fixtures still match.
+			...(s.compactionFailure === undefined ? {} : { compactionFailure: { taskId: s.compactionFailure.taskId ?? null, reason: s.compactionFailure.reason ?? "", error: s.compactionFailure.error ?? "" } }),
 			settings: this.hooks.settings(s.agent ?? {}),
 			spend: usageState(s.usage),
 		};
@@ -189,7 +192,8 @@ export class DurableTranslator {
 			case "compaction_start":
 				return [{ type: "compaction.started", taskId: e.taskId ?? null, reason: e.reason ?? "", blocking: e.blocking ?? false }];
 			case "compaction_end":
-				return [{ type: "compaction.ended", taskId: e.taskId ?? null, reason: e.reason ?? "" }];
+				// aludra's own: error when the compaction failed, faulted or was orphaned, as compactionFailure then says.
+				return [{ type: "compaction.ended", taskId: e.taskId ?? null, reason: e.reason ?? "", ...(e.error === undefined ? {} : { error: e.error }) }];
 			case "auto_retry_start":
 				return [{ type: "retry.scheduled", attempt: e.attempt ?? null, at: e.at ?? null, error: e.errorMessage ?? "" }];
 			case "auto_retry_end":
