@@ -101,6 +101,8 @@ export type Config = {
 	fakeSandboxes?: true;
 	/** Where new projects are made and whose GitHub account their repositories go on (src/new-projects.ts), if anywhere. */
 	newProjects?: { root: string; owner: string; designSeeds?: string };
+	/** The ideas repository's clone on this machine (src/ideas-repo.ts), if this host keeps ideas. */
+	ideas?: { dir: string };
 	dataDir: string;
 };
 
@@ -156,6 +158,7 @@ const settingsFile = object({
 	mcp: optional(object({ write: optional(boolean), sandboxOnly: optional(boolean), worktreeOnly: optional(boolean), ship: optional(boolean), shipWorktrees: optional(boolean), allowNewProjects: optional(boolean), writePlans: optional(boolean) })),
 	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")), approvals: optional(literal("ask", "off")) })),
 	newProjects: optional(object({ root: string, owner: string, designSeeds: optional(string) })),
+	ideas: optional(object({ dir: string })),
 	dataDir: optional(string),
 });
 
@@ -221,6 +224,7 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 			approvals: file.sandboxes.approvals ?? "off",
 		} }),
 		...(file.newProjects === undefined ? {} : { newProjects: { root: resolve(expandHome(file.newProjects.root)), owner: file.newProjects.owner.trim(), ...(file.newProjects.designSeeds === undefined ? {} : { designSeeds: resolve(expandHome(file.newProjects.designSeeds)) }) } }),
+		...(file.ideas === undefined ? {} : { ideas: { dir: resolve(expandHome(file.ideas.dir)) } }),
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
 		backup: { ...DEFAULTS.backup, dir: "" },
 	};

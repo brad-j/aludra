@@ -176,6 +176,12 @@ Where the apps' New project makes projects, if anywhere. Only the settings file 
 
 Making one runs `git init` on `main`, writes a `README.md` with the name and description, `AGENTS.md`, a `CLAUDE.md` that points at it and `docs/plan.md` in the plan format (seeded with any steps and questions the client sends), commits with this machine's git identity, creates `<owner>/<name>` with `gh repo create --private`, and pushes `main` to `git@github.com:<owner>/<name>.git`. So it needs `gh` signed in to github.com with the `repo` scope (`gh auth login`), and this machine's SSH access to GitHub. While `gh auth status` fails, the apps aren't offered New project, MCP's `create_project` and `promote_session` refuse, and `aludra doctor` says why. Agents on `/mcp` ask to make one only with [`mcp.allowNewProjects`](#mcp), and each waits for your approval.
 
+### `ideas`
+
+`dir`: a clone of your ideas repository, which this host reads and writes ([using.md](using.md#ideas)). Only the settings file sets it, and a change takes a restart. Without it the host keeps no ideas, and `/app`'s ideas methods answer `unsupported`.
+
+The clone needs an `origin` its branch tracks, and git on this machine that can push to it without asking (an SSH key with no passphrase prompt, or a credential helper), since syncing runs in the background. Each machine that keeps ideas has its own clone and syncs through the same remote.
+
 ### `dataDir`
 
 Where the database, keys, scratch directories, uploaded videos and screenshots go. Default `~/Library/Application Support/aludra` on macOS, and `$XDG_DATA_HOME/aludra` (or `~/.local/share/aludra`) on Linux.

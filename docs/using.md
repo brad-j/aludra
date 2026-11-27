@@ -88,6 +88,17 @@ A project can be archived too, to take it out of clients' lists and `aludra proj
 
 The host also archives sessions on its own once they've been idle for `archive.afterDays` (default 3) with nothing waiting for your approval. It checks a minute after start and hourly, whether or not any client is open. A session you bring back from the archive is kept: it stays in the lists however long it sits, until you archive it again. Set `archive.afterDays` to 0 to turn it off.
 
+## Ideas
+
+With [`ideas.dir`](configuration.md#ideas) set, the host reads and writes your ideas repository: Markdown in a Git clone, one file per idea under `ideas/`, one-liners in `inbox.md`, and an `INDEX.md` the host writes after every change. Every idea has a number from one sequence, captures included, and keeps it when it's promoted to a file; a deleted idea's number isn't given out again.
+
+- **Local first.** Each change is a commit in the clone at once, with no network. A sync then fetches, rebases those commits onto the remote and pushes, in the background, and again after 15 s, 30 s, 1, 2 and then every 5 minutes while commits wait. A conflict in `INDEX.md` is settled by writing it again, and `inbox.md` merges both sides' lines; any other conflict stops syncing, says which files, and waits for you to sort it out in the clone. Two machines can give out the same number between syncs; the sync after says which, and renumbering is by hand. A clone with uncommitted changes can be read but not written.
+- **In sessions.** A no-project session on this machine gets `list_ideas`, `read_idea`, `capture`, `save_idea`, `update_idea` and `set_status`. Sessions in a project, and sandbox sessions, don't. A write's result carries its commit and diff, so a client can show it and undo it. Say "save this" to have the agent write a distilled idea file, which then lists the session in its `sessions:` as `<machine>/<session>`, and the session is about that idea from then on.
+- **Brainstorms.** `ideas.brainstorm` starts a no-project session about an idea, titled "Brainstorm: #N …", with the idea file in its prompt as it is at each message. Sending "Save this chat to idea #N." asks it to fold what the session settled into the file with one change, or to say nothing was settled.
+- **Projects.** `ideas.makeProject` makes a project from an idea, its next steps and open questions becoming the first plan items, then sets the idea to `doing` with the repository in `project:`. It needs [`newProjects`](configuration.md#newprojects).
+
+Clients reach all of it through `/app` ([api.md](api.md#ideas)).
+
 ## Approvals
 
 Two kinds of shell command wait for you: `git push`, and `ssh`, `scp`, `rsync`, `sftp`, `mosh` or `sshfs` to a host in `approvals.hosts`. The session shows as waiting, with the full command.

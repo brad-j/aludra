@@ -62,6 +62,18 @@ Later, maybe: Slack (a channel per project, a thread per session), voice, a nati
 
 Brad decided coding work and the personal agent stay apart. Pi Desktop becomes the coding app and aludra its only host: its chats run here over `/app`, its pi-host retires, and loial's environments, diff and ship move into it before loial retires. Verin keeps mail, Herid, jobs, notes and connectors and no longer starts, ships, plans or pushes for coding sessions, so the MCP write side it used goes again (plan: `drop-verin-mcp`). Sandboxes, worktrees and ship stay as they are. This replaces "Tasks start from the plan" below for who the clients are; plan items still start tasks.
 
+## Ideas on the host (2026-11-27)
+
+Plan item `ideas`. pi-host's `ideas-repo.ts` and `ideas-tools.ts` came over nearly whole, as `src/ideas-repo.ts` and `src/ideas.ts`, onto Durable 1.3.0 and typebox. Their tests came too. The calls:
+
+- **Off unless set.** `ideas.dir` in the settings file names the clone, with no default, since the path is a machine's own. It's file-only, as `newProjects` is.
+- **Only local no-project sessions get the tools.** A session in a project is about its code. A sandbox session runs installs and web content a tool call away from a repository the host pushes to. The harness's default selection leaves the extension out, and `createScratch` and `createChat` add it when there's no project. Sessions made before this don't have it.
+- **Brainstorm is a scratch session**, not a chat, so it can write notes in its own directory as Pi Desktop's chats couldn't. It's titled by the host ("Brainstorm: #N …"), with the title marked as set by hand so the title writer leaves it.
+- **`sessions:` beside `chats:`.** Pi Desktop listed its conversation numbers in `chats:`. aludra's numbers are per host, so idea files get `sessions: [<machine>/<id>]`, and `chats:` stays as written for the chats already listed there. The rewritten-commits file keeps Pi Desktop's name, so an undo from either finds a rebased commit in the same clone.
+- **Undo regenerates `INDEX.md` on a conflict.** pi-host reverted with a commit, which failed whenever a later write had changed `INDEX.md` (every write does). aludra reverts without committing, settles a conflict in `INDEX.md` alone by writing it again, and commits.
+- **Two writers on one clone.** IdeasRepo's lock is per process. While Pi Desktop's pi-host still writes a machine's clone, aludra on the same machine shouldn't point `ideas.dir` at it, or the two can commit over each other. Once Pi Desktop's Ideas pages use `/app`, only aludra writes.
+- **Images** come over `/app` as base64 (`ideas.file`), since aludra serves no HTTP content, as with session images.
+
 ## What Pi Desktop's chats need (2026-11-27)
 
 Plan item `desktop-tools`, comparing pi-host (Pi Desktop at 972da65) with an aludra session that has no project.

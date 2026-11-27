@@ -104,6 +104,12 @@ A `beforeTool` hook asks for approval: it opens a request in `aludra.approvals` 
 
 [api.md](api.md) documents all three.
 
+## Ideas
+
+`src/ideas-repo.ts` (`IdeasRepo`) owns the clone `ideas.dir` names. `src/ideas.ts` has the operations (capture, save, update, set status, link a session, delete) and the tools over them, so `/app`'s methods and a session's tools make the same commits. Both came from Pi Desktop's pi-host. A write takes a lock, refuses a dirty clone, changes files, writes `INDEX.md` again from the files and commits; a failure resets the clone to where it began. Syncing is separate and never throws: its state is in `status().sync`, and listeners hear each change, which `/app` passes on as `ideas.changed`. A rebase records old commit IDs to new in `.git/pi-desktop-rewritten.json` (Pi Desktop's name, so either finds them in a shared clone), which undo follows. Undo reverts without committing first, so a conflict in `INDEX.md` alone is settled by writing it again.
+
+The tools are the `aludra-ideas` extension. The harness's default selection is every installed extension but that one, and `createScratch` and `createChat` without a project add it to the new conversation's agent, so only local no-project sessions have it, and a host without `ideas.dir` adds it to none. The record's `idea` makes a session about an idea; the extension's `idea-chat` section reads it and puts the idea file in the prompt. Idea files list sessions as `<hostname>/<id>`, since every host numbers its own.
+
 ## Changes snapshots
 
 When a project session is created, `src/changes.ts` writes the project's working tree as a git tree through a temporary copy of the index, so untracked files count and ignored ones don't. Only objects are added to the repository; its index, branches and refs are untouched. The tree's hash goes in the session's record. `GET /api/sessions/:id/changes` diffs that tree against a fresh one, limited to the project's directory.

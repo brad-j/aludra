@@ -4,10 +4,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
-### ideas: Ideas on the host
-Kind: request · From: pi-desktop/ideas-home
-Move Pi Desktop's ideas extension into aludra: the clone of the ideas repository with its local-first sync (pi-desktop's docs/ideas.md), the capture and `update_idea` tools for sessions, and `/app` methods for the Ideas pages (list, read, capture, status, areas, delete, undo, sync state). A brainstorm is a session with the idea file in a prompt section, as in Pi Desktop now. One clone per host; each machine's host syncs through the same repository. The name is free: aludra's own ideas (saved first messages) are gone (drop-old-ideas).
-
 ### drop-verin-mcp: Take out the MCP write side Verin used
 Kind: chore · Needs: verin/drop-coding
 Verin stops starting, shipping and planning coding work. Once its `start_coding`, `ship_coding` and `add_plan_item` are gone, remove again what retire-agent-mcp removed on 2026-11-21 and unretire-verin put back: the `check_sessions` gate, `write_plan` on MCP, `ship_session`, `create_project` and `promote_session`, and scratch `start_session`. `/app` keeps `projects.writePlan`, `projects.create` and ship for Pi Desktop. Check egwene's settings file and tokens after.
@@ -111,6 +107,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### ideas: Ideas on the host
+Kind: request · From: pi-desktop/ideas-home · Done: 2026-11-27
+Pi Desktop's ideas clone and tools are in aludra: `src/ideas-repo.ts` (the clone, local-first sync, undo) and `src/ideas.ts` (the operations, the six tools and the `idea-chat` section), behind a file-only `ideas.dir`. Only local no-project sessions get the tools. `/app` has `ideas.list`, `read`, `file`, `capture`, `setStatus`, `setAreas`, `delete`, `undo`, `reverted`, `sync`, `draft`, `makeProject` and `brainstorm`, `host.info.ideas`, the `ideas.changed` event and `idea` on summaries. Idea files list sessions in `sessions:` as `<machine>/<id>`. egwene's settings don't set `ideas.dir` yet. decisions.md, "Ideas on the host (2026-11-27)".
 
 ### drop-old-ideas: Take out aludra's saved first messages
 Kind: chore · Done: 2026-11-27

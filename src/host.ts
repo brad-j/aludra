@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { basename, dirname, relative, resolve } from "node:path";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { Message, TextContent, UserMessage } from "@earendil-works/pi-ai";
@@ -27,6 +27,8 @@ import { credentialsFile, fileCredentialStore } from "./credentials.ts";
 import { type Snapshot, snapshot } from "./changes.ts";
 import { createCheckpoints, restoreNoteText } from "./checkpoints.ts";
 import { pagesExtension } from "./pages.ts";
+import { ideaFolder, ideaImages, IdeasError, IdeasRepo, imageType } from "./ideas-repo.ts";
+import { AREAS, createIdeasOps, IDEAS_EXTENSION, ideasExtension, projectDraft } from "./ideas.ts";
 import { subagentOf, subagentsExtension } from "./subagents.ts";
 import { claudeConfigDir, type Config, expandHome, THINKING, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
@@ -123,6 +125,8 @@ export type SessionRecord = {
 	about?: number;
 	/** What it was told of those, written once when it was made: an excerpt of the other conversation and where its work is. */
 	linked?: string;
+	/** The idea it's about (src/ideas.ts): started as a brainstorm on it, or where its save_idea saved one. */
+	idea?: number;
 	/** A sandbox session's size: asked for when it was made, else the project's (.agents/project.json), set once known. */
 	sandboxSize?: SandboxSize;
 	/** A sandbox session's project directory on this machine, which its template was made from; context is read there. */
@@ -487,6 +491,21 @@ export async function openHost(options: HostOptions) {
 	});
 	registry.install(subagents.extension);
 	registry.install(subagents.childContext);
+	// The ideas tools (src/ideas.ts), selected only by local no-project sessions (withIdeas), so no default selects them.
+	const ideasRepo = config.ideas === undefined ? undefined : new IdeasRepo(config.ideas.dir);
+	/** How an idea file names a session: this machine's name and the session's number, since every host's sessions start at 1. */
+	const sessionRef = (id: number) => `${hostname().split(".")[0]}/${id}`;
+	const ideas = ideasExtension({
+		repo: () => ideasRepo,
+		sessionIdea: async (read, id, ctx) => (await recordOf(read, id, ctx))?.idea,
+		sessionRef,
+		onSaved: async (id, idea) => void (await changeRecord(id, (r) => {
+			r.idea ??= idea;
+		})),
+	});
+	registry.install(ideas);
+	/** A local no-project session's agent: the default extensions and, on a host with ideas, the ideas tools. */
+	const withIdeas = (cwd: string) => ({ cwd, ...(ideasRepo === undefined ? {} : { extensions: { add: [ideas] } }) });
 	// A ship's commands get a timeout, so a check that hangs in the sandbox can't hold the task (src/ship.ts).
 	registry.install(defineExtension({
 		name: "aludra-ship-timeout",
@@ -551,7 +570,13 @@ export async function openHost(options: HostOptions) {
 		{
 			models,
 			registry,
-			...(options.compaction === undefined ? {} : { settings: { compaction: options.compaction } }),
+			settings: {
+				...(options.compaction === undefined ? {} : { compaction: options.compaction }),
+				// Every installed extension but the ideas tools, in install order; a getter, so it follows the registry.
+				get extensions() {
+					return registry.snapshot().installed().filter((extension) => extension.name !== IDEAS_EXTENSION);
+				},
+			},
 			env: async (target, ctx) => {
 				const { cwd } = target;
 				const sandbox = await sandboxOf(target, ctx);
@@ -936,7 +961,7 @@ export async function openHost(options: HostOptions) {
 			init: async (tx, id) => {
 				const chatDir = resolve(config.dataDir, "chats", String(id));
 				const dir = project?.dir ?? chatDir;
-				await configureAgent(tx, id, { cwd: dir });
+				await configureAgent(tx, id, project === undefined ? withIdeas(dir) : { cwd: dir });
 				record = {
 					id,
 					workspace: project?.workspace ?? config.workspaces[0]?.name ?? "local",
@@ -966,7 +991,7 @@ export async function openHost(options: HostOptions) {
 			init: async (tx, id) => {
 				const dir = resolve(scratchRoot, String(id));
 				// The conversation's ID names its directory, so the working directory is set in the creating commit.
-				await configureAgent(tx, id, { cwd: dir });
+				await configureAgent(tx, id, withIdeas(dir));
 				record = {
 					id,
 					workspace: config.workspaces[0]?.name ?? "local",
@@ -1507,6 +1532,96 @@ export async function openHost(options: HostOptions) {
 		return readImage(read, conversationId(id), entry as EntryId, message, block);
 	}
 
+	// Ideas (src/ideas-repo.ts, src/ideas.ts): the clone's ideas for /app's Ideas pages, through the same operations as
+	// the tools, so each change is the same kind of commit.
+	const ideaOps = ideasRepo === undefined ? undefined : createIdeasOps(ideasRepo);
+	function ideasOpen(): { repo: IdeasRepo; ops: NonNullable<typeof ideaOps> } {
+		if (ideasRepo === undefined || ideaOps === undefined) throw new IdeasError("missing", "This host has no ideas repository: set ideas.dir in its settings to a clone.");
+		return { repo: ideasRepo, ops: ideaOps };
+	}
+
+	/** Every idea file and capture, and the clone's state; a clone that can't be read lists none. */
+	async function listIdeas() {
+		const { repo } = ideasOpen();
+		const status = await repo.status();
+		if (status.state !== "ok" && status.state !== "dirty") return { status, ideas: [], captures: [] };
+		const snap = await repo.read();
+		return { status, ideas: snap.ideas.map(({ body: _b, fields: _f, chats: _c, sessions: _s, ...rest }) => rest), captures: snap.captures };
+	}
+
+	/** Idea `id` with its text, images and sessions, or a capture. */
+	async function readIdea(id: number) {
+		const { repo } = ideasOpen();
+		const snap = await repo.read();
+		const file = snap.ideas.find((i) => i.id === id);
+		if (file !== undefined) {
+			const { fields: _f, ...rest } = file;
+			return { ...rest, kind: "file" as const, images: await ideaImages(repo.dir, file.path) };
+		}
+		const capture = snap.captures.find((c) => c.id === id);
+		if (capture !== undefined) return { ...capture, kind: "capture" as const };
+		throw new IdeasError("git", `No idea #${id}.`);
+	}
+
+	/**
+	 * A new no-project session about idea `id`: titled "Brainstorm: #<id> <title>", the idea in its prompt (the idea-chat
+	 * section), listed in the file's `sessions:`. The session is made even when the file can't take the link (a capture,
+	 * or a clone that refuses writes); `linkError` says why.
+	 */
+	async function brainstorm(id: number, agent: { model?: string; thinking?: Thinking } = {}): Promise<{ session: SessionRecord; linkError?: string }> {
+		const { repo, ops } = ideasOpen();
+		const snap = await repo.read();
+		const file = snap.ideas.find((i) => i.id === id);
+		const capture = snap.captures.find((c) => c.id === id);
+		if (file === undefined && capture === undefined) throw new IdeasError("git", `No idea #${id}.`);
+		const title = `Brainstorm: #${id} ${(file?.title ?? capture!.text).replace(/\s+/g, " ").trim()}`.slice(0, 200);
+		const made = await createScratch(title, agent);
+		const session = (await changeRecord(made.id, (r) => {
+			r.idea = id;
+			r.title = title;
+			r.titled = "user";
+		})) ?? made;
+		untitled.delete(made.id);
+		if (file === undefined) return { session };
+		try {
+			await ops.linkSession(id, sessionRef(made.id));
+			return { session };
+		} catch (error) {
+			return { session, linkError: error instanceof Error ? error.message : String(error) };
+		}
+	}
+
+	/**
+	 * Makes idea `id` a project here: createProject with its next steps and open questions as the plan, then the idea set
+	 * to doing with `project:` and a Log line. A status change that fails once the project exists is `statusError`.
+	 */
+	async function ideaProject(id: number, name: unknown, description?: string, ui?: boolean): Promise<{ project: Project; repository: string; statusError?: string }> {
+		const { repo, ops } = ideasOpen();
+		const draft = await projectDraft(repo, id);
+		if (draft.project !== undefined) throw new IdeasError("git", `#${id} is already the project ${draft.project}.`);
+		const project = await createProject(name, description?.trim() || draft.description, undefined, { plan: { steps: draft.steps, questions: draft.questions }, ...(ui === true ? { ui: true } : {}) });
+		const repository = config.newProjects === undefined ? project.name : `${config.newProjects.owner}/${project.name}`;
+		try {
+			await ops.setStatus({ id, status: "doing", project: repository, reason: `Made the project ${repository}, at ${project.dir}.` });
+			return { project, repository };
+		} catch (error) {
+			return { project, repository, statusError: error instanceof Error ? error.message : String(error) };
+		}
+	}
+
+	/** An image in idea `id`'s folder by its path there: known image types only, inside the folder after links. */
+	async function ideaFile(id: number, rel: string): Promise<{ mimeType: string; data: string } | undefined> {
+		const { repo } = ideasOpen();
+		const mimeType = imageType(rel);
+		if (mimeType === undefined || rel.split("/").some((p) => p === ".." || p === "" || p.startsWith("."))) return undefined;
+		const idea = (await repo.read()).ideas.find((i) => i.id === id);
+		if (idea === undefined) return undefined;
+		const folder = await realpath(resolve(repo.dir, ideaFolder(idea.path))).catch(() => undefined);
+		const target = await realpath(resolve(repo.dir, ideaFolder(idea.path), rel)).catch(() => undefined);
+		if (folder === undefined || target === undefined || !target.startsWith(`${folder}/`)) return undefined;
+		return { mimeType, data: (await readFile(target)).toString("base64") };
+	}
+
 	const colorListeners = new Set<(colors: Record<string, number>) => void>();
 
 	/** The picked project colors: name to hue index. */
@@ -1882,6 +1997,36 @@ export async function openHost(options: HostOptions) {
 		/** Requests from /mcp to make projects, and the owner's answer to one, which makes it (src/project-requests.ts). */
 		projectRequests: { list: () => projectRequests.pending(), get: projectRequests.get, find: projectRequests.find, open: projectRequests.open, spent: projectRequests.spent, report: projectRequests.report, decide: decideProjectRequest, onChange: projectRequests.onChange },
 		colors: { list: listColors, set: setColor, onChange: onColors },
+		/** The ideas repository (src/ideas-repo.ts), when `ideas.dir` is set; each call throws an IdeasError otherwise. */
+		ideas: {
+			enabled: () => ideasRepo !== undefined,
+			status: () => ideasOpen().repo.status(),
+			list: listIdeas,
+			read: readIdea,
+			capture: (text: string) => ideasOpen().ops.capture(text),
+			setStatus: (id: number, status: string) => ideasOpen().ops.setStatus({ id, status }),
+			setAreas: (id: number, areas: string[]) => {
+				const bad = areas.find((a) => !(AREAS as readonly string[]).includes(a));
+				if (bad !== undefined) throw new IdeasError("git", `${bad} isn't an area.`);
+				return ideasOpen().ops.update({ id, areas, log: `Areas set to ${areas.length > 0 ? areas.join(", ") : "none"}.` });
+			},
+			remove: (id: number) => ideasOpen().ops.delete(id),
+			undo: (commit: string) => ideasOpen().repo.undo(commit),
+			reverted: (commits: string[]) => ideasOpen().repo.reverted(commits.slice(0, 200)),
+			sync: async () => {
+				const { repo } = ideasOpen();
+				await repo.sync();
+				return repo.status();
+			},
+			draft: async (id: number) => {
+				const { status: _s, project: _p, ...draft } = await projectDraft(ideasOpen().repo, id);
+				return draft;
+			},
+			brainstorm,
+			makeProject: ideaProject,
+			file: ideaFile,
+			onChange: (listener: () => void) => ideasRepo?.onChange(listener) ?? (() => {}),
+		},
 		/** The Claude subscription's windows as last heard, those that reset since left out; undefined before any answer said. */
 		subscription: {
 			get: (now = Date.now()) => subscriptionNow(subscription, now),
@@ -1929,6 +2074,7 @@ export async function openHost(options: HostOptions) {
 			sessionChanges.close();
 			projectRequests.close();
 			sandboxes.close();
+			ideasRepo?.close();
 		},
 	};
 }

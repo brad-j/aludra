@@ -29,6 +29,7 @@ import { isSize } from "../sandboxes.ts";
 import { type Checkout, watchCheckouts } from "../checkout.ts";
 import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
 import { PAGE_CSP } from "../pages.ts";
+import { IdeasError } from "../ideas-repo.ts";
 import { checkFiles, type FileInput, MAX_FILE_BYTES, MAX_FILES, PASTE_BYTES } from "../files.ts";
 import { checkVideos, MAX_FRAMES, MAX_VIDEO_BYTES, MAX_VIDEOS, UPLOAD_DAYS, type VideoInput } from "../videos.ts";
 import { type ApprovalRequest, riskFor } from "../permissions.ts";
@@ -203,6 +204,7 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			...(record.chat === true ? { chat: true } : {}),
 			...(record.from === undefined ? {} : { from: record.from }),
 			...(record.about === undefined ? {} : { about: record.about }),
+			...(record.idea === undefined ? {} : { idea: record.idea }),
 			...(allowed.length > 0 ? { alwaysAllowed: allowed } : {}),
 		};
 	}
@@ -334,6 +336,10 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 		});
 	});
 	// A project made here, from this endpoint or approved from /mcp, reaches every host watcher as the whole list.
+	// The ideas clone changed (a write, an undo, a sync that brought something, or its sync state): host watchers refetch.
+	const stopIdeas = host.ideas.onChange(() => {
+		for (const listener of hostListeners) listener({ type: "ideas.changed" });
+	});
 	const stopProjectMade = host.newProjects.onMade(() => {
 		void checkouts.current().then((found) => {
 			const listed = projectsOf(found);
@@ -735,7 +741,79 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			...(await host.newProjects.info().then((info) => ("reason" in info ? {} : { newProjects: info }))),
 			...(await monthCostOf()),
 			...subscriptionOf(),
+			// The ideas repository (src/ideas-repo.ts), on a host with ideas.dir set: the clone's state.
+			...(host.ideas.enabled() ? { ideas: await host.ideas.status() } : {}),
 		};
+	}
+
+	/** An ideas method: the host's answer, its refusals as bad_request (not_found for a missing idea), others internal. */
+	async function ideas(method: string, p: Json): Promise<Json> {
+		if (!host.ideas.enabled()) throw new ProtocolError("unsupported", "This host has no ideas repository: ideas.dir isn't set in its settings");
+		const id = () => {
+			if (typeof p.id !== "number" || !Number.isSafeInteger(p.id) || p.id <= 0) throw new ProtocolError("bad_request", `${method} takes id, an idea's number`);
+			return p.id;
+		};
+		try {
+			switch (method) {
+				case "ideas.list":
+					return await host.ideas.list();
+				case "ideas.read":
+					return { idea: await host.ideas.read(id()) };
+				case "ideas.capture":
+					if (typeof p.text !== "string") throw new ProtocolError("bad_request", "ideas.capture takes text");
+					return { details: await host.ideas.capture(p.text) };
+				case "ideas.setStatus":
+					if (typeof p.status !== "string") throw new ProtocolError("bad_request", "ideas.setStatus takes status");
+					return { details: await host.ideas.setStatus(id(), p.status) };
+				case "ideas.setAreas": {
+					if (!Array.isArray(p.areas) || p.areas.some((a: Json) => typeof a !== "string")) throw new ProtocolError("bad_request", "ideas.setAreas takes areas, a list");
+					const { promoted: _p, changed: _c, ...details } = await host.ideas.setAreas(id(), p.areas);
+					return { details };
+				}
+				case "ideas.delete":
+					return await host.ideas.remove(id());
+				case "ideas.undo":
+					if (typeof p.commit !== "string") throw new ProtocolError("bad_request", "ideas.undo takes commit");
+					return await host.ideas.undo(p.commit);
+				case "ideas.reverted":
+					if (!Array.isArray(p.commits) || p.commits.some((c: Json) => typeof c !== "string")) throw new ProtocolError("bad_request", "ideas.reverted takes commits, a list of commit ids");
+					return { reverted: await host.ideas.reverted(p.commits) };
+				case "ideas.sync":
+					return { status: await host.ideas.sync() };
+				case "ideas.draft":
+					return { draft: await host.ideas.draft(id()) };
+				case "ideas.file": {
+					if (typeof p.path !== "string") throw new ProtocolError("bad_request", "ideas.file takes path, relative to the idea's folder");
+					const found = await host.ideas.file(id(), p.path);
+					if (found === undefined) throw new ProtocolError("not_found", `No image ${p.path} in idea #${id()}'s folder`);
+					return found;
+				}
+				case "ideas.brainstorm": {
+					const agent: { model?: string; thinking?: Thinking } = {};
+					if (p.settings?.model != null) agent.model = modelOf(p.settings.model);
+					if (p.settings?.thinkingLevel != null) agent.thinking = thinkingOf(p.settings.thinkingLevel);
+					const { session, linkError } = await host.ideas.brainstorm(id(), agent);
+					const summary = await summaryOf(session, "idle");
+					publishSummary(summary);
+					return { conversation: summary, ...(linkError === undefined ? {} : { linkError }) };
+				}
+				case "ideas.makeProject": {
+					if (p.description != null && typeof p.description !== "string") throw new ProtocolError("bad_request", "description should be text");
+					let made: { project: { dir: string }; repository: string; statusError?: string } | undefined;
+					const project = await newProject(async () => {
+						made = await host.ideas.makeProject(id(), p.name, p.description ?? undefined, p.ui === true);
+						return made.project;
+					});
+					return { project, repository: made!.repository, ...(made!.statusError === undefined ? {} : { statusError: made!.statusError }) };
+				}
+				default:
+					throw new ProtocolError("unknown_method", `Unknown method ${method}`);
+			}
+		} catch (error) {
+			if (error instanceof ProtocolError) throw error;
+			if (error instanceof IdeasError) throw new ProtocolError(error.message.startsWith("No idea #") ? "not_found" : "bad_request", error.message, { reason: error.code });
+			throw error;
+		}
 	}
 
 	/** Makes a project with `make`, and answers with it and its checkout; host watchers hear the new list. */
@@ -745,7 +823,7 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			made = await make();
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			if (error instanceof NewProjectRefused || /can't make projects/.test(message)) throw new ProtocolError("bad_request", message);
+			if (error instanceof NewProjectRefused || error instanceof IdeasError || /can't make projects/.test(message)) throw new ProtocolError("bad_request", message);
 			throw new ProtocolError("internal", message);
 		}
 		// Host watchers heard the new list from host.newProjects.onMade already.
@@ -1265,6 +1343,8 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 				case "conversation.image":
 					return image(p);
 				default:
+					// aludra's own: the ideas repository (src/ideas-repo.ts).
+					if (method.startsWith("ideas.")) return ideas(method, p);
 					throw new ProtocolError("unknown_method", `Unknown method ${method}`);
 			}
 		}
@@ -1285,6 +1365,7 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 			stopResults();
 			stopProjectArchive();
 			stopProjectMade();
+			stopIdeas();
 		},
 	};
 }

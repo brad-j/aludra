@@ -101,6 +101,7 @@ Every message to a session, from any client, the CLI and MCP included, has its z
 - The settings file `aludra init` writes is `0600`.
 - Backups are `0600` whatever directory they're in, since `backup.dir` may be a shared disk.
 - The push key (`push-keys.json`) and the sign-ins (`credentials.json`) are `0600`.
+- The ideas clone (`ideas.dir`) is written only through the host's ideas module, which commits and pushes with this machine's git. Only no-project sessions on this machine get the ideas tools, which never hand over the clone's files. Sandbox sessions don't get them: a sandbox runs code from the internet, and the tools reach a repository the host can push to. A no-project session can still read the clone, as it can read any file.
 - `project-requests.sqlite` holds MCP agents' requests to make projects, with the token that asked, for 30 days after each is answered.
 
 The database holds every session's full transcript, including anything a tool printed. Treat it and its backups like the code they came from.
