@@ -43,6 +43,9 @@ test("the host archives its idle sessions, tells clients, and leaves one brought
 	await (await host.submit(old.id, "old")).wait(context);
 	const fresh = await host.sessions.create(project, "fresh");
 	await (await host.submit(fresh.id, "fresh")).wait(context);
+	// No-project sessions, a scratch one and a chat, are left alone however long they sit.
+	const scratch = await host.sessions.createScratch("scratch");
+	const chat = await host.sessions.createChat(undefined, "chat");
 	const heard: [number, boolean][] = [];
 	host.sessions.onUpdate((record) => heard.push([record.id, record.archived === true]));
 
@@ -50,6 +53,8 @@ test("the host archives its idle sessions, tells clients, and leaves one brought
 	const later = Date.now() + 4 * DAY;
 	assert.deepEqual(await archiveIdle(host, later), [old.id, fresh.id]);
 	assert.deepEqual(heard, [[old.id, true], [fresh.id, true]]);
+	assert.equal((await host.sessions.get(scratch.id))?.archived, undefined);
+	assert.equal((await host.sessions.get(chat.id))?.archived, undefined);
 
 	// Brought back by hand, it stays; archived again, it's back to the usual rule.
 	const back = await host.sessions.archive(old.id, false);

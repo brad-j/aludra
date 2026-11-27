@@ -120,7 +120,7 @@ aludra runs the Claude Code you installed and logged in to, as `claude -p`, for 
 
 ### `archive`
 
-- `afterDays`: sessions idle this many days, with nothing waiting for your approval, are archived. Checked a minute after start and hourly. A session brought back from the archive by hand isn't archived again until someone archives it. Default `3`; `0` turns it off.
+- `afterDays`: sessions in a project idle this many days, with nothing waiting for your approval, are archived. Sessions with no project aren't. Checked a minute after start and hourly. A session brought back from the archive by hand isn't archived again until someone archives it. Default `3`; `0` turns it off.
 
 ### `subagents`
 

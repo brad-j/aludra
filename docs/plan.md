@@ -20,10 +20,6 @@ pi-host's `setup` extension gives every chat a short map and `read_setup`, which
 
 ## Questions
 
-### chat-auto-archive: Should idle archiving skip no-project sessions?
-Kind: question · From: pi-desktop/aludra-host
-aludra archives every session idle `archive.afterDays` (3 by default). Pi Desktop never archives a chat by itself, and its chats are long-lived conversations, not tasks. Options: archive them like tasks, skip sessions with no project, or a separate setting for them.
-
 ## Later
 
 ### apns-push: Pushes to Pi Desktop's iOS app through APNs
@@ -95,6 +91,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### chat-auto-archive: Should idle archiving skip no-project sessions?
+Kind: question · From: pi-desktop/aludra-host · Done: 2026-11-27
+Brad: skip them; idle archiving applies only to project sessions. Built as a step: `archiveIdle` (`src/archive.ts`) leaves sessions with no project alone, the setting's help and the docs say so, and the archive test checks a scratch session and a no-project chat stay. decisions.md, "Idle archiving is for project sessions".
 
 ### app-compaction-failure: Say when a compaction failed
 Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27

@@ -82,7 +82,7 @@ pi-claude-code isn't on npm, so it's pinned to a commit, and Pi Durable to its v
 
 ## Archiving idle sessions
 
-`src/archive.ts` runs a minute after start and hourly: it reads every session's summary and archives each one idle for `archive.afterDays` with nothing running or waiting, through `host.sessions.archiveIdle`, which skips a session archived or kept in the meantime. Unarchiving one that was archived marks it `kept`; archiving it again clears that. The change reaches clients as any archive does, through the session's update.
+`src/archive.ts` runs a minute after start and hourly: it reads the summary of every session in a project (no-project sessions are skipped) and archives each one idle for `archive.afterDays` with nothing running or waiting, through `host.sessions.archiveIdle`, which skips a session archived or kept in the meantime. Unarchiving one that was archived marks it `kept`; archiving it again clears that. The change reaches clients as any archive does, through the session's update.
 
 ## Titles
 

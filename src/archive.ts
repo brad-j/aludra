@@ -1,12 +1,13 @@
 // Archiving sessions nobody has touched in a while, so the lists stay about current work. The host does it, rather than
 // a client, so it happens while every client is closed and every client agrees on what's kept.
 //
-// A session goes when it has been idle `archive.afterDays` (default 3): nothing running, nothing waiting for approval,
-// and no activity since. One brought back from the archive by hand is marked `kept` (host.sessions.archive) and stays
+// A session in a project goes when it has been idle `archive.afterDays` (default 3): nothing running, nothing waiting
+// for approval, and no activity since. Sessions with no project are left alone: they're long-lived conversations, such
+// as Pi Desktop's chats, archived only by hand (docs/decisions.md, "Idle archiving is for project sessions"). One brought back from the archive by hand is marked `kept` (host.sessions.archive) and stays
 // until someone archives it again. Archiving only hides a session; its transcript and project are untouched, and any
 // client brings it back.
 import type { SessionSummary } from "./api-types.ts";
-import type { Host } from "./host.ts";
+import { type Host, NO_PROJECT } from "./host.ts";
 import { readSummary } from "./live.ts";
 
 const DAY = 86_400_000;
@@ -25,7 +26,7 @@ export function idleSessions(sessions: readonly (SessionSummary & { kept?: boole
 export async function archiveIdle(host: Host, now = Date.now()): Promise<number[]> {
 	const days = host.archiveAfterDays();
 	if (!(days > 0)) return [];
-	const records = (await host.sessions.list()).filter((r) => r.archived !== true && r.kept !== true);
+	const records = (await host.sessions.list()).filter((r) => r.archived !== true && r.kept !== true && r.project !== NO_PROJECT);
 	const summaries = (await Promise.all(records.map(async (r) => {
 		const summary = await readSummary(host, r.id);
 		return summary === undefined ? undefined : { ...summary, ...(r.kept === true ? { kept: true } : {}) };

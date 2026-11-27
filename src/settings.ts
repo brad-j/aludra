@@ -58,7 +58,7 @@ const SPECS: readonly Spec[] = [
 	{ key: "backup.keep", label: "Backups kept", kind: "integer", editable: true, get: (c) => c.backup.keep, default: () => 7,
 		help: "How many copies to keep, newest first." },
 	{ key: "archive.afterDays", label: "Archive after (days)", kind: "number", editable: true, get: (c) => c.archive.afterDays, default: () => 3,
-		help: "Sessions idle this long, with nothing waiting for you, are archived. One brought back by hand stays. 0 turns it off." },
+		help: "Sessions in a project idle this long, with nothing waiting for you, are archived. Sessions with no project, and one brought back by hand, stay. 0 turns it off." },
 	{ key: "mcp.write", label: "MCP can run sessions", kind: "choice", options: ["off", "on"], editable: false, get: (c) => (c.mcp.write ? "on" : "off"), default: () => "off",
 		help: "Whether agents on /mcp may start, message and stop sessions, not only read them. File-only, so an agent can't turn it on." },
 	{ key: "mcp.sandboxOnly", label: "MCP sandboxes only", kind: "choice", options: ["off", "on"], editable: false, get: (c) => (c.mcp.sandboxOnly ? "on" : "off"), default: () => "off",

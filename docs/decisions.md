@@ -62,6 +62,10 @@ Later, maybe: Slack (a channel per project, a thread per session), voice, a nati
 
 Brad decided coding work and the personal agent stay apart. Pi Desktop becomes the coding app and aludra its only host: its chats run here over `/app`, its pi-host retires, and loial's environments, diff and ship move into it before loial retires. Verin keeps mail, Herid, jobs, notes and connectors and no longer starts, ships, plans or pushes for coding sessions, so the MCP write side it used goes again (plan: `drop-verin-mcp`). Sandboxes, worktrees and ship stay as they are. This replaces "Tasks start from the plan" below for who the clients are; plan items still start tasks.
 
+## Idle archiving is for project sessions (2026-11-27)
+
+Brad's answer to `chat-auto-archive`: idle archiving applies only to sessions in a project. A no-project session (a scratch session, a chat with no project, a brainstorm) is a long-lived conversation, as Pi Desktop's chats are, and stays until someone archives it by hand. The other options were archiving them like tasks, or a separate setting for them. `archive.afterDays` keeps its name and default; its help and the docs say what it covers.
+
 ## Web tools (2026-11-27)
 
 Plan item `web-tools`: pi-host's `web` extension came over whole, for every session, sandboxes included, since a sandbox reaches the internet anyway and the tools run on the host.
