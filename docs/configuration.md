@@ -180,6 +180,10 @@ Making one runs `git init` on `main`, writes a `README.md` with the name and des
 
 The clone needs an `origin` its branch tracks, and git on this machine that can push to it without asking (an SSH key with no passphrase prompt, or a credential helper), since syncing runs in the background. Each machine that keeps ideas has its own clone and syncs through the same remote.
 
+### `setup`
+
+`dir`: where your setup notes are, if not `setup/` in the data directory ([using.md](using.md#setup-notes)). File-only; it's read at each request, so notes added there are used at once, but a new `dir` takes a restart.
+
 ### Web keys
 
 The web tools' keys are files in the data directory, not settings: `tavily.key` for `web_search` (a Tavily API key) and `jev.key` for the URL reviewer (an OrcaRouter key). Each holds the key alone, must be mode `0600` (a file others can read is refused), and is read at each call, so adding one needs no restart. `TAVILY_API_KEY` and `ALUDRA_JEV_KEY` stand in when a file is missing. `host.info` says which files are there.
@@ -210,6 +214,7 @@ Where the database, keys, scratch directories, uploaded videos and screenshots g
 | `search.sqlite` | The index `aludra search` and the search endpoints read: the text of every message and answer. Built from `aludra.sqlite`, so it can be deleted any time; the host rebuilds it at start. |
 | `aludra.sock` | The Unix socket the CLI talks to the host over. Owner-only. |
 | `push-keys.json` | The key aludra signs notifications with, made on first start. Owner-only. |
+| `setup/` | Your setup notes, unless `setup.dir` names another directory: `README.md` as the map and one `<topic>.md` per note. |
 | `tavily.key`, `jev.key` | The web tools' keys, if you add them ([Web keys](#web-keys)). Owner-only. |
 | `credentials.json` | Sign-ins to providers other than Claude Code: the ChatGPT sign-in `aludra login openai` makes, with its refreshed tokens, and the key `aludra login openrouter` gets. Owner-only. |
 | `device-id` | This installation's ID, sent to OpenAI when signing in with ChatGPT so it can tell your machines apart. Not a secret. |

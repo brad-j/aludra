@@ -8,10 +8,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 Kind: step · From: pi-desktop/aludra-host
 Bring over pi-host's Executor client (`packages/pi-host/src/executor.ts`, its architecture.md "Executor"): browser approval mode, the OAuth grant in the data directory at mode 0600, refresh on a 401, the tools as `executor_*` with the `executor` prompt section, and `call`, `execute` and `resume` not replayed. The sign-in needs `/app` methods (status, sign in answering the page to open, sign out) and an event when the connection changes, in place of pi-host's commands. The loopback redirect lands on the host's machine, so a client on another machine needs another way back, such as a redirect through the host's tailnet address. Which sessions get the tools (every session, no-project ones only, or a setting) is decided here; sandbox sessions shouldn't, since the grant would be one call away from an untrusted install.
 
-### setup-notes: Notes on the user's setup, read on demand
-Kind: step · From: pi-desktop/aludra-host
-pi-host's `setup` extension gives every chat a short map and `read_setup`, which returns one topic's note. Its notes are compiled in, since the packaged app has no checkout; aludra runs where the files are, so the notes can be files in the data directory or a directory the settings name, keeping anything about Brad's machines out of this repository. A no-project session's `no_project` section is the place for the map.
-
 ## Next
 
 ## Questions
@@ -87,6 +83,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. loial covers the desktop; voice and a phone companion have no client.
 
 ## Done
+
+### setup-notes: Notes on the user's setup, read on demand
+Kind: step · From: pi-desktop/aludra-host · Done: 2026-11-27
+`src/setup-notes.ts`: `setup/` in the data directory, or `setup.dir`, holds `README.md` (the map, in the prompt) and `<topic>.md` notes for `read_setup`, for local no-project sessions only. No notes are in the repository; egwene has none yet. decisions.md, "Setup notes as files".
 
 ### drop-verin-mcp: Take out the MCP write side Verin used
 Kind: chore · Needs: verin/drop-coding · Done: 2026-11-27

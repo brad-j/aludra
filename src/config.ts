@@ -99,6 +99,8 @@ export type Config = {
 	newProjects?: { root: string; owner: string; designSeeds?: string };
 	/** The ideas repository's clone on this machine (src/ideas-repo.ts), if this host keeps ideas. */
 	ideas?: { dir: string };
+	/** Where the user's setup notes are (src/setup-notes.ts): `setup/` in the data directory unless the settings say. */
+	setup: { dir: string };
 	dataDir: string;
 };
 
@@ -138,7 +140,7 @@ const DEFAULTS = {
 	archive: { afterDays: 3 },
 	subagents: { model: { provider: "claude-bridge" as const, id: "claude-sonnet-5-5" } },
 	mcp: { write: false, sandboxOnly: false, worktreeOnly: false },
-} satisfies Omit<Config, "workspaces" | "dataDir" | "backup" | "sandboxes"> & { backup: Omit<Config["backup"], "dir"> };
+} satisfies Omit<Config, "workspaces" | "dataDir" | "backup" | "sandboxes" | "setup"> & { backup: Omit<Config["backup"], "dir"> };
 
 const EXAMPLE_WORKSPACE = '"workspaces": [{ "name": "code", "roots": ["~/code/*"] }]';
 
@@ -155,6 +157,7 @@ const settingsFile = object({
 	sandboxes: optional(object({ ssh: string, gateKey: string, knownHosts: string, sandboxKey: string, sandboxHostKey: string, afterRun: optional(literal("off", "fetch", "merge")), shipTo: optional(literal("main", "branch")), approvals: optional(literal("ask", "off")) })),
 	newProjects: optional(object({ root: string, owner: string, designSeeds: optional(string) })),
 	ideas: optional(object({ dir: string })),
+	setup: optional(object({ dir: optional(string) })),
 	dataDir: optional(string),
 });
 
@@ -223,7 +226,9 @@ export function configFor(text?: string, env: NodeJS.ProcessEnv = process.env, p
 		...(file.ideas === undefined ? {} : { ideas: { dir: resolve(expandHome(file.ideas.dir)) } }),
 		dataDir: expandHome(env.ALUDRA_DATA_DIR ?? file.dataDir ?? defaultDataDir(env, platform)),
 		backup: { ...DEFAULTS.backup, dir: "" },
+		setup: { dir: "" },
 	};
+	config.setup = { dir: file.setup?.dir === undefined ? join(config.dataDir, "setup") : resolve(expandHome(file.setup.dir)) };
 	const { dir, ...backup } = file.backup ?? {};
 	config.backup = { ...DEFAULTS.backup, ...backup, dir: dir === undefined ? join(config.dataDir, "backups") : resolve(expandHome(dir)) };
 	const fallback = file.model?.provider ?? DEFAULTS.model.provider;

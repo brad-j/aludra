@@ -31,6 +31,7 @@ import { createWebExtension, type WebToolsOptions } from "./web-tools.ts";
 import { JEV_KEY_FILE, keyFilePresent, TAVILY_KEY_FILE } from "./web-keys.ts";
 import { ideaFolder, ideaImages, IdeasError, IdeasRepo, imageType } from "./ideas-repo.ts";
 import { AREAS, createIdeasOps, IDEAS_EXTENSION, ideasExtension, projectDraft } from "./ideas.ts";
+import { SETUP_EXTENSION, setupExtension } from "./setup-notes.ts";
 import { subagentOf, subagentsExtension } from "./subagents.ts";
 import { claudeConfigDir, type Config, expandHome, THINKING, type Thinking } from "./config.ts";
 import { type ImageInput, readImage } from "./images.ts";
@@ -496,6 +497,7 @@ export async function openHost(options: HostOptions) {
 	registry.install(subagents.extension);
 	registry.install(subagents.childContext);
 	// The ideas tools (src/ideas.ts), selected only by local no-project sessions (withIdeas), so no default selects them.
+	// The setup notes below are the same.
 	const ideasRepo = config.ideas === undefined ? undefined : new IdeasRepo(config.ideas.dir);
 	/** How an idea file names a session: this machine's name and the session's number, since every host's sessions start at 1. */
 	const sessionRef = (id: number) => `${hostname().split(".")[0]}/${id}`;
@@ -508,8 +510,11 @@ export async function openHost(options: HostOptions) {
 		})),
 	});
 	registry.install(ideas);
-	/** A local no-project session's agent: the default extensions and, on a host with ideas, the ideas tools. */
-	const withIdeas = (cwd: string) => ({ cwd, ...(ideasRepo === undefined ? {} : { extensions: { add: [ideas] } }) });
+	// The user's setup notes (src/setup-notes.ts), for local no-project sessions only, like the ideas tools.
+	const setup = setupExtension({ dir: () => config.setup.dir });
+	registry.install(setup);
+	/** A local no-project session's agent: the default extensions, the setup notes and, on a host with ideas, the ideas tools. */
+	const withIdeas = (cwd: string) => ({ cwd, extensions: { add: [setup, ...(ideasRepo === undefined ? [] : [ideas])] } });
 	// A ship's commands get a timeout, so a check that hangs in the sandbox can't hold the task (src/ship.ts).
 	registry.install(defineExtension({
 		name: "aludra-ship-timeout",
@@ -578,7 +583,7 @@ export async function openHost(options: HostOptions) {
 				...(options.compaction === undefined ? {} : { compaction: options.compaction }),
 				// Every installed extension but the ideas tools, in install order; a getter, so it follows the registry.
 				get extensions() {
-					return registry.snapshot().installed().filter((extension) => extension.name !== IDEAS_EXTENSION);
+					return registry.snapshot().installed().filter((extension) => extension.name !== IDEAS_EXTENSION && extension.name !== SETUP_EXTENSION);
 				},
 			},
 			env: async (target, ctx) => {

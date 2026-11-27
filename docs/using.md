@@ -92,6 +92,10 @@ A project can be archived too, to take it out of clients' lists and `aludra proj
 
 The host also archives sessions in a project on its own once they've been idle for `archive.afterDays` (default 3) with nothing waiting for your approval. Sessions with no project, which are conversations rather than tasks, stay until you archive them. It checks a minute after start and hourly, whether or not any client is open. A session you bring back from the archive is kept: it stays in the lists however long it sits, until you archive it again. Set `archive.afterDays` to 0 to turn it off.
 
+## Setup notes
+
+Sessions with no project on this machine can read notes you keep about your own setup: which machines you have, what runs where, how your projects connect. Put Markdown files in `setup/` in the data directory, or the directory [`setup.dir`](configuration.md#setup) names. `README.md` is a short map that goes in the prompt of every such session (up to 2,000 characters), with the list of topics after it; every other `<topic>.md` (lowercase letters, digits and `-`) is a note the agent reads with `read_setup` when a question needs it. They're read at each turn, so edits apply at once. Links and other files are ignored. Without any notes, sessions get neither the map nor the tool. Sessions in a project and sandbox sessions never get them.
+
 ## Ideas
 
 With [`ideas.dir`](configuration.md#ideas) set, the host reads and writes your ideas repository: Markdown in a Git clone, one file per idea under `ideas/`, one-liners in `inbox.md`, and an `INDEX.md` the host writes after every change. Every idea has a number from one sequence, captures included, and keeps it when it's promoted to a file; a deleted idea's number isn't given out again.
