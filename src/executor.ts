@@ -137,6 +137,8 @@ export class Executor {
 	private signIn?: { url: string; callback: Callback };
 	/** The API callback waiting for its code, by OAuth state. */
 	private waiting?: { state: string; resolve: (value: { code: string; iss?: string }) => void; reject: (error: Error) => void };
+	/** The state the last API callback was delivered for, so the same page loaded again (a reload, a prefetch) says it's done. */
+	private delivered?: string;
 	private closed = false;
 	readonly listeners = new Set<() => void>();
 	/** Called with the server's tools when they change; empty when signed out. The agent installs them. */
@@ -351,8 +353,12 @@ export class Executor {
 	deliver(params: URLSearchParams): { ok: boolean; message: string } {
 		const waiting = this.waiting;
 		const state = params.get("state");
+		if (state !== null && state === this.delivered && (waiting === undefined || waiting.state !== state)) {
+			return { ok: true, message: this.state === "ok" ? "Signed in to Executor. You can close this page." : "This sign-in was already received. You can close this page." };
+		}
 		if (waiting === undefined || state === null || state !== waiting.state) return { ok: false, message: "No sign-in is waiting for this page. Start it again from your app." };
 		this.waiting = undefined;
+		this.delivered = state;
 		const error = params.get("error");
 		const code = params.get("code");
 		if (error !== null || code === null) {

@@ -125,7 +125,7 @@ async function executorHost(t: TestContext, stub: ExecutorStub, dir?: string) {
 test("signing in from /app comes back through the host's API, stores the grant owner-only, and only no-project sessions get the tools", async (t) => {
 	const stub = await startExecutorStub();
 	t.after(() => stub.close());
-	const { host, root, config, request, events, browse, ask } = await executorHost(t, stub);
+	const { host, root, config, port, request, events, browse, ask } = await executorHost(t, stub);
 	assert.equal((await request("host.info")).executor.state, "signed_out");
 	await request("host.watch");
 
@@ -138,6 +138,10 @@ test("signing in from /app comes back through the host's API, stores the grant o
 	const done = await browse(url);
 	assert.equal(done.status, 200, done.text);
 	assert.match(done.text, /Signed in/);
+	// The same page loaded again, as a browser's reload or prefetch does, says it's done rather than to start over.
+	const again = await fetch(`http://127.0.0.1:${port}${done.back.pathname}${done.back.search}`, { headers: { "tailscale-user-login": USER } });
+	assert.equal(again.status, 200);
+	assert.doesNotMatch(await again.text(), /No sign-in is waiting/);
 	await until(() => events.find((e) => e.type === "executor.changed" && e.status.state === "ok"), "executor.changed with ok");
 	const status = (await request("executor.status")).status;
 	assert.deepEqual(status.tools, ["skills", "search", "describe", "call", "execute", "resume"]);

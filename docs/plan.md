@@ -4,10 +4,6 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Now
 
-### executor-live-check: Sign in to Executor for real and use a tool
-Kind: chore · From: pi-desktop/executor-live-check
-executor-tools is tested only against pi-host's stand-in. Against executor.sh: `executor.signIn` over `/app` through egwene's tailnet address, the browser coming back to `/api/executor/callback`, Executor's client registration for that redirect, one read-only tool called from a no-project session, a call that needs approval giving its link, and the grant refreshed after a restart. Pi Desktop dropped its own check for this one.
-
 ## Next
 
 ### subscription-fresh: The subscription's windows as they are now, not as of the last answer
@@ -83,6 +79,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Pi Desktop covers the desktop and is the start of a phone client (pi-desktop/ios, with apns-push); voice has none.
 
 ## Done
+
+### executor-live-check: Sign in to Executor for real and use a tool
+Kind: chore · From: pi-desktop/executor-live-check · Done: 2026-11-27
+Against executor.sh from egwene: `executor.signIn` over `/app` through its tailnet address registered a client for `https://<host>/api/executor/callback`, Brad allowed it in Chrome on the Mac, the code came back through `tailscale serve`, and the grant was stored at 0600 with the six tools. No-project session 63624 called `executor_search` and then `executor_call` on `tools.gmail.search`, read-only; a Gmail draft came back `approval-required` with an app.executor.sh link, nothing created and no `resume` called. After `systemctl --user restart aludra` it reconnected from the stored grant. Found: the browser loaded the callback twice and showed "No sign-in is waiting" though the sign-in had worked; a second load of the delivered state now says it's done.
 
 ### landed-branch-cleanup: Delete a sandbox branch once its work has landed
 Kind: request · From: loial/stale-sandbox-branches · Done: 2026-11-27
