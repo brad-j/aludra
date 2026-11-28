@@ -31,6 +31,8 @@ import { type Checkout, watchCheckouts } from "../checkout.ts";
 import { checkImages, type ImageInput, messageContent, titleOf } from "../images.ts";
 import { PAGE_CSP } from "../pages.ts";
 import { IdeasError } from "../ideas-repo.ts";
+import { projectDiff, projectStatus, StatusRefused } from "../project-status.ts";
+import { findProject } from "../projects.ts";
 import { checkFiles, type FileInput, MAX_FILE_BYTES, MAX_FILES, PASTE_BYTES } from "../files.ts";
 import { checkVideos, MAX_FRAMES, MAX_VIDEO_BYTES, MAX_VIDEOS, UPLOAD_DAYS, type VideoInput } from "../videos.ts";
 import { type ApprovalRequest, riskFor } from "../permissions.ts";
@@ -1237,6 +1239,24 @@ export function createAppEndpoint(host: Host, options: { name: string; checkoutM
 					await archivedRead;
 					const listed = projectsOf(await checkouts.current()) as Json[];
 					return { project: listed.find((found) => found.dir === done.project.dir) ?? { dir: done.project.dir, archived: done.archived }, archived: done.archived };
+				}
+				// aludra's own: a checkout's uncommitted files and commits, and one file's diff, read-only (src/project-status.ts).
+				case "projects.status":
+				case "projects.diff": {
+					if (typeof p.project !== "string" || p.project.trim() === "") throw new ProtocolError("bad_request", `${method} takes a project (its directory or name)`);
+					if (method === "projects.diff" && (typeof p.path !== "string" || p.path === "")) throw new ProtocolError("bad_request", "projects.diff takes a path inside the project");
+					let project: { dir: string };
+					try {
+						project = findProject(host.projects(), p.project);
+					} catch (error) {
+						throw new ProtocolError("not_found", error instanceof Error ? error.message : String(error));
+					}
+					try {
+						return (method === "projects.status" ? await projectStatus(project.dir) : await projectDiff(project.dir, p.path)) as unknown as Json;
+					} catch (error) {
+						if (error instanceof StatusRefused) throw new ProtocolError(error.code, error.message);
+						throw error;
+					}
 				}
 				case "projects.setColor": {
 					if (typeof p.project !== "string" || !(p.color === null || typeof p.color === "number")) throw new ProtocolError("bad_request", "projects.setColor takes a project name and a color, or null");

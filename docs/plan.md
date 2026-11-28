@@ -6,17 +6,9 @@ aludra's open work. [decisions.md](decisions.md) holds the decisions and their r
 
 ## Next
 
-### project-status: A checkout's uncommitted files and their diffs over /app
-Kind: request · From: pi-desktop/git-status
-Pi Desktop shows `checkout.dirty` as "2 uncommitted" but can't say which files, so Brad can't see or act on them (tanchico had an untracked surface note and a HANDOFF.md, 2026-11-27). Two read-only methods, owner only, needing no setting:
-- `projects.status { project }` answers `{ branch?, upstream?, ahead, behind, files: [{ path, old?, state, staged, add, del, binary }], commits: { ahead: [{ sha, subject }], behind: [{ sha, subject }] } }`, where `state` is `untracked`, `modified`, `added`, `deleted`, `renamed` or `conflicted` and `staged` whether the index holds it. Read as `readCheckout` reads (`git status --porcelain=v2 --no-optional-locks`), so it doesn't touch the index; `behind` as last fetched, never fetching. Files capped (say 500) with `truncated: true`; commits capped at 20 each way.
-- `projects.diff { project, path }` answers `{ path, patch }` for one file against `HEAD` (staged and unstaged together), an untracked file as an all-added patch, in `task.code`'s shape, or `{ path, binary: true }` or `{ path, tooLarge: true }`. `not_found` for a path with no change; a path outside the project is `bad_request`.
-
-`project` is resolved as `projects.archive` resolves it. `changes.ts` (`changesSince`, `fileDiff` against a snapshot of `HEAD`) may already do most of it. api.md says so.
-
 ### sandbox-template-flake: Three tests fail or hang now and then
 Kind: chore
-On 2026-11-27 about half of full runs hit one of them, and the hang stalls `pnpm test` until a timeout, so it's next after the live check. History: "a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run. On 2026-11-24 the first one failed in 2 of 4 runs of `test/sandboxes.test.ts` alone, again `ENOTEMPTY` on the project's `.git`, and passed in the full run. On 2026-11-27 it failed in 2 of 3 runs alone and in 3 of 6 full runs. A third: "a worktree task runs on this machine in a worktree of its own…" (`test/app.test.ts`) hung until a 90 s timeout in 1 of 3 runs alone with that day's changes stashed, and in one full run; a hung run leaves the whole suite waiting, which looks like `pnpm test` never finishing.
+On 2026-11-27 about half of full runs hit one of them, and the hang stalls `pnpm test` until a timeout, so it's next after the live check. History: "a template made from the previous one checks out the new commit over it…" (`test/sandboxes.test.ts`) failed once in a full `pnpm test` on 2026-11-20 with `ENOTEMPTY` removing `.git/objects` in its temp directory, and passed six times alone, with and without that day's change. Likely a cleanup racing a git process still writing. A second one on 2026-11-21: "sandbox.sync brings the branch home…" (`test/app.test.ts`) failed once in a full run with `Unable to create '/tmp/aludra-sync-*.bundle.lock': File exists`, and passed alone five times and in the next full run. On 2026-11-24 the first one failed in 2 of 4 runs of `test/sandboxes.test.ts` alone, again `ENOTEMPTY` on the project's `.git`, and passed in the full run. On 2026-11-27 it failed in 2 of 3 runs alone and in 3 of 6 full runs. A third: "a worktree task runs on this machine in a worktree of its own…" (`test/app.test.ts`) hung until a 90 s timeout in 1 of 3 runs alone with that day's changes stashed, and in one full run; a hung run leaves the whole suite waiting, which looks like `pnpm test` never finishing. A fourth on 2026-11-27: "nothing is pushed when the session is blocked, didn't rebase, or le…" (`test/ship.test.ts`) failed once in a full run and passed alone 3 of 3.
 
 ## Questions
 
@@ -83,6 +75,10 @@ Kind: step
 From the first plan's "Later, maybe". Slack would be a channel per project and a thread per session. Pi Desktop covers the desktop and is the start of a phone client (pi-desktop/ios, with apns-push); voice has none.
 
 ## Done
+
+### project-status: A checkout's uncommitted files and their diffs over /app
+Kind: request · From: pi-desktop/git-status · Done: 2026-11-27
+`src/project-status.ts`, with `projects.status { project }` and `projects.diff { project, path }` on `/app`, read-only and needing no setting. Status lists the files from `git status --porcelain=v2 -z` (state, staged, counts against `HEAD` from `git diff --numstat`, an untracked file's lines counted directly) and the commits ahead and behind the upstream as last fetched, capped at 500 files and 20 commits each way. Diff is one file against `HEAD`, staged and unstaged together, an untracked file as all added, or `binary` or `tooLarge`. `project` is found as `projects.archive` finds it, by directory, name or `parent/name`. Checked on egwene's tanchico, which lists its untracked `HANDOFF.md`. api.md says so.
 
 ### subscription-fresh: The subscription's windows as they are now, not as of the last answer
 Kind: request · From: pi-desktop/console-layout · Done: 2026-11-27
